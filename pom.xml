@@ -86,8 +86,8 @@
         <!--        <module>serverlibrary-jsonserialiser</module>-->
         <!--        <module>serverplugin-cache</module>-->
         <!--        <module>serverconnector-chronicle</module>-->
-        <module>svc-admin-telnet</module>
-        <module>svc-admin-rest</module>
+        <module>service/svc-admin-telnet</module>
+        <module>service/svc-admin-rest</module>
         <module>connector/connector-file</module>
     </modules>
 
