@@ -1,2 +1,20 @@
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+### IntelliJ IDEA ###
+.idea/modules.xml
+.idea/jarRepositories.xml
+.idea/compiler.xml
+.idea/libraries/
+*.iws
+*.iml
+*.ipr
+
+
 /svc-admin-rest/target/
 /svc-admin-telnet/target/
+/connector/connector-file/target/
+/service/svc-admin-rest/target/
+/service/svc-admin-telnet/target/
