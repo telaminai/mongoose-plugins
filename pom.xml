@@ -1,0 +1,180 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ~ SPDX-FileCopyrightText: © 2025 Gregory Higgins <greg.higgins@v12technology.com>
+  ~ SPDX-License-Identifier: AGPL-3.0-only
+  -->
+
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.fluxtion.dataflow.serverplugin</groupId>
+    <artifactId>dataflow-server-plugins</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <name>dataflow :: server-plugins</name>
+    <packaging>pom</packaging>
+
+    <description>
+        A set of plugins for the Fluxtion server
+    </description>
+
+    <url>https://github.com/gregv12/fluxtion-server-plugins</url>
+
+    <properties>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
+        <dataflow.version>1.0.6</dataflow.version>
+        <dataflow.server.version>0.1.0</dataflow.server.version>
+        <dataflow.maven-plugin.version>1.0</dataflow.maven-plugin.version>
+        <log4j2.version>2.24.3</log4j2.version>
+        <jackson.version>2.18.2</jackson.version>
+        <argLine>--add-exports java.base/jdk.internal.misc=ALL-UNNAMED</argLine>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+
+    <developers>
+        <developer>
+            <name>Greg Higgins</name>
+            <email>greg.higgins@v12technology.com</email>
+        </developer>
+    </developers>
+
+    <scm>
+        <connection>scm:git:https://github.com/telaminai/dataflow-server-plugins.git</connection>
+        <developerConnection>scm:git:https://github.com/telaminai/dataflow-server-plugins.git</developerConnection>
+        <url>https://github.com/telaminai/dataflow-server-plugins/</url>
+        <tag>HEAD</tag>
+    </scm>
+
+
+    <repositories>
+        <repository>
+            <id>repsy-fluxtion-public</id>
+            <name>DataFlow public repo</name>
+            <url>https://repo.repsy.io/mvn/fluxtion/fluxtion-public</url>
+        </repository>
+        <repository>
+            <id>repsy-fluxtion</id>
+            <name>DataFlow private repo</name>
+            <url>https://repo.repsy.io/mvn/fluxtion/fluxtion-private</url>
+        </repository>
+    </repositories>
+
+    <pluginRepositories>
+        <pluginRepository>
+            <id>repsy-fluxtion-private</id>
+            <name>DataFlow private repo</name>
+            <url>https://repo.repsy.io/mvn/fluxtion/fluxtion-private</url>
+            <releases>
+                <enabled>true</enabled>
+            </releases>
+            <snapshots>
+                <enabled>true</enabled>
+            </snapshots>
+        </pluginRepository>
+    </pluginRepositories>
+
+    <modules>
+        <!--        <module>serverplugin-rest</module>-->
+        <!--        <module>serverplugin-springbuilder</module>-->
+        <!--        <module>serverplugin-javabuilder</module>-->
+        <!--        <module>serverplugin-admintelnet</module>-->
+        <!--        <module>serverplugin-jdbc</module>-->
+        <!--        <module>serverlibrary-pnl</module>-->
+        <!--        <module>serverplugin-kafka</module>-->
+        <!--        <module>serverconnector-file</module>-->
+        <!--        <module>serverlibrary-jsonserialiser</module>-->
+        <!--        <module>serverplugin-cache</module>-->
+        <!--        <module>serverconnector-chronicle</module>-->
+        <module>svc-admin-telnet</module>
+        <module>svc-admin-rest</module>
+    </modules>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.fluxtion.dataflow</groupId>
+            <artifactId>dataflow-server</artifactId>
+            <version>${dataflow.server.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.fluxtion.dataflow</groupId>
+            <artifactId>dataflow-imperative</artifactId>
+            <scope>provided</scope>
+            <version>${dataflow.version}</version>
+        </dependency>
+
+
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <version>1.18.36</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>5.11.4</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-api</artifactId>
+            <version>${log4j2.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-core</artifactId>
+            <version>${log4j2.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-jul</artifactId>
+            <version>${log4j2.version}</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>com.fluxtion.dataflow</groupId>
+                <artifactId>dataflow-maven-plugin</artifactId>
+                <version>${dataflow.maven-plugin.version}</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>scan</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-release-plugin</artifactId>
+                <version>3.1.1</version>
+                <configuration>
+                    <useReleaseProfile>false</useReleaseProfile>
+                    <releaseProfiles>release</releaseProfiles>
+                    <autoVersionSubmodules>true</autoVersionSubmodules>
+                    <tagNameFormat>v@{project.version}</tagNameFormat>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <argLine>
+                        --add-opens java.base/java.lang.reflect=ALL-UNNAMED
+                        --add-opens java.base/sun.nio.ch=ALL-UNNAMED
+                        --add-opens java.base/java.lang.reflect=ALL-UNNAMED
+                        --add-opens java.base/sun.nio.ch=ALL-UNNAMED
+                        --add-opens java.base/java.lang=ALL-UNNAMED
+                        --illegal-access=permit
+                        --add-exports java.base/jdk.internal.ref=ALL-UNNAMED
+                        --add-exports jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED
+                    </argLine>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
