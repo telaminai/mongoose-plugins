@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
-package com.fluxtion.dataflow.serverplugin.connector;
+package com.fluxtion.dataflow.serverplugin.connector.file;
 
 
 import com.fluxtion.dataflow.runtime.lifecycle.Lifecycle;

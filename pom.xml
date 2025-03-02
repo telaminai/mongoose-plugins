@@ -89,6 +89,7 @@
         <module>service/svc-admin-telnet</module>
         <module>service/svc-admin-rest</module>
         <module>connector/connector-file</module>
+        <module>connector/connector-chronicle</module>
     </modules>
 
     <dependencies>
