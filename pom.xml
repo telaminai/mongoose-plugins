@@ -49,6 +49,11 @@
 
     <repositories>
         <repository>
+            <id>central</id>
+            <name>Central Repository</name>
+            <url>https://repo.maven.apache.org/maven2</url>
+        </repository>
+        <repository>
             <id>repsy-fluxtion-public</id>
             <name>DataFlow public repo</name>
             <url>https://repo.repsy.io/mvn/fluxtion/fluxtion-public</url>
