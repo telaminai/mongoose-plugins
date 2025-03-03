@@ -27,7 +27,7 @@
         <dataflow.server.version>0.1.0</dataflow.server.version>
         <dataflow.maven-plugin.version>1.0</dataflow.maven-plugin.version>
         <log4j2.version>2.24.3</log4j2.version>
-        <jackson.version>2.18.2</jackson.version>
+        <jackson.version>2.18.3</jackson.version>
         <argLine>--add-exports java.base/jdk.internal.misc=ALL-UNNAMED</argLine>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
