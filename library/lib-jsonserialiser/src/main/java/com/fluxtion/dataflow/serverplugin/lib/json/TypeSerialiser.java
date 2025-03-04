@@ -19,29 +19,32 @@ import java.util.Map;
 import java.util.function.Function;
 
 @Log4j2
-public class TypeSerialiser implements Function<List<String>, Object> {
+public class TypeSerialiser implements Function<Object, Object> {
 
     private final ObjectMapper objectMapper = new ObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
     @Override
-    public Object apply(List<String> lines) {
+    public Object apply(Object input) {
         String lineInput = "NULL";
-        if (lines.size() == 0) {
-            return null;
-        }
-        if (lines.size() == 1) {
-            lineInput = lines.get(0);
-            Object dto = toObject(lineInput);
-            log.debug("dto  - {}", dto);
-            return dto;
-        } else {
-            BatchDto tradeBatchDTO = new BatchDto();
-            for (String line : lines) {
-                lineInput = line;
-                tradeBatchDTO.addBatchItem(toObject(lineInput));
+        if(input instanceof List lines){
+            if (lines.size() == 0) {
+                return null;
             }
-            return tradeBatchDTO;
+            if (lines.size() == 1) {
+                lineInput = lines.get(0).toString();
+                Object dto = toObject(lineInput);
+                log.debug("dto  - {}", dto);
+                return dto;
+            } else {
+                BatchDto tradeBatchDTO = new BatchDto();
+                for (Object line : lines) {
+                    lineInput = line.toString();
+                    tradeBatchDTO.addBatchItem(toObject(lineInput));
+                }
+                return tradeBatchDTO;
+            }
         }
+        return toObject(input.toString());
     }
 
     public Object toObject(String json) {
