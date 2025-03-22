@@ -124,7 +124,11 @@ public class JsonFileCache implements Cache, Agent, Lifecycle, EventFlowService 
         if (updated.get()) {
             mapper.writerWithDefaultPrettyPrinter()
                     .writeValue(new File(fileName), cacheMap);
-            log.info("cache updated:{} keys:{}", fileName, cacheMap.keySet().stream().mapToLong(Long::parseLong).sorted().toArray());
+            if (cacheMap.isEmpty()) {
+                log.info("cache updated:{} now empty ", fileName);
+            } else {
+                log.info("cache updated:{} keys:{}", fileName, cacheMap.keySet());
+            }
         }
         updated.set(false);
         return 0;

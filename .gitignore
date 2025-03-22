@@ -20,3 +20,4 @@ target/
 /service/svc-admin-telnet/target/
 /.idea/misc.xml
 /.idea/.gitignore
+/.idea/
