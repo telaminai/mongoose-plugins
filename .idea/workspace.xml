@@ -119,6 +119,8 @@
       <list>
         <item itemvalue="JUnit.JsonlTest.testJsonl" />
         <item itemvalue="JUnit.JsonlTest" />
+        <item itemvalue="JUnit.JsonlTest.testJsonl" />
+        <item itemvalue="JUnit.JsonlTest" />
       </list>
     </recent_temporary>
   </component>
