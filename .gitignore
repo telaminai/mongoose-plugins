@@ -18,3 +18,5 @@ target/
 /connector/connector-file/target/
 /service/svc-admin-rest/target/
 /service/svc-admin-telnet/target/
+/.idea/misc.xml
+/.idea/.gitignore
