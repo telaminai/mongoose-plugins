@@ -4,8 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="a7076c78-6b4e-469c-9546-82bef042dd62" name="Changes" comment="add intellij files">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+    <list default="true" id="a7076c78-6b4e-469c-9546-82bef042dd62" name="Changes" comment="quieten logging for missing file">
       <change beforePath="$PROJECT_DIR$/connector/connector-file/src/main/java/com/fluxtion/dataflow/serverplugin/connector/file/FileEventSource.java" beforeDir="false" afterPath="$PROJECT_DIR$/connector/connector-file/src/main/java/com/fluxtion/dataflow/serverplugin/connector/file/FileEventSource.java" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -227,7 +226,15 @@
       <option name="project" value="LOCAL" />
       <updated>1742740807019</updated>
     </task>
-    <option name="localTasksCounter" value="10" />
+    <task id="LOCAL-00010" summary="quieten logging for missing file">
+      <option name="closed" value="true" />
+      <created>1742741783935</created>
+      <option name="number" value="00010" />
+      <option name="presentableId" value="LOCAL-00010" />
+      <option name="project" value="LOCAL" />
+      <updated>1742741783935</updated>
+    </task>
+    <option name="localTasksCounter" value="11" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -251,7 +258,8 @@
     <MESSAGE value="update version to 0.2.2" />
     <MESSAGE value="add intellij files" />
     <MESSAGE value="added first line callback" />
-    <option name="LAST_COMMIT_MESSAGE" value="added first line callback" />
+    <MESSAGE value="quieten logging for missing file" />
+    <option name="LAST_COMMIT_MESSAGE" value="quieten logging for missing file" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
