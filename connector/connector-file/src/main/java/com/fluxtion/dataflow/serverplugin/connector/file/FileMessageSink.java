@@ -19,6 +19,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
+import java.util.function.Supplier;
 
 @Log4j2
 public class FileMessageSink extends AbstractMessageSink<Object>
@@ -28,6 +29,9 @@ public class FileMessageSink extends AbstractMessageSink<Object>
     @Setter
     private String filename;
     private PrintStream printStream;
+    @Getter
+    @Setter
+    private Supplier<Object> firstLineSupplier;
 
     @Override
     public void init() {
@@ -37,12 +41,20 @@ public class FileMessageSink extends AbstractMessageSink<Object>
     @Override
     public void start() {
         Path path = Paths.get(filename);
+        boolean exists = Files.exists(path) && Files.size(path) > 0;
         path.toFile().getParentFile().mkdirs();
         printStream = new PrintStream(
                 Files.newOutputStream(path, StandardOpenOption.CREATE, StandardOpenOption.APPEND),
                 false,
                 StandardCharsets.UTF_8
         );
+
+        if (!exists && firstLineSupplier != null) {
+            Object firstLine = firstLineSupplier.get();
+            if (firstLine != null) {
+               printStream.print(firstLine);
+            }
+        }
     }
 
     @Override

@@ -4,7 +4,10 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="a7076c78-6b4e-469c-9546-82bef042dd62" name="Changes" comment="add intellij files" />
+    <list default="true" id="a7076c78-6b4e-469c-9546-82bef042dd62" name="Changes" comment="add intellij files">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/connector/connector-file/src/main/java/com/fluxtion/dataflow/serverplugin/connector/file/FileMessageSink.java" beforeDir="false" afterPath="$PROJECT_DIR$/connector/connector-file/src/main/java/com/fluxtion/dataflow/serverplugin/connector/file/FileMessageSink.java" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -20,7 +23,7 @@
   <component name="Git.Settings">
     <option name="RECENT_BRANCH_BY_REPOSITORY">
       <map>
-        <entry key="$PROJECT_DIR$" value="main" />
+        <entry key="$PROJECT_DIR$" value="release" />
       </map>
     </option>
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
@@ -37,6 +40,10 @@
     &quot;accountId&quot;: &quot;649b8392-d3a2-4cfb-a8d9-eee7ef6aded1&quot;
   }
 }</component>
+  <component name="KubernetesApiPersistence"><![CDATA[{}]]></component>
+  <component name="KubernetesApiProvider"><![CDATA[{
+  "isMigrated": true
+}]]></component>
   <component name="MavenImportPreferences">
     <option name="generalSettings">
       <MavenGeneralSettings>
