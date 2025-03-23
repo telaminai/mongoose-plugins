@@ -4,7 +4,7 @@
     <parent>
         <groupId>com.fluxtion.dataflow.serverplugin</groupId>
         <artifactId>dataflow-server-plugins</artifactId>
-        <version>0.2.6</version>
+        <version>0.2.7-SNAPSHOT</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
