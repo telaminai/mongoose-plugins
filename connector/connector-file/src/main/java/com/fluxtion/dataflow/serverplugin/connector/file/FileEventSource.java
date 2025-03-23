@@ -210,7 +210,7 @@ public class FileEventSource extends AbstractAgentHostedEventSourceService {
     }
 
     private Reader connectReader() {
-        if (startComplete.get() & stream == null && filename != null && !filename.isEmpty()) {
+        if (startComplete.get() & stream == null && filename != null && !filename.isEmpty() && Files.exists(Paths.get(filename))) {
             try {
                 stream = Files.newInputStream(Paths.get(filename));
                 log.info("Found previous offset, trying to skip to file offset {}", streamOffset);
