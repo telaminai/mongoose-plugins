@@ -60,6 +60,17 @@ public class JavalinAdminCommandService implements EventFlowService, Lifecycle {
                         adminCommandRegistry.processAdminCommandRequest(adminCommandRequest);
                     }
                 })
+                .post("/api/{action}", ctx -> {
+                    String action = ctx.pathParam("action");
+                    AdminCommandRequest adminCommandRequest = new AdminCommandRequest();
+                    adminCommandRequest.setCommand(action);
+                    adminCommandRequest.setOutput(out -> ctx.json(out));
+                    adminCommandRequest.setErrOutput(out -> ctx.json(new Message("Failure - " + out)));
+                    log.info("adminCommandRequest: {}", adminCommandRequest);
+                    if (adminCommandRegistry != null) {
+                        adminCommandRegistry.processAdminCommandRequest(adminCommandRequest);
+                    }
+                })
 
                 .start(listenPort);
     }
