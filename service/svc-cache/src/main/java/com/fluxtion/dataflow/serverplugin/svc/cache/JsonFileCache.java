@@ -43,6 +43,7 @@ public class JsonFileCache implements Cache, Agent, Lifecycle, EventFlowService 
     private File redoLogFile;
     private String serviceName;
     private AdminCommandRegistry registry;
+    private boolean asyncWrite = false;
 
     @SneakyThrows
     @Override
@@ -88,7 +89,10 @@ public class JsonFileCache implements Cache, Agent, Lifecycle, EventFlowService 
             typedData.setInstance(value);
             typedData.setData(mapper.writeValueAsString(value));
             cacheMap.put(key, typedData);
-        } catch (IOException e) {
+            if (!asyncWrite) {
+                doWork();
+            }
+        } catch (Exception e) {
             throw new RuntimeException(e);
         }
     }
@@ -113,10 +117,14 @@ public class JsonFileCache implements Cache, Agent, Lifecycle, EventFlowService 
         return null;
     }
 
+    @SneakyThrows
     @Override
     public void remove(String key) {
         updated.set(true);
         cacheMap.remove(key);
+        if (!asyncWrite) {
+            doWork();
+        }
     }
 
     @Override
