@@ -210,7 +210,7 @@ public class FileEventSource extends AbstractAgentHostedEventSourceService {
     }
 
     private Reader connectReader() {
-        if (startComplete.get() & stream == null && filename != null && !filename.isEmpty()) {
+        if (startComplete.get() & stream == null && filename != null && !filename.isEmpty() && Files.exists(Paths.get(filename))) {
             try {
                 stream = Files.newInputStream(Paths.get(filename));
                 log.info("Found previous offset, trying to skip to file offset {}", streamOffset);
@@ -228,7 +228,7 @@ public class FileEventSource extends AbstractAgentHostedEventSourceService {
                 reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8));
                 log.info("Opened {} for reading", getFilename());
             } catch (NoSuchFileException e) {
-                log.warn("Couldn't find file {} for FileStreamSourceTask, sleeping to wait for it to be created", getFilename());
+                log.debug("Couldn't find file {} for FileStreamSourceTask, sleeping to wait for it to be created", getFilename());
             } catch (IOException e) {
                 log.error("Error while trying to open file {}: ", filename, e);
                 throw new RuntimeException(e);

@@ -7,6 +7,8 @@
     <file url="file://$PROJECT_DIR$/connector/connector-file/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/connector/connector-kafka/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/connector/connector-kafka/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/connector/connector-multicast/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/connector/connector-multicast/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/library/lib-jsonserialiser/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/library/lib-jsonserialiser/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/service/svc-admin-rest/src/main/java" charset="UTF-8" />

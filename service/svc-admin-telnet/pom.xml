@@ -4,12 +4,12 @@
     <parent>
         <groupId>com.fluxtion.dataflow.serverplugin</groupId>
         <artifactId>dataflow-server-plugins</artifactId>
-        <version>0.2.4-SNAPSHOT</version>
+        <version>0.2.8-SNAPSHOT</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
     <artifactId>svc-admin-telnet</artifactId>
-    <name>dataflow.serverplugin :: svc-admin-telnet</name>
+    <name>telamin :: mongoose-plugins :: svc-admin-telnet</name>
 
     <properties>
         <maven.compiler.source>21</maven.compiler.source>

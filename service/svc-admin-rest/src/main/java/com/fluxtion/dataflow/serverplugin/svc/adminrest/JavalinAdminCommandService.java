@@ -14,6 +14,7 @@ import com.fluxtion.server.dispatch.EventFlowService;
 import com.fluxtion.server.service.admin.AdminCommandRegistry;
 import com.fluxtion.server.service.admin.AdminCommandRequest;
 import io.javalin.Javalin;
+import io.javalin.http.staticfiles.Location;
 import lombok.*;
 import lombok.extern.log4j.Log4j2;
 
@@ -26,6 +27,9 @@ public class JavalinAdminCommandService implements EventFlowService, Lifecycle {
     @Getter
     @Setter
     private int listenPort = 8080;
+    @Getter
+    @Setter
+    private String staticDir;
 
     @Override
     public void setEventFlowManager(EventFlowManager eventFlowManager, String serviceName) {
@@ -42,7 +46,11 @@ public class JavalinAdminCommandService implements EventFlowService, Lifecycle {
     @Override
     public void init() {
         log.info("init Javalin REST service listening on port {}", listenPort);
-        javalin = Javalin.create()
+        javalin = Javalin.create(config -> {
+                    if (staticDir != null) {
+                        config.staticFiles.add(staticDir, Location.EXTERNAL);
+                    }
+                })
                 .post("/admin", ctx -> {
                     AdminCommandRequest adminCommandRequest = ctx.bodyAsClass(AdminCommandRequest.class);
                     adminCommandRequest.setOutput(out -> ctx.json(new Message(out.toString())));
@@ -52,6 +60,18 @@ public class JavalinAdminCommandService implements EventFlowService, Lifecycle {
                         adminCommandRegistry.processAdminCommandRequest(adminCommandRequest);
                     }
                 })
+                .post("/api/{action}", ctx -> {
+                    String action = ctx.pathParam("action");
+                    AdminCommandRequest adminCommandRequest = new AdminCommandRequest();
+                    adminCommandRequest.setCommand(action);
+                    adminCommandRequest.setOutput(out -> ctx.json(out));
+                    adminCommandRequest.setErrOutput(out -> ctx.json(new Message("Failure - " + out)));
+                    log.info("adminCommandRequest: {}", adminCommandRequest);
+                    if (adminCommandRegistry != null) {
+                        adminCommandRegistry.processAdminCommandRequest(adminCommandRequest);
+                    }
+                })
+
                 .start(listenPort);
     }
 

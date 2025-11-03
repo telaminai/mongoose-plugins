@@ -4,7 +4,7 @@
     <parent>
         <groupId>com.fluxtion.dataflow.serverplugin</groupId>
         <artifactId>dataflow-server-plugins</artifactId>
-        <version>0.2.4-SNAPSHOT</version>
+        <version>0.2.8-SNAPSHOT</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
@@ -22,7 +22,7 @@
             <groupId>com.fluxtion.dataflow</groupId>
             <artifactId>dataflow-imperative</artifactId>
             <scope>compile</scope>
-            <version>${dataflow.version}</version>
+            <version>${fluxtion.version}</version>
         </dependency>
         <dependency>
             <groupId>com.github.javaparser</groupId>
