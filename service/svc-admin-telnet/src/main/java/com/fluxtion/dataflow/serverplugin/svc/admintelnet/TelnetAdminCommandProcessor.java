@@ -5,10 +5,11 @@
 
 package com.fluxtion.dataflow.serverplugin.svc.admintelnet;
 
-import com.fluxtion.dataflow.runtime.annotations.runtime.ServiceRegistered;
-import com.fluxtion.dataflow.runtime.lifecycle.Lifecycle;
-import com.fluxtion.server.service.admin.AdminCommandRegistry;
-import com.fluxtion.server.service.admin.AdminCommandRequest;
+
+import com.telamin.fluxtion.runtime.annotations.runtime.ServiceRegistered;
+import com.telamin.fluxtion.runtime.lifecycle.Lifecycle;
+import com.telamin.mongoose.service.admin.AdminCommandRegistry;
+import com.telamin.mongoose.service.admin.AdminCommandRequest;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.log4j.Log4j2;

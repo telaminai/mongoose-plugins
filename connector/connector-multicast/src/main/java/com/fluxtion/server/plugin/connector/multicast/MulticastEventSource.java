@@ -18,9 +18,9 @@
 
 package com.fluxtion.server.plugin.connector.multicast;
 
-import com.fluxtion.dataflow.runtime.event.NamedFeedEvent;
-import com.fluxtion.server.dispatch.EventToQueuePublisher;
-import com.fluxtion.server.service.AbstractAgentHostedEventSourceService;
+import com.telamin.fluxtion.runtime.event.NamedFeedEvent;
+import com.telamin.mongoose.dispatch.EventToQueuePublisher;
+import com.telamin.mongoose.service.extension.AbstractAgentHostedEventSourceService;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.log4j.Log4j2;

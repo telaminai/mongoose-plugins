@@ -5,8 +5,8 @@
 
 package com.fluxtion.server.plugin.connector.multicast;
 
-import com.fluxtion.dataflow.runtime.event.NamedFeedEvent;
-import com.fluxtion.server.dispatch.EventToQueuePublisher;
+import com.telamin.fluxtion.runtime.event.NamedFeedEvent;
+import com.telamin.mongoose.dispatch.EventToQueuePublisher;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;

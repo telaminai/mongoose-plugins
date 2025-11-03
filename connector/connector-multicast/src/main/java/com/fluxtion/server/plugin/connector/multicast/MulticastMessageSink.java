@@ -18,8 +18,8 @@
 
 package com.fluxtion.server.plugin.connector.multicast;
 
-import com.fluxtion.dataflow.runtime.lifecycle.Lifecycle;
-import com.fluxtion.dataflow.runtime.output.AbstractMessageSink;
+import com.telamin.fluxtion.runtime.lifecycle.Lifecycle;
+import com.telamin.fluxtion.runtime.output.AbstractMessageSink;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.log4j.Log4j2;
