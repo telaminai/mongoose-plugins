@@ -26,7 +26,7 @@
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
-    <artifactId>serverconnector-multicast</artifactId>
+    <artifactId>connector-multicast</artifactId>
     <name>telamin :: mongoose-plugins :: connector-multicast</name>
 
     <properties>
