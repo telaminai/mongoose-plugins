@@ -9,7 +9,7 @@
     </parent>
 
     <artifactId>svc-admin-telnet</artifactId>
-    <name>dataflow.serverplugin :: svc-admin-telnet</name>
+    <name>telamin :: mongoose-plugins :: svc-admin-telnet</name>
 
     <properties>
         <maven.compiler.source>21</maven.compiler.source>

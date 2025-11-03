@@ -23,7 +23,7 @@
             <groupId>com.fluxtion.dataflow</groupId>
             <artifactId>dataflow-imperative</artifactId>
             <scope>compile</scope>
-            <version>${dataflow.version}</version>
+            <version>${fluxtion.version}</version>
         </dependency>
         <dependency>
             <groupId>org.springframework</groupId>
