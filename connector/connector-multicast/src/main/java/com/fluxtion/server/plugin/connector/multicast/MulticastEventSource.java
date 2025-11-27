@@ -36,7 +36,7 @@ public class MulticastEventSource extends AbstractAgentHostedEventSourceService 
 
     @Getter
     @Setter
-    private String multicastGroup = "230.0.0.1";
+    private String multicastGroup = "224.0.0.1";
     @Getter
     @Setter
     private int multicastPort = 4446;
@@ -46,11 +46,15 @@ public class MulticastEventSource extends AbstractAgentHostedEventSourceService 
     @Getter
     @Setter
     private boolean cacheEventLog = false;
+    @Getter
+    @Setter
+    boolean useLoopbackInterface = false;
 
     private volatile boolean publishToQueue = false;
 
     private MulticastSocket socket;
     private InetAddress groupAddr;
+    @Getter
     private NetworkInterface netIf;
 
     public MulticastEventSource() {
@@ -71,7 +75,9 @@ public class MulticastEventSource extends AbstractAgentHostedEventSourceService 
             socket = new MulticastSocket(multicastPort);
             socket.setReuseAddress(true);
             socket.setSoTimeout(1);
-            if (networkInterfaceName != null && !networkInterfaceName.isEmpty()) {
+            if (useLoopbackInterface) {
+                netIf = NetworkHelper.getLoopbackInterface();
+            } else if (networkInterfaceName != null && !networkInterfaceName.isEmpty()) {
                 netIf = NetworkInterface.getByName(networkInterfaceName);
                 if (netIf != null) {
                     socket.setNetworkInterface(netIf);
@@ -79,6 +85,7 @@ public class MulticastEventSource extends AbstractAgentHostedEventSourceService 
                     log.warn("Network interface '{}' not found, default will be used", networkInterfaceName);
                 }
             }
+
             // Join group
             if (netIf != null) {
                 socket.joinGroup(new InetSocketAddress(groupAddr, multicastPort), netIf);

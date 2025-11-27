@@ -33,16 +33,20 @@ public class MulticastMessageSink extends AbstractMessageSink<Object> implements
 
     @Getter
     @Setter
-    private String multicastGroup = "230.0.0.1";
+    private String multicastGroup = "224.0.0.1";
     @Getter
     @Setter
     private int multicastPort = 4446;
     @Getter
     @Setter
     private String networkInterfaceName;
+    @Getter
+    @Setter
+    boolean useLoopbackInterface = false;
 
     private InetAddress groupAddr;
     private DatagramSocket socket;
+    @Getter
     private NetworkInterface netIf;
 
     @Override
@@ -58,9 +62,12 @@ public class MulticastMessageSink extends AbstractMessageSink<Object> implements
                     log.warn("Network interface '{}' not found, default will be used", networkInterfaceName);
                 }
             }
+
             // DatagramSocket is fine for sending to a multicast address.
             socket = new DatagramSocket();
-            if (netIf != null) {
+            if (useLoopbackInterface) {
+                netIf = NetworkHelper.getLoopbackInterface();
+            } else if (netIf != null) {
                 try {
                     socket.setOption(StandardSocketOptions.IP_MULTICAST_IF, netIf);
                 } catch (Exception e) {

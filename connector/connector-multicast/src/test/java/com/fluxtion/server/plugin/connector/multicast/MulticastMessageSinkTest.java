@@ -77,6 +77,51 @@ public class MulticastMessageSinkTest {
         sink.tearDown();
     }
 
+    @Test
+    void testUseLoopbackInterfaceTrue_selectsLoopbackInterface() {
+        // Ensure loopback is available on this environment
+        Assumptions.assumeTrue(NetworkHelper.getLoopbackInterface() != null,
+                "No loopback interface available; skipping test");
+
+        MulticastMessageSink sink = new MulticastMessageSink();
+        sink.setMulticastGroup(GROUP);
+        sink.setMulticastPort(PORT);
+        sink.setUseLoopbackInterface(true);
+        sink.init();
+
+        // When useLoopbackInterface=true the sink should select a loopback NetworkInterface
+        NetworkInterface selected = sink.getNetIf();
+        Assertions.assertNotNull(selected, "Expected a selected NetworkInterface when useLoopbackInterface=true");
+        try {
+            Assertions.assertTrue(selected.isLoopback(), "Selected interface should be loopback when useLoopbackInterface=true");
+        } catch (SocketException e) {
+            Assertions.fail("Error checking if interface is loopback: " + e.getMessage());
+        } finally {
+            sink.tearDown();
+        }
+    }
+
+    @Test
+    void testUseLoopbackInterfaceFalse_doesNotSelectInterfaceAndSends() throws Exception {
+        MulticastMessageSink sink = new MulticastMessageSink();
+        sink.setMulticastGroup(GROUP);
+        sink.setMulticastPort(PORT);
+        sink.setUseLoopbackInterface(false);
+        sink.init();
+
+        // With flag=false and no explicit interface name, netIf should remain null
+        Assertions.assertNull(sink.getNetIf(),
+                "Expected no selected NetworkInterface when useLoopbackInterface=false and no interface name provided");
+
+        // Still able to send using default interface selection
+        String msg = "defaultIfaceMsg_sink";
+        sink.sendToSink(msg);
+        String received = receiveStringWithRetry(2000);
+        Assertions.assertEquals(msg, received);
+
+        sink.tearDown();
+    }
+
     private String receiveStringWithRetry(long timeoutMillis) throws Exception {
         long end = System.currentTimeMillis() + timeoutMillis;
         byte[] buf = new byte[65536];

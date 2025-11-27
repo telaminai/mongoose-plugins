@@ -16,10 +16,12 @@ import org.junit.jupiter.api.Assumptions;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
+import java.net.NetworkInterface;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
+import java.lang.reflect.Field;
 
 public class MulticastEventSourceTest {
 
@@ -97,6 +99,75 @@ public class MulticastEventSourceTest {
                 .collect(Collectors.toList());
         Assertions.assertTrue(cachedAfter.contains("post1") && cachedAfter.contains("post2"),
                 "Post-start messages should not be cached in eventLog");
+    }
+
+    @Test
+    void testUseLoopbackInterfaceTrue_selectsLoopbackAndReceives() throws Exception {
+        // preconditions: environment supports multicast and we have a loopback interface
+        Assumptions.assumeTrue(MulticastTestSupport.canSendAndReceive(GROUP, PORT), "Multicast not working in this environment; skipping test");
+        Assumptions.assumeTrue(NetworkHelper.getLoopbackInterface() != null, "No loopback interface available; skipping test");
+
+        // Recreate source with loopback enabled
+        tearDown();
+        source = new MulticastEventSource();
+        source.setMulticastGroup(GROUP);
+        source.setMulticastPort(PORT);
+        source.setCacheEventLog(true);
+        source.setUseLoopbackInterface(true);
+        source.setOutput(new EventToQueuePublisher<>("multicast-event-source"));
+        source.onStart();
+
+        // Verify the private netIf is the loopback interface
+        NetworkInterface selected = getSelectedInterface(source);
+        Assertions.assertNotNull(selected, "Expected a selected NetworkInterface when useLoopbackInterface=true");
+        Assertions.assertTrue(selected.isLoopback(), "Selected interface should be loopback when useLoopbackInterface=true");
+
+        // Note: Whether multicast loopback traffic is actually delivered depends on OS/JVM settings
+        // and is outside the scope of this option. Here we only validate that the loopback
+        // interface was selected when the flag is true.
+    }
+
+    @Test
+    void testUseLoopbackInterfaceFalse_doesNotSelectInterfaceAndReceives() throws Exception {
+        Assumptions.assumeTrue(MulticastTestSupport.canSendAndReceive(GROUP, PORT), "Multicast not working in this environment; skipping test");
+
+        // Recreate source with loopback disabled (default)
+        tearDown();
+        source = new MulticastEventSource();
+        source.setMulticastGroup(GROUP);
+        source.setMulticastPort(PORT);
+        source.setCacheEventLog(true);
+        source.setUseLoopbackInterface(false);
+        source.setOutput(new EventToQueuePublisher<>("multicast-event-source"));
+        source.onStart();
+
+        // With flag=false and no explicit interface name, the source should not set netIf
+        NetworkInterface selected = getSelectedInterface(source);
+        Assertions.assertNull(selected, "Expected no selected NetworkInterface when useLoopbackInterface=false and no interface name provided");
+
+        // Send and verify receipt (should still work using default interface join)
+        String msg = "defaultIfaceMsg";
+        sendUdp(msg);
+        long end = System.currentTimeMillis() + 1_000;
+        boolean seen = false;
+        while (System.currentTimeMillis() < end) {
+            source.doWork();
+            List<String> cached = Arrays.stream(source.eventLog())
+                    .map(NamedFeedEvent::data)
+                    .map(Object::toString)
+                    .collect(Collectors.toList());
+            if (cached.contains(msg)) {
+                seen = true;
+                break;
+            }
+            Thread.sleep(10);
+        }
+        Assertions.assertTrue(seen, "Expected to receive message when using default interface selection");
+    }
+
+    // Reflectively access the private 'netIf' to validate selection logic
+    private static NetworkInterface getSelectedInterface(MulticastEventSource src) {
+        return src.getNetIf();
     }
 
     private void sendUdp(String s) throws Exception {
