@@ -74,8 +74,8 @@ In YAML, `services[].serviceClass` controls this:
 ```yaml
 services:
   - name: state-cache
-    serviceClass: com.fluxtion.dataflow.serverplugin.svc.cache.Cache
-    instance: !!com.fluxtion.dataflow.serverplugin.svc.cache.JsonFileCache
+    serviceClass: com.telamin.mongoose.plugin.svc.cache.Cache
+    instance: !!com.telamin.mongoose.plugin.svc.cache.JsonFileCache
       fileName: ./data-out/state.json
 ```
 

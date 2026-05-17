@@ -172,11 +172,11 @@ Shared utilities used across plugins and applications.
 ```yaml
 eventFeeds:
   - name: trades
-    instance: !!com.fluxtion.dataflow.serverplugin.connector.file.FileEventSource
+    instance: !!com.telamin.mongoose.plugin.connector.file.FileEventSource
       filename: ./data-in/trades.jsonl
       readStrategy: COMMITED
     broadcast: true
-    valueMapper: !!com.fluxtion.dataflow.serverplugin.lib.json.TypeSerialiser {}
+    valueMapper: !!com.telamin.mongoose.plugin.lib.json.TypeSerialiser {}
 ```
 
 See [Getting started](getting-started.md) for the full setup, including how to wire plugins into a `MongooseServerConfig`.

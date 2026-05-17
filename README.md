@@ -41,26 +41,26 @@ All plugins target Mongoose's standard config model — either programmatic (`Mo
 ```yaml
 eventFeeds:
   - name: my-feed
-    instance: !!com.fluxtion.dataflow.serverplugin.connector.file.FileEventSource
+    instance: !!com.telamin.mongoose.plugin.connector.file.FileEventSource
       filename: ./data-in/events.jsonl
       readStrategy: COMMITED
     broadcast: true
-    valueMapper: !!com.fluxtion.dataflow.serverplugin.lib.json.TypeSerialiser {}
+    valueMapper: !!com.telamin.mongoose.plugin.lib.json.TypeSerialiser {}
     agentName: file-source-agent
     idleStrategy: !!org.agrona.concurrent.SleepingMillisIdleStrategy {}
 
 eventSinks:
   - name: my-sink
-    instance: !!com.fluxtion.dataflow.serverplugin.connector.file.FileMessageSink
+    instance: !!com.telamin.mongoose.plugin.connector.file.FileMessageSink
       filename: ./data-out/out.jsonl
 
 services:
   - name: state-cache
-    instance: !!com.fluxtion.dataflow.serverplugin.svc.cache.JsonFileCache
+    instance: !!com.telamin.mongoose.plugin.svc.cache.JsonFileCache
       fileName: ./data-out/state.json
 
   - name: adminTelnet
-    instance: !!com.fluxtion.dataflow.serverplugin.svc.admintelnet.TelnetAdminCommandProcessor
+    instance: !!com.telamin.mongoose.plugin.svc.admintelnet.TelnetAdminCommandProcessor
       listenPort: 2024
 ```
 

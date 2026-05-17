@@ -28,14 +28,14 @@ Not suitable for cross-WAN messaging or any scenario requiring durability — UD
 ```yaml
 eventFeeds:
   - name: heartbeats
-    instance: !!com.fluxtion.dataflow.serverplugin.connector.multicast.MulticastEventSource
+    instance: !!com.telamin.mongoose.plugin.connector.multicast.MulticastEventSource
       multicastGroup: 224.0.1.50
       port: 4446
       interfaceName: eth0
 
 eventSinks:
   - name: heartbeat-out
-    instance: !!com.fluxtion.dataflow.serverplugin.connector.multicast.MulticastMessageSink
+    instance: !!com.telamin.mongoose.plugin.connector.multicast.MulticastMessageSink
       multicastGroup: 224.0.1.50
       port: 4446
       ttl: 1

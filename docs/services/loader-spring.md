@@ -29,7 +29,7 @@ bean graphs to instantiate at boot:
 ```yaml
 services:
   - name: springLoaderService
-    service: !!com.fluxtion.dataflow.serverplugin.loader.spring.SpringEventHandlerLoader
+    service: !!com.telamin.mongoose.plugin.loader.spring.SpringEventHandlerLoader
       addEventAuditor: false
       loadAtStartup:
         - { springFile: "config/pricing-beans.xml", compile: true }

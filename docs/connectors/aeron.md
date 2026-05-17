@@ -35,7 +35,7 @@ Both share the same media-driver wiring. Either bring your own `MediaDriver` (pr
     ```yaml
     eventFeeds:
       - name: trades
-        instance: !!com.fluxtion.server.plugin.connector.aeron.AeronArchiveEventSource
+        instance: !!com.telamin.mongoose.plugin.connector.aeron.AeronArchiveEventSource
           mode: LIVE
           channel: aeron:udp?endpoint=224.0.1.1:40456
           streamId: 10
@@ -50,7 +50,7 @@ Both share the same media-driver wiring. Either bring your own `MediaDriver` (pr
     ```yaml
     eventFeeds:
       - name: trades-replay
-        instance: !!com.fluxtion.server.plugin.connector.aeron.AeronArchiveEventSource
+        instance: !!com.telamin.mongoose.plugin.connector.aeron.AeronArchiveEventSource
           mode: ARCHIVE
           channel: aeron:udp?endpoint=224.0.1.1:40456
           streamId: 10
@@ -63,7 +63,7 @@ Both share the same media-driver wiring. Either bring your own `MediaDriver` (pr
 === "Binary mode"
 
     ```yaml
-    instance: !!com.fluxtion.server.plugin.connector.aeron.AeronArchiveEventSource
+    instance: !!com.telamin.mongoose.plugin.connector.aeron.AeronArchiveEventSource
       channel: aeron:ipc
       streamId: 11
       binaryMode: true   # publish raw byte[]; otherwise UTF-8 String
@@ -74,7 +74,7 @@ Both share the same media-driver wiring. Either bring your own `MediaDriver` (pr
 ```yaml
 eventSinks:
   - name: outbound
-    instance: !!com.fluxtion.server.plugin.connector.aeron.AeronMessageSink
+    instance: !!com.telamin.mongoose.plugin.connector.aeron.AeronMessageSink
       channel: aeron:ipc
       streamId: 10
       initialBufferCapacity: 65536       # default 4096

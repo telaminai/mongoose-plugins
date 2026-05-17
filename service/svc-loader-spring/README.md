@@ -33,7 +33,7 @@ Built against `spring-context` 6.2.1 (Spring Framework 6, Jakarta EE namespace).
 ```yaml
 services:
   - name: springEventHandlerLoader
-    instance: !!com.fluxtion.dataflow.serverplugin.loader.spring.SpringEventHandlerLoader
+    instance: !!com.telamin.mongoose.plugin.loader.spring.SpringEventHandlerLoader
       addEventAuditor: false
       loadAtStartup:
         - springFile: ./config/pricing-beans.xml

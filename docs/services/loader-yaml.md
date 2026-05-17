@@ -35,7 +35,7 @@ topologies to instantiate at boot:
 ```yaml
 services:
   - name: yamlLoaderService
-    service: !!com.fluxtion.dataflow.serverplugin.loader.yaml.EventHandlerLoader
+    service: !!com.telamin.mongoose.plugin.loader.yaml.EventHandlerLoader
       loadAtStartup:
         - { yamlFile: "config/log-processor.yaml", compile: true }
 ```

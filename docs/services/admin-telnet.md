@@ -19,7 +19,7 @@ JLine-backed telnet admin endpoint for a running Mongoose server. Tab-completion
 ```yaml
 services:
   - name: adminTelnet
-    instance: !!com.fluxtion.dataflow.serverplugin.svc.admintelnet.TelnetAdminCommandProcessor
+    instance: !!com.telamin.mongoose.plugin.svc.admintelnet.TelnetAdminCommandProcessor
       listenPort: 2024
       interfaceName: 127.0.0.1
 ```
