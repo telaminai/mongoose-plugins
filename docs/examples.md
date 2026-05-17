@@ -28,6 +28,14 @@ Short focused recipes for specific patterns:
 | [how-to/using-the-scheduler-service](https://github.com/telaminai/mongoose-examples/tree/main/how-to/using-the-scheduler-service) | Time-based triggers in processors. |
 | [how-to/injecting-config-into-a-processor](https://github.com/telaminai/mongoose-examples/tree/main/how-to/injecting-config-into-a-processor) | Per-processor config injection. |
 
+## Connector examples
+
+End-to-end runnable demos of specific connectors:
+
+| Example | Plugin |
+|---|---|
+| [plugins/connector-aeron-example](https://github.com/telaminai/mongoose-examples/tree/main/plugins/connector-aeron-example) | [`connector-aeron`](connectors/aeron.md) — in-memory → AeronMessageSink → embedded IPC → AeronArchiveEventSource → capture sink, asserted via `MongooseTestHarness`. |
+
 ## Authoring your own plugin
 
 If you want to write a new connector, sink, or service that fits the catalogue, the `plugins/` examples are the templates:

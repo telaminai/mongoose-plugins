@@ -183,18 +183,36 @@ public final class MongooseTestHarness implements AutoCloseable {
             return this;
         }
 
-        /** Add an event feed with an explicit agent name and default idle strategy. */
+        /**
+         * Add an event feed with explicit agent name. Defaults to
+         * {@code broadcast=true} and the harness's default idle strategy.
+         */
         public Builder feed(String name, Object source, String agentName) {
-            return feed(name, source, agentName, defaultIdleStrategy);
+            return feed(name, source, agentName, defaultIdleStrategy, true);
         }
 
-        /** Add an event feed with explicit agent name and idle strategy. */
-        @SuppressWarnings({"unchecked", "rawtypes"})
+        /**
+         * Add an event feed with explicit agent + idle strategy. Defaults to
+         * {@code broadcast=true} — handlers receive every event from this feed
+         * without an explicit subscription.
+         */
         public Builder feed(String name, Object source, String agentName, IdleStrategy idle) {
+            return feed(name, source, agentName, idle, true);
+        }
+
+        /**
+         * Add an event feed with full control. Pass {@code broadcast=false} when
+         * multiple feeds coexist and each handler subscribes via
+         * {@code getContext().subscribeToNamedFeed(name)} — broadcast=true would
+         * otherwise deliver every feed's events to every handler.
+         */
+        @SuppressWarnings({"unchecked", "rawtypes"})
+        public Builder feed(String name, Object source, String agentName,
+                            IdleStrategy idle, boolean broadcast) {
             var cfg = EventFeedConfig.builder()
                     .instance(source)
                     .name(name)
-                    .broadcast(true)
+                    .broadcast(broadcast)
                     .agent(agentName, idle)
                     .build();
             serverBuilder.addEventFeed(cfg);

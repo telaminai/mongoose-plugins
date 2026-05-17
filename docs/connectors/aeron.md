@@ -138,10 +138,9 @@ The plugin parent POM already wires this.
 
 ## Examples
 
+- **[plugins/connector-aeron-example](https://github.com/telaminai/mongoose-examples/tree/main/plugins/connector-aeron-example)** — full end-to-end round-trip: in-memory producer → `AeronMessageSink` → embedded MediaDriver IPC channel → `AeronArchiveEventSource` (LIVE mode) → capture sink. Asserted via [`MongooseTestHarness`](../test-support.md).
 - **[how-to/replay](https://github.com/telaminai/mongoose-examples/tree/main/how-to/replay)** — the cold-start replay pattern that pairs cleanly with `Mode.ARCHIVE`.
 - **[plugins/event-source-example](https://github.com/telaminai/mongoose-examples/tree/main/plugins/event-source-example)** — template for agent-hosted sources like `AeronArchiveEventSource`.
-
-A dedicated Aeron round-trip example is on the [Examples](../examples.md) roadmap.
 
 ## Source
 

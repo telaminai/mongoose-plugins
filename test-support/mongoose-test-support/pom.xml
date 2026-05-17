@@ -28,15 +28,12 @@
     </properties>
 
     <dependencies>
-        <!-- mongoose is inherited as compile from the parent, surface it to consumers -->
-        <!-- junit-jupiter is inherited as test from the parent; promote to compile here
-             so consumers don't need to declare it twice. Still scoped narrowly enough
-             that TestNG users can ignore it. -->
-        <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter-api</artifactId>
-            <version>5.11.4</version>
-            <scope>compile</scope>
-        </dependency>
+        <!-- mongoose is inherited as compile from the parent (transitive to consumers).
+
+             We intentionally do NOT pull a junit-jupiter dep here. The harness API
+             (MongooseTestHarness) uses zero junit classes — it just throws
+             AssertionError on await timeouts. Consumers bring their own junit /
+             TestNG / spock, so the test harness composes with any test runner
+             without forcing a version. -->
     </dependencies>
 </project>
