@@ -288,7 +288,7 @@ Defaults are chosen to be safe out of the box: loopback bind, `authMode: NONE` o
 Status legend: ☐ planned · ◐ in progress · ☑ done
 
 - **☑ M0 — spec sign-off.** Frontend stack pinned (htmx + Alpine.js), open questions resolved. Commit: `c5445cd`.
-- **☑ M1 — module skeleton.** `service/svc-admin-web` Maven module, parent wired, empty `WebAdminService` with config + lifecycle, served at `/healthz` only. 3 tests green: healthz returns 200, metricsIntervalMs clamps to 250 ms, tearDown idempotent. Commit: `692e4b1`.
+- **☑ M1 — module skeleton.** `service/svc-admin-web` Maven module, parent wired, empty `WebAdminService` with config + lifecycle, served at `/healthz` only. 3 tests green: healthz returns 200, metricsIntervalMs clamps to 250 ms, tearDown idempotent. Commit: `4e7d380`.
 - **☐ M2 — auth + session.** BASIC/BEARER + cookie session + CSRF + test suite (mirror `JavalinAdminCommandServiceTest`).
 - **☐ M3 — admin command runner.** `/api/commands` + `/api/commands/{name}` + minimal HTML page that lists and invokes.
 - **☐ M4 — dashboard + JVM monitor.** Static dashboard, `/api/server`, `/api/jvm`, `/ws/monitor`.
