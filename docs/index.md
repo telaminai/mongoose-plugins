@@ -129,6 +129,12 @@ Shared utilities used across plugins and applications.
 
     Type-discriminated JSONL deserialiser. Drop in as `valueMapper` on a file or socket feed carrying mixed event types.
 
+-   :material-test-tube: **[mongoose-test-support](test-support.md)**
+
+    <span class="plugin-tags"><span class="plugin-tag library">test</span></span>
+
+    `MongooseTestHarness` — boot a real server in 5 lines, await with timeouts, `AutoCloseable` cleanup. Cuts integration-test ceremony by ~3×.
+
 </div>
 
 ---

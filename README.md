@@ -32,6 +32,7 @@ Mongoose itself ships with the runtime, the dispatch core, and an in-memory even
 | Plugin | Pattern | Read it for | Maven artifact |
 |---|---|---|---|
 | [lib-jsonserialiser](library/lib-jsonserialiser/) | Type-discriminated JSONL deserialiser | Drop-in `valueMapper` for file or socket feeds carrying mixed event types. | `lib-jsonserialiser` |
+| [mongoose-test-support](test-support/mongoose-test-support/) | `MongooseTestHarness` for integration tests | Boot a real server in 5 lines, await with timeouts, `AutoCloseable` cleanup. | `mongoose-test-support` |
 
 ## Common usage shape
 
@@ -90,8 +91,10 @@ mongoose-plugins/
 │   ├── svc-loader-spring/
 │   ├── svc-admin-telnet/
 │   └── svc-admin-rest/
-└── library/
-    └── lib-jsonserialiser/
+├── library/
+│   └── lib-jsonserialiser/
+└── test-support/
+    └── mongoose-test-support/
 ```
 
 ## Building locally
@@ -102,7 +105,7 @@ mvn clean install -pl connector/connector-file  # one module
 mvn -pl service/svc-cache -am test              # one module + deps, tests only
 ```
 
-Build status: all 13 modules compile and tests pass on JDK 21+ as of mongoose `1.0.8` / fluxtion `0.9.33`.
+Build status: all 14 modules compile and tests pass on JDK 21+ as of mongoose `1.0.8` / fluxtion `0.9.33`.
 
 ## Versioning
 

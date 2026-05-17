@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ~ SPDX-FileCopyrightText: © 2025 Gregory Higgins <greg.higgins@v12technology.com>
+  ~ SPDX-License-Identifier: AGPL-3.0-only
+  -->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.telamin</groupId>
+        <artifactId>mongoose-plugins</artifactId>
+        <version>0.2.8-SNAPSHOT</version>
+        <relativePath>../../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>mongoose-test-support</artifactId>
+    <name>telamin :: mongoose-plugins :: mongoose-test-support</name>
+    <description>
+        Test harness for embedding a real MongooseServer in JUnit / TestNG tests.
+        Cuts the typical boot/teardown/await ceremony from ~30 lines to ~10.
+    </description>
+
+    <properties>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+
+    <dependencies>
+        <!-- mongoose is inherited as compile from the parent, surface it to consumers -->
+        <!-- junit-jupiter is inherited as test from the parent; promote to compile here
+             so consumers don't need to declare it twice. Still scoped narrowly enough
+             that TestNG users can ignore it. -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-api</artifactId>
+            <version>5.11.4</version>
+            <scope>compile</scope>
+        </dependency>
+    </dependencies>
+</project>
