@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!--
+        Standalone example: NOT wired into the mongoose-plugins parent's
+        <modules> list, so the main build stays fast and unaffected.
+
+        Run from this directory:
+            mvn -pl ../../service/svc-admin-web -am install   (one-time / after svc-admin-web changes)
+            mvn exec:exec                                      (boot the example)
+
+        Then browse http://127.0.0.1:8181/healthz
+
+        When svc-admin-web ships in 0.2.13, this whole project moves to
+        mongoose-examples/plugins/admin-web-example/.
+    -->
+
+    <groupId>com.telamin</groupId>
+    <artifactId>admin-web-example</artifactId>
+    <version>1.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+    <name>mongoose-plugins :: example :: admin-web-example</name>
+
+    <properties>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <mongoose.version>1.0.9</mongoose.version>
+        <plugins.version>0.2.13-SNAPSHOT</plugins.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.telamin</groupId>
+            <artifactId>mongoose</artifactId>
+            <version>${mongoose.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.telamin</groupId>
+            <artifactId>svc-admin-web</artifactId>
+            <version>${plugins.version}</version>
+        </dependency>
+        <!-- Javalin uses SLF4J; provide a simple impl so its boot is quiet. -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
+            <version>2.0.16</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!--
+                exec:exec forks a JVM so the agrona add-opens JVM flags actually
+                take effect. With exec:java the args would be passed to main()
+                and the JVM flags would be silently ignored.
+            -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.6.3</version>
+                <configuration>
+                    <executable>java</executable>
+                    <arguments>
+                        <argument>--add-opens=java.base/jdk.internal.misc=ALL-UNNAMED</argument>
+                        <argument>--add-opens=java.base/java.lang.reflect=ALL-UNNAMED</argument>
+                        <argument>--add-opens=java.base/sun.nio.ch=ALL-UNNAMED</argument>
+                        <argument>-classpath</argument>
+                        <classpath/>
+                        <argument>com.telamin.mongoose.example.adminweb.AdminWebExample</argument>
+                    </arguments>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>

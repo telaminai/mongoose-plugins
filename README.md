@@ -26,6 +26,7 @@ Mongoose itself ships with the runtime, the dispatch core, and an in-memory even
 | [svc-loader-spring](service/svc-loader-spring/) | Load processors at runtime from Spring XML | Same as svc-loader-yaml but Spring XML as the source-of-truth. | `svc-loader-spring` |
 | [svc-admin-telnet](service/svc-admin-telnet/) | Telnet admin endpoint with JLine completion + history | Interactive admin from a shell; pair with loader / cache plugins. | `svc-admin-telnet` |
 | [svc-admin-rest](service/svc-admin-rest/) | Javalin-based REST admin endpoint | Curl-from-CI, browser dashboards, same admin surface as telnet over HTTP. Can host static SPA files. | `svc-admin-rest` |
+| [svc-admin-web](service/svc-admin-web/) | Browser admin & monitoring SPA | Same admin surface as telnet/rest plus a dashboard, live JVM monitor + log tail over WebSocket, and conditional cache/loader panels. | `svc-admin-web` |
 
 ### Libraries (shared utilities)
 
@@ -90,7 +91,8 @@ mongoose-plugins/
 │   ├── svc-loader-yaml/
 │   ├── svc-loader-spring/
 │   ├── svc-admin-telnet/
-│   └── svc-admin-rest/
+│   ├── svc-admin-rest/
+│   └── svc-admin-web/
 ├── library/
 │   └── lib-jsonserialiser/
 └── test-support/
