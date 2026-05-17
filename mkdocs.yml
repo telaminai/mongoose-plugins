@@ -108,4 +108,5 @@ nav:
       - libraries/index.md
       - lib-jsonserialiser: libraries/jsonserialiser.md
   - Operational guide: operations.md
+  - Migration & namespaces: migration.md
   - Contributing: contributing-docs.md
