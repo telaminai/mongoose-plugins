@@ -9,7 +9,7 @@
 
 package com.fluxtion.dataflow.serverplugin.connector.kafka;
 
-import com.fluxtion.server.service.AbstractAgentHostedEventSourceService;
+import com.telamin.mongoose.service.extension.AbstractAgentHostedEventSourceService;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.log4j.Log4j2;

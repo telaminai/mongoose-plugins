@@ -5,11 +5,11 @@
 
 package com.fluxtion.dataflow.serverplugin.connector.file;
 
-import com.fluxtion.agrona.IoUtil;
-import com.fluxtion.dataflow.runtime.event.NamedFeedEvent;
-import com.fluxtion.server.config.ReadStrategy;
-import com.fluxtion.server.dispatch.EventToQueuePublisher;
-import com.fluxtion.server.service.AbstractAgentHostedEventSourceService;
+import org.agrona.IoUtil;
+import com.telamin.fluxtion.runtime.event.NamedFeedEvent;
+import com.telamin.mongoose.config.ReadStrategy;
+import com.telamin.mongoose.dispatch.EventToQueuePublisher;
+import com.telamin.mongoose.service.extension.AbstractAgentHostedEventSourceService;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.log4j.Log4j2;

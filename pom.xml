@@ -23,9 +23,9 @@
     <properties>
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
-        <fluxtion.version>0.9.14</fluxtion.version>
+        <fluxtion.version>0.9.33</fluxtion.version>
         <fluxtion.generator.version>1.0.27</fluxtion.generator.version>
-        <mongoose.version>1.0.6</mongoose.version>
+        <mongoose.version>1.0.8</mongoose.version>
         <log4j2.version>2.24.3</log4j2.version>
         <lombok.version>1.18.42</lombok.version>
         <jackson.version>2.18.2</jackson.version>
@@ -102,12 +102,6 @@
 <!--        </dependency>-->
 
         <dependency>
-            <groupId>com.telamin.fluxtion</groupId>
-            <artifactId>fluxtion-generator-core</artifactId>
-            <version>${fluxtion.generator.version}</version>
-        </dependency>
-
-        <dependency>
             <groupId>com.telamin</groupId>
             <artifactId>mongoose</artifactId>
             <version>${mongoose.version}</version>
@@ -172,6 +166,21 @@
                     <releaseProfiles>release</releaseProfiles>
                     <autoVersionSubmodules>true</autoVersionSubmodules>
                     <tagNameFormat>v@{project.version}</tagNameFormat>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.13.0</version>
+                <configuration>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                            <version>${lombok.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
                 </configuration>
             </plugin>
 

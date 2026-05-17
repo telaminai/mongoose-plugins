@@ -5,15 +5,15 @@
 
 package com.fluxtion.dataflow.serverplugin.loader.spring;
 
-import com.fluxtion.agrona.concurrent.YieldingIdleStrategy;
-import com.fluxtion.dataflow.extern.spring.FluxtionSpring;
-import com.fluxtion.dataflow.runtime.CloneableDataFlow;
-import com.fluxtion.dataflow.runtime.annotations.feature.Preview;
-import com.fluxtion.dataflow.runtime.annotations.runtime.ServiceRegistered;
-import com.fluxtion.dataflow.runtime.audit.EventLogControlEvent;
-import com.fluxtion.dataflow.runtime.lifecycle.Lifecycle;
-import com.fluxtion.server.service.admin.AdminCommandRegistry;
-import com.fluxtion.server.service.servercontrol.FluxtionServerController;
+import org.agrona.concurrent.YieldingIdleStrategy;
+import com.telamin.fluxtion.builder.extern.spring.FluxtionSpring;
+import com.telamin.fluxtion.runtime.CloneableDataFlow;
+import com.telamin.fluxtion.runtime.annotations.feature.Preview;
+import com.telamin.fluxtion.runtime.annotations.runtime.ServiceRegistered;
+import com.telamin.fluxtion.runtime.audit.EventLogControlEvent;
+import com.telamin.fluxtion.runtime.lifecycle.Lifecycle;
+import com.telamin.mongoose.service.admin.AdminCommandRegistry;
+import com.telamin.mongoose.service.servercontrol.FluxtionServerController;
 import lombok.Data;
 import lombok.Getter;
 import lombok.Setter;

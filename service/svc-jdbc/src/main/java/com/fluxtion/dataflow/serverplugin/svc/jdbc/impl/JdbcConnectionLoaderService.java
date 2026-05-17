@@ -5,7 +5,7 @@
 
 package com.fluxtion.dataflow.serverplugin.svc.jdbc.impl;
 
-import com.fluxtion.dataflow.runtime.lifecycle.Lifecycle;
+import com.telamin.fluxtion.runtime.lifecycle.Lifecycle;
 import com.fluxtion.dataflow.serverplugin.svc.jdbc.JdbcConnectionLoader;
 import lombok.Data;
 import lombok.extern.log4j.Log4j2;
