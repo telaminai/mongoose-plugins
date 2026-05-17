@@ -83,13 +83,13 @@
     <modules>
 <!--        <module>service/svc-admin-rest</module>-->
         <module>service/svc-admin-telnet</module>
-<!--        <module>service/svc-cache</module>-->
+        <module>service/svc-cache</module>
 <!--        <module>service/svc-jdbc</module>-->
 <!--        <module>service/svc-loader-yaml</module>-->
 <!--        <module>service/svc-loader-spring</module>-->
 <!--        <module>connector/connector-chronicle</module>-->
         <module>connector/connector-file</module>
-<!--        <module>connector/connector-kafka</module>-->
+        <module>connector/connector-kafka</module>
         <module>connector/connector-multicast</module>
         <module>library/lib-jsonserialiser</module>
     </modules>

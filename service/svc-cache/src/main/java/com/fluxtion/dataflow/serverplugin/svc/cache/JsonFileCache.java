@@ -12,7 +12,7 @@ import org.agrona.concurrent.Agent;
 import com.telamin.fluxtion.runtime.annotations.runtime.ServiceRegistered;
 import com.telamin.fluxtion.runtime.lifecycle.Lifecycle;
 import com.telamin.mongoose.dispatch.EventFlowManager;
-import com.telamin.mongoose.dispatch.EventFlowService;
+import com.telamin.mongoose.service.EventFlowService;
 import com.telamin.mongoose.service.admin.AdminCommandRegistry;
 import lombok.AccessLevel;
 import lombok.Data;
@@ -31,7 +31,7 @@ import java.util.function.Consumer;
 
 @Data
 @Log4j2
-public class JsonFileCache implements Cache, Agent, Lifecycle, EventFlowService {
+public class JsonFileCache implements Cache, Agent, Lifecycle, EventFlowService<Object> {
 
     private String fileName;
     private final AtomicBoolean updated = new AtomicBoolean(false);
@@ -49,6 +49,9 @@ public class JsonFileCache implements Cache, Agent, Lifecycle, EventFlowService 
     @Override
     public void init() {
         log.info("init");
+        if (fileName == null || fileName.isEmpty()) {
+            throw new IllegalStateException("JsonFileCache has no fileName configured");
+        }
         file = new File(fileName);
         if (file.exists() && file.length() > 0) {
             log.info("opened cache file:{}", fileName);
@@ -56,7 +59,10 @@ public class JsonFileCache implements Cache, Agent, Lifecycle, EventFlowService 
             });
             cacheMap.forEach((k, v) -> get(k));
         } else {
-            file.getParentFile().mkdirs();
+            File parent = file.getParentFile();
+            if (parent != null) {
+                parent.mkdirs();
+            }
             log.info("no cache file:{} created:{}", fileName, file.createNewFile());
         }
     }
@@ -73,6 +79,24 @@ public class JsonFileCache implements Cache, Agent, Lifecycle, EventFlowService 
         this.serviceName = serviceName;
         registry.registerCommand("cache." + serviceName + ".get", this::getCommand);
         registry.registerCommand("cache." + serviceName + ".keys", this::listKeys);
+    }
+
+    // EventFlowService -> EventSource contract: this cache does not push events
+    // into the dispatch pipeline, it only services lookups, so the queue
+    // publisher and (un)subscribe calls are intentionally no-ops.
+    @Override
+    public void setEventToQueuePublisher(com.telamin.mongoose.dispatch.EventToQueuePublisher<Object> targetQueue) {
+        // no-op
+    }
+
+    @Override
+    public void subscribe(com.telamin.mongoose.service.EventSubscriptionKey<Object> eventSourceKey) {
+        // no-op
+    }
+
+    @Override
+    public void unSubscribe(com.telamin.mongoose.service.EventSubscriptionKey<Object> eventSourceKey) {
+        // no-op
     }
 
     @Override
