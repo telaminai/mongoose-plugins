@@ -55,7 +55,11 @@ markdown_extensions:
   - toc:
       permalink: true
   - pymdownx.details
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.tabbed:
       alternate_style: true
   - pymdownx.highlight:
@@ -85,6 +89,7 @@ copyright: Copyright &copy; 2025 Gregory Higgins — AGPL-3.0-only
 
 nav:
   - Home: index.md
+  - The Telamin Stack: the-stack.md
   - Getting started: getting-started.md
   - Examples: examples.md
   - Architecture: architecture.md
