@@ -39,5 +39,11 @@
             <groupId>net.openhft</groupId>
             <artifactId>chronicle-map</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.telamin</groupId>
+            <artifactId>mongoose-test-support</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 </project>
