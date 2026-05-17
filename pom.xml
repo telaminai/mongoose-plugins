@@ -83,6 +83,7 @@
     <modules>
         <module>service/svc-admin-rest</module>
         <module>service/svc-admin-telnet</module>
+        <module>service/svc-admin-web</module>
         <module>service/svc-cache</module>
         <module>service/svc-jdbc</module>
         <module>service/svc-loader-yaml</module>
