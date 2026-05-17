@@ -22,6 +22,11 @@ import com.telamin.fluxtion.runtime.node.ObjectEventHandlerNode;
  * without a matching ctor arg trip "cannot find matching constructor". The
  * dispatcher thread is the only writer; {@code volatile} gives the test thread
  * a clean read.
+ *
+ * <p>The test must resolve the live bean via
+ * {@code flow.getNodeById("dynamicHandler")} after compile — source-gen
+ * replaces the user-supplied instance with a freshly-constructed one inside
+ * the generated processor.
  */
 public class CountingHandler extends ObjectEventHandlerNode {
     public volatile int count;

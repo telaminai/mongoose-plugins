@@ -23,7 +23,7 @@ import org.agrona.concurrent.YieldingIdleStrategy;
  */
 public class DynamicRegistrarService implements Lifecycle {
 
-    public final CountingHandler handler = new CountingHandler();
+    public volatile DataFlow flow;
 
     private MongooseServerController serverController;
 
@@ -38,13 +38,15 @@ public class DynamicRegistrarService implements Lifecycle {
 
     @Override
     public void start() {
-        DataFlow flow = Fluxtion.compile(cfg -> cfg.addNode(handler, "dynamicHandler"));
-        flow.init();
+        CountingHandler handler = new CountingHandler();
+        DataFlow compiled = Fluxtion.compile(cfg -> cfg.addNode(handler, "dynamicHandler"));
+        compiled.init();
+        this.flow = compiled;
         serverController.addEventProcessor(
                 "dynamic-processor",
                 "dynamic-group",
                 new YieldingIdleStrategy(),
-                () -> flow);
+                () -> compiled);
     }
 
     @Override
