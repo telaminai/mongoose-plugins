@@ -9,7 +9,7 @@ Type-discriminated JSONL deserialiser. Each line is a JSON object with a `@type`
 ```xml
 <dependency>
     <groupId>com.telamin</groupId>
-    <artifactId>library-jsonserialiser</artifactId>
+    <artifactId>lib-jsonserialiser</artifactId>
     <version>0.2.8-SNAPSHOT</version>
 </dependency>
 ```

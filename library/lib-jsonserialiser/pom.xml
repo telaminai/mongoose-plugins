@@ -8,7 +8,7 @@
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
-    <artifactId>library-jsonserialiser</artifactId>
+    <artifactId>lib-jsonserialiser</artifactId>
     <name>telamin :: mongoose-plugins :: lib-jsonserialiser</name>
 
     <properties>

@@ -31,7 +31,7 @@ Mongoose itself ships with the runtime, the dispatch core, and an in-memory even
 
 | Plugin | Pattern | Read it for | Maven artifact |
 |---|---|---|---|
-| [lib-jsonserialiser](library/lib-jsonserialiser/) | Type-discriminated JSONL deserialiser | Drop-in `valueMapper` for file or socket feeds carrying mixed event types. | `library-jsonserialiser` |
+| [lib-jsonserialiser](library/lib-jsonserialiser/) | Type-discriminated JSONL deserialiser | Drop-in `valueMapper` for file or socket feeds carrying mixed event types. | `lib-jsonserialiser` |
 
 ## Common usage shape
 

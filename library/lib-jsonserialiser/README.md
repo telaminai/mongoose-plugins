@@ -18,7 +18,7 @@ Unknown properties are tolerated (Jackson `FAIL_ON_UNKNOWN_PROPERTIES` is disabl
 ```xml
 <dependency>
     <groupId>com.telamin</groupId>
-    <artifactId>library-jsonserialiser</artifactId>
+    <artifactId>lib-jsonserialiser</artifactId>
     <version>0.2.8-SNAPSHOT</version>
 </dependency>
 ```
