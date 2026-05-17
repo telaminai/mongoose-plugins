@@ -68,6 +68,11 @@ namedNodes:
 enableAudit: true
 ```
 
+`MyHandler` is a plain `ObjectEventHandlerNode` — no `start()` override or
+explicit `subscribeToNamedFeed(...)` call required. Under `broadcast=true`
+feeds (the catalogue's default), the dispatcher wires the dynamically-loaded
+processor through the same subscription path as a statically-registered one.
+
 When `svc-admin-rest` or `svc-admin-telnet` is on the classpath, the loader
 also registers four admin commands:
 
