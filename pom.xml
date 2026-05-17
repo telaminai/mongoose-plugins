@@ -36,14 +36,14 @@
     <developers>
         <developer>
             <name>Greg Higgins</name>
-            <email>greg.higgins@v12technology.com</email>
+            <email>greg.higgins@telamin.com</email>
         </developer>
     </developers>
 
     <scm>
-        <connection>scm:git:https://github.com/telaminai/dataflow-server-plugins.git</connection>
-        <developerConnection>scm:git:https://github.com/telaminai/dataflow-server-plugins.git</developerConnection>
-        <url>https://github.com/telaminai/dataflow-server-plugins/</url>
+        <connection>scm:git:https://github.com/telaminai/mongoose-plugins.git</connection>
+        <developerConnection>scm:git:https://github.com/telaminai/mongoose-plugins.git</developerConnection>
+        <url>https://github.com/telaminai/mongoose-plugins/</url>
         <tag>v0.1.0</tag>
     </scm>
 
