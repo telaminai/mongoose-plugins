@@ -38,6 +38,15 @@ document.addEventListener('alpine:init', () => {
         ws: null,
         wsStatus: '',
 
+        // log tail state
+        logs: [],
+        logsWs: null,
+        logsStatus: '',
+        logLevel: '',
+        logFilter: '',
+        logAutoScroll: true,
+        logCap: 1000,
+
         async boot() {
             // Probe: if /api/commands returns 200, we're authed (or NONE mode).
             const r = await fetch('/api/commands', { credentials: 'same-origin' });
@@ -65,6 +74,7 @@ document.addEventListener('alpine:init', () => {
             await this.bootstrapSession();
             await this.loadDashboard();
             this.openMonitorWs();
+            this.openLogsWs();
         },
 
         async loadDashboard() {
@@ -104,6 +114,75 @@ document.addEventListener('alpine:init', () => {
             };
             this.ws.onclose = () => { this.wsStatus = 'closed'; };
             this.ws.onerror = () => { this.wsStatus = 'error'; };
+        },
+
+        openLogsWs() {
+            if (this.logsWs) {
+                try { this.logsWs.close(); } catch (e) {}
+            }
+            const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const csrf = this.csrfToken ? '?csrf=' + encodeURIComponent(this.csrfToken) : '';
+            const url = `${proto}//${location.host}/ws/logs${csrf}`;
+            this.logsStatus = 'connecting…';
+            try {
+                this.logsWs = new WebSocket(url);
+            } catch (e) {
+                this.logsStatus = 'unavailable';
+                return;
+            }
+            this.logsWs.onopen = () => { this.logsStatus = 'live'; };
+            this.logsWs.onmessage = (evt) => {
+                try {
+                    const line = JSON.parse(evt.data);
+                    this.logs.push(line);
+                    if (this.logs.length > this.logCap) {
+                        this.logs.splice(0, this.logs.length - this.logCap);
+                    }
+                    if (this.logAutoScroll) {
+                        this.$nextTick(() => {
+                            const pane = this.$refs.logPane;
+                            if (pane) pane.scrollTop = pane.scrollHeight;
+                        });
+                    }
+                } catch (e) {
+                    console.warn('bad log frame', e);
+                }
+            };
+            this.logsWs.onclose = () => { this.logsStatus = 'closed'; };
+            this.logsWs.onerror = () => { this.logsStatus = 'error'; };
+        },
+
+        levelRank(l) {
+            switch ((l || '').toUpperCase()) {
+                case 'SEVERE': case 'ERROR': return 4;
+                case 'WARNING': case 'WARN': return 3;
+                case 'INFO': return 2;
+                case 'CONFIG': case 'DEBUG': case 'FINE': return 1;
+                default: return 0;
+            }
+        },
+
+        filteredLogs() {
+            const minRank = this.logLevel ? this.levelRank(this.logLevel) : 0;
+            const needle  = this.logFilter ? this.logFilter.toLowerCase() : '';
+            return this.logs.filter(l => {
+                if (minRank && this.levelRank(l.level) < minRank) return false;
+                if (needle && !((l.msg || '').toLowerCase().includes(needle)
+                             || (l.logger || '').toLowerCase().includes(needle))) return false;
+                return true;
+            });
+        },
+
+        clearLogs() {
+            this.logs = [];
+        },
+
+        formatLogTs(ms) {
+            if (!ms) return '';
+            const d = new Date(ms);
+            const pad = (n, w=2) => String(n).padStart(w, '0');
+            return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds())
+                 + '.' + pad(d.getMilliseconds(), 3);
         },
 
         formatBytes(b) {
@@ -172,6 +251,7 @@ document.addEventListener('alpine:init', () => {
             }
             await this.loadDashboard();
             this.openMonitorWs();
+            this.openLogsWs();
         },
 
         async logout() {
@@ -184,6 +264,12 @@ document.addEventListener('alpine:init', () => {
                 try { this.ws.close(); } catch (e) {}
                 this.ws = null;
             }
+            if (this.logsWs) {
+                try { this.logsWs.close(); } catch (e) {}
+                this.logsWs = null;
+            }
+            this.logs = [];
+            this.logsStatus = '';
             this.authed = false;
             this.userId = null;
             this.csrfToken = null;

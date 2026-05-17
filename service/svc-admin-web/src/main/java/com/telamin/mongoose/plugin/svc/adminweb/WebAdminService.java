@@ -60,7 +60,9 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
     private byte[] resolvedSessionSecret;
     private final SecureRandom random = new SecureRandom();
     private MonitoringSampler monitoringSampler;
+    private LogTail logTail;
     private final java.util.Set<WsContext> monitorClients = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private final java.util.Set<WsContext> logClients     = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     // bind config
     @Getter @Setter private int    listenPort = 8181;
@@ -175,11 +177,18 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         // is carried as ?csrf=... query param (browsers can't add headers).
         javalin.before("/ws/*", this::enforceWsUpgradeAuth);
         javalin.ws("/ws/monitor", this::configureMonitorWs);
+        javalin.ws("/ws/logs",    this::configureLogsWs);
 
         // Periodic sampler — broadcasts to all live monitor clients.
         monitoringSampler = new MonitoringSampler(metricsIntervalMs);
         monitoringSampler.subscribe(this::broadcastMonitorSnapshot);
         monitoringSampler.start();
+
+        // Log tail — captures j.u.l records into a bounded ring buffer and
+        // fans new lines out to subscribed /ws/logs clients.
+        logTail = new LogTail(logTailBuffer);
+        logTail.subscribe(this::broadcastLogLine);
+        logTail.start();
     }
 
     @Override
@@ -188,7 +197,12 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
             monitoringSampler.stop();
             monitoringSampler = null;
         }
+        if (logTail != null) {
+            logTail.stop();
+            logTail = null;
+        }
         monitorClients.clear();
+        logClients.clear();
         if (javalin != null) {
             log.info("stopping web admin UI");
             javalin.stop();
@@ -471,6 +485,43 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
             } catch (Exception e) {
                 log.warn("monitor send failed; dropping client", e);
                 monitorClients.remove(c);
+            }
+        }
+    }
+
+    // -------- WebSocket logs --------
+
+    private void configureLogsWs(WsConfig ws) {
+        ws.onConnect(ctx -> {
+            logClients.add(ctx);
+            // Replay buffered records so the panel populates with recent history
+            // instead of starting blank.
+            try {
+                for (LogTail.LogLine line : logTail.snapshot()) {
+                    ctx.send(line);
+                }
+            } catch (Exception e) {
+                log.warn("initial log replay failed", e);
+            }
+        });
+        ws.onClose(ctx -> logClients.remove(ctx));
+        ws.onError(ctx -> {
+            log.warn("log ws error", ctx.error());
+            logClients.remove(ctx);
+        });
+    }
+
+    private void broadcastLogLine(LogTail.LogLine line) {
+        for (WsContext c : logClients) {
+            try {
+                if (c.session.isOpen()) {
+                    c.send(line);
+                } else {
+                    logClients.remove(c);
+                }
+            } catch (Exception e) {
+                // Best-effort delivery; subscriber list churn is fine.
+                logClients.remove(c);
             }
         }
     }

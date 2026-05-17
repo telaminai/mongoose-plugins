@@ -383,6 +383,45 @@ class WebAdminServiceTest {
         Assertions.assertEquals(401, r.statusCode());
     }
 
+    // ---------- M5 log tail ----------
+
+    @Test
+    void log_tail_buffer_size_configurable() {
+        svc = new WebAdminService();
+        svc.setLogTailBuffer(42);
+        svc.init();
+        Assertions.assertEquals(42, svc.getLogTailBuffer());
+    }
+
+    @Test
+    void service_lifecycle_with_log_tail_clean_start_stop() {
+        port = freePort();
+        svc = new WebAdminService();
+        svc.setListenPort(port);
+        svc.setHost("127.0.0.1");
+        svc.setLogTailBuffer(10);
+        svc.init();
+        svc.start();
+        // No assertion needed — start+tearDown installing+removing the handler
+        // without explosions covers the lifecycle wiring.
+        svc.tearDown();
+        svc = null;
+    }
+
+    @Test
+    void ws_logs_endpoint_requires_auth() throws Exception {
+        port = freePort();
+        svc = newBasicAuthService(port);
+        svc.init();
+        svc.start();
+
+        // Javalin's before("/ws/*") filter runs on the upgrade request, so a
+        // plain GET to the WS path without credentials is rejected the same
+        // way a real WS upgrade would be.
+        HttpResponse<String> r = get("/ws/logs", null, null);
+        Assertions.assertEquals(401, r.statusCode());
+    }
+
     // ---------- helpers ----------
 
     private static WebAdminService newBasicAuthService(int port) {

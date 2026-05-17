@@ -70,6 +70,33 @@
         </div>
     </section>
 
+    <section class="logs" x-show="logs.length || logsStatus">
+        <h2>Logs <span class="muted" x-text="logsStatus"></span></h2>
+        <div class="log-toolbar">
+            <label>level
+                <select x-model="logLevel">
+                    <option value="">ALL</option>
+                    <option value="INFO">INFO+</option>
+                    <option value="WARNING">WARN+</option>
+                    <option value="SEVERE">ERROR</option>
+                </select>
+            </label>
+            <input type="search" placeholder="filter…" x-model="logFilter" class="log-filter">
+            <label><input type="checkbox" x-model="logAutoScroll"> auto-scroll</label>
+            <button class="link" type="button" @click="clearLogs()">clear</button>
+        </div>
+        <pre class="log-pane" x-ref="logPane">
+            <template x-for="line in filteredLogs()" :key="line.ts + line.logger + line.msg">
+                <div :class="'log-line lvl-' + (line.level || 'INFO').toUpperCase()">
+                    <span class="log-ts" x-text="formatLogTs(line.ts)"></span>
+                    <span class="log-lvl" x-text="line.level"></span>
+                    <span class="log-logger" x-text="line.logger"></span>
+                    <span class="log-msg" x-text="line.msg"></span>
+                </div>
+            </template>
+        </pre>
+    </section>
+
     <section class="commands">
         <h2>Commands</h2>
         <input type="search" placeholder="filter…" x-model="filter" class="filter">
