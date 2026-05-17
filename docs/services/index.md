@@ -45,7 +45,7 @@ Cross-cutting capabilities that processors inject via `@ServiceRegistered`. One 
       <span class="plugin-tag service">service</span>
     </span>
 
--   :material-spring:{ .lg .middle } __[svc-loader-spring](loader-spring.md)__
+-   :simple-spring:{ .lg .middle } __[svc-loader-spring](loader-spring.md)__
 
     Hot-reload processors from Spring XML.
 

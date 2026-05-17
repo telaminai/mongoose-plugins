@@ -129,7 +129,7 @@ Cross-cutting capabilities shared across processors.
 
     Load and reload processors at runtime from YAML or Java source. Compiled or interpreted modes.
 
--   :material-spring: **[svc-loader-spring](services/loader-spring.md)**
+-   :simple-spring: **[svc-loader-spring](services/loader-spring.md)**
 
     <span class="plugin-tags"><span class="plugin-tag service">service</span></span>
 
