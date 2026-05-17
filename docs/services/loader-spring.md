@@ -23,40 +23,77 @@ The Spring XML format positions Fluxtion as a compiler that accepts arbitrary au
 
 ## Sample
 
+Register the loader as a service and point it at one or more Spring XML
+bean graphs to instantiate at boot:
+
 ```yaml
 services:
-  - name: springLoader
-    instance: !!com.fluxtion.dataflow.serverplugin.svc.loader.spring.SpringProcessorLoaderService
-      processorsDir: ./processors
+  - name: springLoaderService
+    service: !!com.fluxtion.dataflow.serverplugin.loader.spring.SpringEventHandlerLoader
+      addEventAuditor: false
+      loadAtStartup:
+        - { springFile: "config/pricing-beans.xml", compile: true }
 ```
 
-Plus a Spring XML file:
+Or, programmatically from Java:
+
+```java
+SpringEventHandlerLoader.EventSpringFile load = new SpringEventHandlerLoader.EventSpringFile();
+load.setSpringFile("config/pricing-beans.xml");
+load.setCompile(true);
+
+SpringEventHandlerLoader loader = new SpringEventHandlerLoader();
+loader.setLoadAtStartup(Set.of(load));
+
+MongooseServerConfig.builder()
+    .addService(ServiceConfig.<SpringEventHandlerLoader>builder()
+        .service(loader)
+        .serviceClass(SpringEventHandlerLoader.class)
+        .name("springLoaderService")
+        .build())
+    .build();
+```
+
+The processor XML uses plain Spring `<bean>` definitions — each bean becomes
+a node in the generated event-processor graph, `<property>` values flow
+through standard bean-property setters, `<ref>` wires inputs:
 
 ```xml
-<beans xmlns="http://www.springframework.org/schema/beans">
-  <bean id="tradeEnricher"
-        class="com.example.TradeEnricher">
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+                           https://www.springframework.org/schema/beans/spring-beans.xsd">
+  <bean id="tradeEnricher" class="com.example.TradeEnricher">
     <property name="threshold" value="100"/>
   </bean>
 </beans>
 ```
 
-At runtime, drop the XML in `processorsDir` and invoke:
+When `svc-admin-rest` or `svc-admin-telnet` is on the classpath, the loader
+also registers five admin commands:
 
-```
-admin > loader.springLoader.load trade-enricher.xml
-```
+- `springLoader.compileProcessor <xmlFile> [group]` — compile and add a Spring topology
+- `springLoader.interpretProcessor <xmlFile> [group]` — same, via the Fluxtion interpreter
+- `springLoader.reloadCompileProcessor <group/xmlFile>` — stop and reload (compile path)
+- `springLoader.reloadInterpretProcessor <group/xmlFile>` — stop and reload (interpret path)
+- `springLoader.listLoaded` — list currently-loaded processors
 
 ## Operational notes
 
 - Spring's full bean-definition parser is on the classpath; you get the usual `<bean>`, `<property>`, `<ref>`, profile, and import semantics.
-- The compiled topology runs as a regular Fluxtion processor — no Spring container at runtime.
+- The compiled topology runs as a regular Fluxtion processor — **no Spring container at runtime**. Spring is used at compile time only, to parse the bean graph.
+- Built against `spring-context` 6.2.1 (Spring Framework 6 / Jakarta EE namespace). `spring-context` is declared `provided` in the plugin pom — your application brings its own version.
 
 ## Examples
 
-A dedicated Spring-XML loader example is on the [Examples](../examples.md) roadmap. For the runtime shape, see the YAML loader example — the loaded-processor side is identical:
+- **[plugins/spring-service-loader-example](https://github.com/telaminai/mongoose-examples/tree/main/plugins/spring-service-loader-example)** — `SpringEventHandlerLoader` registered as a service with `loadAtStartup`; instantiates a handler from `log-processor.xml`, feeds it events from an in-memory source, prints them through the Spring-injected prefix.
 
-- **[getting-started/five-minute-yaml-tutorial](https://github.com/telaminai/mongoose-examples/tree/main/getting-started/five-minute-yaml-tutorial)**
+## Gotchas
+
+- **`mongoose` >= 1.0.9 required.** Earlier versions miss event-processor
+  agents that the loader registers during its own `start()` hook — the
+  processor would init but never receive events. Fixed by a late-start pass
+  in `MongooseServer.start()`.
 
 ## Source
 
