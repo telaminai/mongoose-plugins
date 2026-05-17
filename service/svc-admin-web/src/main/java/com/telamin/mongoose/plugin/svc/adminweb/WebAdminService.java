@@ -13,34 +13,51 @@ import com.telamin.mongoose.service.EventFlowService;
 import com.telamin.mongoose.service.EventSubscriptionKey;
 import com.telamin.mongoose.service.admin.AdminCommandRegistry;
 import io.javalin.Javalin;
+import io.javalin.http.Context;
+import io.javalin.http.Cookie;
+import io.javalin.http.HandlerType;
+import io.javalin.http.SameSite;
+import io.javalin.http.UnauthorizedResponse;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.log4j.Log4j2;
+
+import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
+import java.util.Base64;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Browser-based admin & monitoring UI for Mongoose. Presentation layer over
  * {@link AdminCommandRegistry} — the same command surface that
  * {@code svc-admin-telnet} and {@code svc-admin-rest} drive.
  *
- * <p>M1: module skeleton. Binds Javalin on {@code host:listenPort} and serves
- * {@code /healthz} only. Auth, session, command surface, and UI ship in
- * M2–M7. See {@code design/svc-admin-web.md} for the full spec.
+ * <p>M1: {@code /healthz}.<br>
+ * M2: BASIC/BEARER auth on {@code /api/*}, HMAC-signed session cookie, CSRF
+ * token on state-changing requests, {@code /api/session/{login,logout}}.<br>
+ * M3–M7: see {@code design/svc-admin-web.md}.
  */
 @Log4j2
 public class WebAdminService implements EventFlowService<Object>, Lifecycle {
 
     public enum AuthMode {NONE, BASIC, BEARER}
 
+    static final String SESSION_COOKIE = "mongoose_admin_session";
+    static final String CSRF_HEADER    = "X-CSRF-Token";
+
     private Javalin javalin;
     private EventFlowManager eventFlowManager;
     private AdminCommandRegistry adminCommandRegistry;
+    private byte[] resolvedSessionSecret;
+    private final SecureRandom random = new SecureRandom();
 
     // bind config
     @Getter @Setter private int    listenPort = 8181;
     @Getter @Setter private String host       = "127.0.0.1";
     @Getter @Setter private String basePath   = "/";
 
-    // auth config (wiring lands in M2)
+    // auth config
     @Getter @Setter private AuthMode authMode = AuthMode.NONE;
     @Getter @Setter private String username;
     @Setter         private String password;
@@ -48,11 +65,11 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
     @Getter @Setter private String realm = "mongoose-admin";
 
     // monitoring config (wiring lands in M4 / M5)
-    @Getter @Setter private int    metricsIntervalMs = 1000;  // clamped >= 250 ms at start()
+    @Getter @Setter private int    metricsIntervalMs = 1000;
     @Getter @Setter private int    logTailBuffer     = 500;
     @Getter @Setter private String loaderBaseDir;
 
-    // session config (wiring lands in M2)
+    // session config
     @Setter         private String sessionSecret;
     @Getter @Setter private int    sessionMinutes = 60;
 
@@ -91,14 +108,41 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
             log.warn("metricsIntervalMs {} below 250 ms minimum; clamping", metricsIntervalMs);
             metricsIntervalMs = 250;
         }
+        if (authMode == AuthMode.BASIC && (resolvedUsername() == null || resolvedPassword() == null)) {
+            throw new IllegalStateException("BASIC auth selected but username/password not configured");
+        }
+        if (authMode == AuthMode.BEARER && (resolvedBearerToken() == null || resolvedBearerToken().isEmpty())) {
+            throw new IllegalStateException("BEARER auth selected but bearerToken not configured");
+        }
+
+        String resolvedSecret = resolveEnv(sessionSecret);
+        if (resolvedSecret == null || resolvedSecret.isEmpty()) {
+            // No secret configured → generate one for this JVM. Sessions invalidate on restart.
+            byte[] generated = new byte[32];
+            random.nextBytes(generated);
+            this.resolvedSessionSecret = generated;
+            if (authMode != AuthMode.NONE) {
+                log.warn("sessionSecret unset; using random per-JVM secret. Sessions will not survive restart.");
+            }
+        } else {
+            this.resolvedSessionSecret = resolvedSecret.getBytes(StandardCharsets.UTF_8);
+        }
     }
 
     @Override
     public void start() {
-        log.info("starting web admin UI on http://{}:{}{}", host, listenPort, basePath);
+        log.info("starting web admin UI on http://{}:{}{} (auth={})", host, listenPort, basePath, authMode);
         javalin = Javalin.create().start(host, listenPort);
-        // M1: liveness probe only. Auth, session, command surface, UI ship later.
+
+        // Liveness probe — never auth-gated.
         javalin.get("/healthz", ctx -> ctx.result("OK"));
+
+        // Auth filter applied to /api/* (session login/logout handled inside).
+        javalin.before("/api/*", this::enforceAuthAndCsrf);
+
+        // Session endpoints.
+        javalin.post("/api/session/login", this::handleLogin);
+        javalin.post("/api/session/logout", this::handleLogout);
     }
 
     @Override
@@ -108,5 +152,194 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
             javalin.stop();
             javalin = null;
         }
+    }
+
+    // -------- auth filter --------
+
+    private void enforceAuthAndCsrf(Context ctx) {
+        String path = ctx.path();
+        // The login endpoint itself is the auth bootstrap — it validates
+        // credentials inline. Logout is auth-gated (you must be in a session
+        // to log out of it).
+        boolean isLogin = "/api/session/login".equals(path);
+
+        if (!isLogin && authMode != AuthMode.NONE) {
+            boolean authed = hasValidSessionCookie(ctx) || hasValidAuthHeader(ctx);
+            if (!authed) {
+                reject(ctx);
+                return;
+            }
+        }
+
+        // CSRF: every state-changing request needs the token. Login is exempt
+        // because it doesn't have a session yet. GET/HEAD requests don't need
+        // CSRF protection per the standard cookie-based threat model.
+        if (!isLogin && requiresCsrf(ctx) && authMode != AuthMode.NONE) {
+            SessionToken session = currentSession(ctx);
+            if (session == null) {
+                // Auth header alone (no cookie) is treated as a script client;
+                // CSRF doesn't apply because there's no ambient cookie auth to
+                // exploit. Skip the check in that case.
+                return;
+            }
+            String presented = ctx.header(CSRF_HEADER);
+            if (presented == null || !constantTimeEquals(presented, session.csrfToken)) {
+                throw new UnauthorizedResponse("missing or invalid CSRF token", Map.of());
+            }
+        }
+    }
+
+    private boolean requiresCsrf(Context ctx) {
+        HandlerType m = ctx.method();
+        return m == HandlerType.POST || m == HandlerType.PUT || m == HandlerType.DELETE
+                || m == HandlerType.PATCH;
+    }
+
+    private boolean hasValidSessionCookie(Context ctx) {
+        return currentSession(ctx) != null;
+    }
+
+    private SessionToken currentSession(Context ctx) {
+        String cookieValue = ctx.cookie(SESSION_COOKIE);
+        return SessionToken.decode(cookieValue, resolvedSessionSecret, System.currentTimeMillis());
+    }
+
+    private boolean hasValidAuthHeader(Context ctx) {
+        String header = ctx.header("Authorization");
+        if (header == null) return false;
+        if (authMode == AuthMode.BASIC) {
+            if (!header.startsWith("Basic ")) return false;
+            String decoded;
+            try {
+                decoded = new String(Base64.getDecoder().decode(header.substring("Basic ".length())),
+                        StandardCharsets.UTF_8);
+            } catch (IllegalArgumentException e) {
+                return false;
+            }
+            int colon = decoded.indexOf(':');
+            if (colon < 0) return false;
+            String u = decoded.substring(0, colon);
+            String p = decoded.substring(colon + 1);
+            return constantTimeEquals(u, resolvedUsername())
+                    && constantTimeEquals(p, resolvedPassword());
+        }
+        if (authMode == AuthMode.BEARER) {
+            if (!header.startsWith("Bearer ")) return false;
+            return constantTimeEquals(header.substring("Bearer ".length()).trim(),
+                    resolvedBearerToken());
+        }
+        return false;
+    }
+
+    private void reject(Context ctx) {
+        if (authMode == AuthMode.BASIC) {
+            ctx.header("WWW-Authenticate", "Basic realm=\"" + realm + "\"");
+        } else if (authMode == AuthMode.BEARER) {
+            ctx.header("WWW-Authenticate", "Bearer realm=\"" + realm + "\"");
+        }
+        throw new UnauthorizedResponse("unauthorized", Map.of());
+    }
+
+    // -------- session endpoints --------
+
+    private void handleLogin(Context ctx) {
+        if (authMode == AuthMode.NONE) {
+            // No login needed; return a session anyway so the UI can read its CSRF token.
+            issueSession(ctx, "anonymous");
+            return;
+        }
+
+        LoginRequest body;
+        try {
+            body = ctx.bodyAsClass(LoginRequest.class);
+        } catch (Exception e) {
+            throw new UnauthorizedResponse("invalid login body", Map.of());
+        }
+
+        boolean ok = false;
+        String userId = null;
+        if (authMode == AuthMode.BASIC) {
+            ok = body != null
+                    && constantTimeEquals(body.username, resolvedUsername())
+                    && constantTimeEquals(body.password, resolvedPassword());
+            userId = body == null ? null : body.username;
+        } else if (authMode == AuthMode.BEARER) {
+            ok = body != null && constantTimeEquals(body.token, resolvedBearerToken());
+            userId = "bearer";
+        }
+        if (!ok) {
+            reject(ctx);
+            return;
+        }
+        issueSession(ctx, userId);
+    }
+
+    private void issueSession(Context ctx, String userId) {
+        long expiry = System.currentTimeMillis() + TimeUnit.MINUTES.toMillis(sessionMinutes);
+        String csrf = randomToken();
+        SessionToken token = new SessionToken(userId, expiry, csrf);
+        String cookieValue = token.encode(resolvedSessionSecret);
+
+        Cookie cookie = new Cookie(SESSION_COOKIE, cookieValue);
+        cookie.setHttpOnly(true);
+        cookie.setSameSite(SameSite.STRICT);
+        cookie.setPath("/");
+        // Secure flag honoured when behind TLS reverse proxy.
+        if ("https".equalsIgnoreCase(ctx.header("X-Forwarded-Proto"))
+                || "https".equalsIgnoreCase(ctx.scheme())) {
+            cookie.setSecure(true);
+        }
+        cookie.setMaxAge((int) TimeUnit.MINUTES.toSeconds(sessionMinutes));
+        ctx.cookie(cookie);
+
+        ctx.json(Map.of(
+                "userId", userId,
+                "csrfToken", csrf,
+                "expiresAt", expiry));
+    }
+
+    private void handleLogout(Context ctx) {
+        ctx.removeCookie(SESSION_COOKIE, "/");
+        ctx.result("OK");
+    }
+
+    // -------- helpers --------
+
+    private String randomToken() {
+        byte[] bytes = new byte[24];
+        random.nextBytes(bytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    private static boolean constantTimeEquals(String a, String b) {
+        if (a == null || b == null) return false;
+        byte[] ab = a.getBytes(StandardCharsets.UTF_8);
+        byte[] bb = b.getBytes(StandardCharsets.UTF_8);
+        if (ab.length != bb.length) return false;
+        int diff = 0;
+        for (int i = 0; i < ab.length; i++) diff |= ab[i] ^ bb[i];
+        return diff == 0;
+    }
+
+    private String resolvedUsername()    { return resolveEnv(username); }
+    private String resolvedPassword()    { return resolveEnv(password); }
+    private String resolvedBearerToken() { return resolveEnv(bearerToken); }
+
+    private static String resolveEnv(String token) {
+        if (token == null) return null;
+        if (token.startsWith("$ENV.")) {
+            String key = token.substring("$ENV.".length());
+            String fromEnv = System.getenv(key);
+            if (fromEnv != null) return fromEnv;
+            return System.getProperty(token);
+        }
+        return token;
+    }
+
+    /** POST /api/session/login body. */
+    public static class LoginRequest {
+        public String username;
+        public String password;
+        public String token;
     }
 }
