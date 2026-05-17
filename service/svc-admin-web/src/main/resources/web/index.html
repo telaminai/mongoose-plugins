@@ -97,6 +97,78 @@
         </pre>
     </section>
 
+    <section class="cache panel" x-show="hasCacheCommands()">
+        <h2>Cache</h2>
+        <div class="panel-actions">
+            <button type="button" @click="cacheList()" :disabled="cacheBusy">list caches</button>
+            <form @submit.prevent="cacheKeys()" class="inline-form">
+                <input type="text" x-model="cacheNameInput" placeholder="cache name">
+                <button type="submit" :disabled="cacheBusy || !cacheNameInput">keys</button>
+            </form>
+            <form @submit.prevent="cacheGet()" class="inline-form">
+                <input type="text" x-model="cacheGetName" placeholder="cache name">
+                <input type="text" x-model="cacheGetKey"  placeholder="key">
+                <button type="submit" :disabled="cacheBusy || !cacheGetName || !cacheGetKey">get</button>
+            </form>
+        </div>
+        <pre class="out" x-show="cacheOutput.length"><template x-for="line in cacheOutput" :key="line"><span x-text="line + '\n'"></span></template></pre>
+        <pre class="err" x-show="cacheErr.length"><template x-for="line in cacheErr" :key="line"><span x-text="line + '\n'"></span></template></pre>
+    </section>
+
+    <section class="loader panel" x-show="hasLoaderCommands()">
+        <h2>Loader</h2>
+        <template x-if="hasYamlLoader()">
+            <form @submit.prevent="yamlCompile()" class="loader-form">
+                <h3>YAML — compileProcessor</h3>
+                <label>path
+                    <input type="text" x-model="yamlPath" placeholder="processor.yaml">
+                    <button class="link" type="button" @click="openPicker('yamlPath')" x-show="loaderBaseDirAvailable">browse…</button>
+                </label>
+                <label>group
+                    <input type="text" x-model="yamlGroup" placeholder="default">
+                </label>
+                <button type="submit" :disabled="loaderBusy || !yamlPath">compile</button>
+            </form>
+        </template>
+        <template x-if="hasSpringLoader()">
+            <form @submit.prevent="springCompile()" class="loader-form">
+                <h3>Spring — compileProcessor</h3>
+                <label>path
+                    <input type="text" x-model="springPath" placeholder="processor.xml">
+                    <button class="link" type="button" @click="openPicker('springPath')" x-show="loaderBaseDirAvailable">browse…</button>
+                </label>
+                <label>group
+                    <input type="text" x-model="springGroup" placeholder="default">
+                </label>
+                <button type="submit" :disabled="loaderBusy || !springPath">compile</button>
+            </form>
+        </template>
+        <pre class="out" x-show="loaderOutput.length"><template x-for="line in loaderOutput" :key="line"><span x-text="line + '\n'"></span></template></pre>
+        <pre class="err" x-show="loaderErr.length"><template x-for="line in loaderErr" :key="line"><span x-text="line + '\n'"></span></template></pre>
+
+        <div class="picker" x-show="pickerOpen" @keydown.escape.window="pickerOpen=false">
+            <div class="picker-box">
+                <div class="picker-header">
+                    <span class="muted">/<span x-text="pickerCwd"></span></span>
+                    <button class="link" type="button" @click="pickerOpen=false">close</button>
+                </div>
+                <ul class="picker-list">
+                    <li x-show="pickerCwd">
+                        <button class="link" type="button" @click="pickerUp()">..</button>
+                    </li>
+                    <template x-for="e in pickerEntries" :key="e.name">
+                        <li>
+                            <button class="link" type="button" @click="pickerSelect(e)">
+                                <span x-text="e.name + (e.isDir ? '/' : '')"></span>
+                            </button>
+                        </li>
+                    </template>
+                    <li x-show="!pickerEntries.length" class="muted">(empty)</li>
+                </ul>
+            </div>
+        </div>
+    </section>
+
     <section class="commands">
         <h2>Commands</h2>
         <input type="search" placeholder="filter…" x-model="filter" class="filter">

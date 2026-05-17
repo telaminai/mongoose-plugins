@@ -172,6 +172,10 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         javalin.get("/api/server", this::handleServer);
         javalin.get("/api/jvm", this::handleJvm);
 
+        // Conditional file picker for loader forms. Always mounted, but returns
+        // 404 when loaderBaseDir is unset so the UI hides the tab automatically.
+        javalin.get("/api/files", this::handleListFiles);
+
         // Monitoring WebSocket. Same auth filter applies to the HTTP upgrade
         // request because Javalin's before() runs on the upgrade. CSRF on WS
         // is carried as ?csrf=... query param (browsers can't add headers).
@@ -417,6 +421,72 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
 
     private void handleJvm(Context ctx) {
         ctx.json(MonitoringSampler.snapshot());
+    }
+
+    private void handleListFiles(Context ctx) {
+        if (loaderBaseDir == null || loaderBaseDir.isEmpty()) {
+            ctx.status(HttpStatus.NOT_FOUND);
+            ctx.json(Map.of("err", "loaderBaseDir is not configured"));
+            return;
+        }
+        java.nio.file.Path base;
+        try {
+            base = java.nio.file.Paths.get(loaderBaseDir).toRealPath();
+        } catch (java.io.IOException e) {
+            ctx.status(HttpStatus.NOT_FOUND);
+            ctx.json(Map.of("err", "loaderBaseDir does not exist: " + loaderBaseDir));
+            return;
+        }
+        String rel = ctx.queryParam("path");
+        if (rel == null) rel = "";
+        // Reject absolute paths and obvious traversal attempts up front.
+        if (rel.startsWith("/") || rel.startsWith("\\") || rel.contains("..")) {
+            ctx.status(HttpStatus.BAD_REQUEST);
+            ctx.json(Map.of("err", "path escape rejected"));
+            return;
+        }
+        java.nio.file.Path target;
+        try {
+            target = base.resolve(rel).toRealPath();
+        } catch (java.io.IOException e) {
+            ctx.status(HttpStatus.NOT_FOUND);
+            ctx.json(Map.of("err", "no such path"));
+            return;
+        }
+        // Belt+braces: after resolve+toRealPath the target must still be under
+        // base. This catches symlinks pointing outside the sandbox.
+        if (!target.startsWith(base)) {
+            ctx.status(HttpStatus.BAD_REQUEST);
+            ctx.json(Map.of("err", "path escape rejected"));
+            return;
+        }
+        if (!java.nio.file.Files.isDirectory(target)) {
+            ctx.status(HttpStatus.BAD_REQUEST);
+            ctx.json(Map.of("err", "not a directory"));
+            return;
+        }
+        List<Map<String, Object>> entries = new ArrayList<>();
+        try (java.util.stream.Stream<java.nio.file.Path> s = java.nio.file.Files.list(target)) {
+            s.sorted().forEach(p -> {
+                Map<String, Object> e = new java.util.LinkedHashMap<>();
+                e.put("name", p.getFileName().toString());
+                e.put("isDir", java.nio.file.Files.isDirectory(p));
+                long size = -1;
+                try {
+                    if (!java.nio.file.Files.isDirectory(p)) size = java.nio.file.Files.size(p);
+                } catch (java.io.IOException ignore) { }
+                e.put("size", size);
+                entries.add(e);
+            });
+        } catch (java.io.IOException e) {
+            ctx.status(HttpStatus.INTERNAL_SERVER_ERROR);
+            ctx.json(Map.of("err", "list failed: " + e.getMessage()));
+            return;
+        }
+        String relForResp = base.relativize(target).toString().replace('\\', '/');
+        ctx.json(Map.of(
+                "cwd", relForResp,
+                "entries", entries));
     }
 
     // -------- WebSocket monitor --------

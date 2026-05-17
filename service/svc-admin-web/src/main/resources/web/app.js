@@ -47,6 +47,30 @@ document.addEventListener('alpine:init', () => {
         logAutoScroll: true,
         logCap: 1000,
 
+        // cache panel state
+        cacheBusy: false,
+        cacheNameInput: '',
+        cacheGetName: '',
+        cacheGetKey: '',
+        cacheOutput: [],
+        cacheErr: [],
+
+        // loader panel state
+        loaderBusy: false,
+        loaderBaseDirAvailable: false,
+        yamlPath: '',
+        yamlGroup: '',
+        springPath: '',
+        springGroup: '',
+        loaderOutput: [],
+        loaderErr: [],
+
+        // file picker state
+        pickerOpen: false,
+        pickerTargetField: null,
+        pickerCwd: '',
+        pickerEntries: [],
+
         async boot() {
             // Probe: if /api/commands returns 200, we're authed (or NONE mode).
             const r = await fetch('/api/commands', { credentials: 'same-origin' });
@@ -75,6 +99,7 @@ document.addEventListener('alpine:init', () => {
             await this.loadDashboard();
             this.openMonitorWs();
             this.openLogsWs();
+            await this.probeLoaderBaseDir();
         },
 
         async loadDashboard() {
@@ -185,6 +210,148 @@ document.addEventListener('alpine:init', () => {
                  + '.' + pad(d.getMilliseconds(), 3);
         },
 
+        // ---- conditional tab predicates ----
+
+        hasCacheCommands() {
+            return this.commands.some(c => c === 'cache.list' || c.startsWith('cache.'));
+        },
+
+        hasYamlLoader() {
+            return this.commands.some(c => c.startsWith('yamlLoader.'));
+        },
+
+        hasSpringLoader() {
+            return this.commands.some(c => c.startsWith('springLoader.'));
+        },
+
+        hasLoaderCommands() {
+            return this.hasYamlLoader() || this.hasSpringLoader();
+        },
+
+        // ---- command invocation helper (no UI runner state) ----
+
+        async invokeRaw(name, args) {
+            try {
+                const r = await fetch('/api/commands/' + encodeURIComponent(name), {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-Token': this.csrfToken || ''
+                    },
+                    body: JSON.stringify({ args: args || [] })
+                });
+                if (!r.ok) {
+                    return { output: [], err: ['HTTP ' + r.status] };
+                }
+                return await r.json();
+            } catch (e) {
+                return { output: [], err: ['network error: ' + e.message] };
+            }
+        },
+
+        // ---- cache panel actions ----
+
+        async cacheList() {
+            this.cacheBusy = true;
+            const res = await this.invokeRaw('cache.list', []);
+            this.cacheOutput = res.output || [];
+            this.cacheErr    = res.err    || [];
+            this.cacheBusy = false;
+        },
+
+        async cacheKeys() {
+            if (!this.cacheNameInput) return;
+            this.cacheBusy = true;
+            const cmd = 'cache.' + this.cacheNameInput + '.keys';
+            const res = await this.invokeRaw(cmd, []);
+            this.cacheOutput = res.output || [];
+            this.cacheErr    = res.err    || [];
+            this.cacheBusy = false;
+        },
+
+        async cacheGet() {
+            if (!this.cacheGetName || !this.cacheGetKey) return;
+            this.cacheBusy = true;
+            const cmd = 'cache.' + this.cacheGetName + '.get';
+            const res = await this.invokeRaw(cmd, [this.cacheGetKey]);
+            this.cacheOutput = res.output || [];
+            this.cacheErr    = res.err    || [];
+            this.cacheBusy = false;
+        },
+
+        // ---- loader panel actions ----
+
+        async yamlCompile() {
+            if (!this.yamlPath) return;
+            this.loaderBusy = true;
+            const args = this.yamlGroup ? [this.yamlPath, this.yamlGroup] : [this.yamlPath];
+            const res = await this.invokeRaw('yamlLoader.compileProcessor', args);
+            this.loaderOutput = res.output || [];
+            this.loaderErr    = res.err    || [];
+            this.loaderBusy = false;
+        },
+
+        async springCompile() {
+            if (!this.springPath) return;
+            this.loaderBusy = true;
+            const args = this.springGroup ? [this.springPath, this.springGroup] : [this.springPath];
+            const res = await this.invokeRaw('springLoader.compileProcessor', args);
+            this.loaderOutput = res.output || [];
+            this.loaderErr    = res.err    || [];
+            this.loaderBusy = false;
+        },
+
+        // ---- file picker (loaderBaseDir-rooted) ----
+
+        async probeLoaderBaseDir() {
+            try {
+                const r = await fetch('/api/files', { credentials: 'same-origin' });
+                this.loaderBaseDirAvailable = r.ok;
+            } catch (e) {
+                this.loaderBaseDirAvailable = false;
+            }
+        },
+
+        async openPicker(targetField) {
+            this.pickerTargetField = targetField;
+            this.pickerCwd = '';
+            await this.loadPicker('');
+            this.pickerOpen = true;
+        },
+
+        async loadPicker(path) {
+            const qs = path ? '?path=' + encodeURIComponent(path) : '';
+            try {
+                const r = await fetch('/api/files' + qs, { credentials: 'same-origin' });
+                if (!r.ok) {
+                    this.pickerEntries = [];
+                    return;
+                }
+                const data = await r.json();
+                this.pickerCwd = data.cwd || '';
+                this.pickerEntries = data.entries || [];
+            } catch (e) {
+                this.pickerEntries = [];
+            }
+        },
+
+        async pickerSelect(e) {
+            const next = this.pickerCwd ? (this.pickerCwd + '/' + e.name) : e.name;
+            if (e.isDir) {
+                await this.loadPicker(next);
+            } else {
+                this[this.pickerTargetField] = next;
+                this.pickerOpen = false;
+            }
+        },
+
+        async pickerUp() {
+            const parts = this.pickerCwd.split('/').filter(Boolean);
+            parts.pop();
+            await this.loadPicker(parts.join('/'));
+        },
+
         formatBytes(b) {
             if (b == null) return '—';
             if (b < 0) return '—';
@@ -252,6 +419,7 @@ document.addEventListener('alpine:init', () => {
             await this.loadDashboard();
             this.openMonitorWs();
             this.openLogsWs();
+            await this.probeLoaderBaseDir();
         },
 
         async logout() {

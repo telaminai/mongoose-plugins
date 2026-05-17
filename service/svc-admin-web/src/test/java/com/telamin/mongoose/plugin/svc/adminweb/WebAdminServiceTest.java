@@ -383,6 +383,83 @@ class WebAdminServiceTest {
         Assertions.assertEquals(401, r.statusCode());
     }
 
+    // ---------- M6 file picker ----------
+
+    @Test
+    void files_endpoint_returns_404_when_loader_base_dir_unset() throws Exception {
+        port = freePort();
+        svc = new WebAdminService();
+        svc.setListenPort(port);
+        svc.setHost("127.0.0.1");
+        svc.init();
+        svc.start();
+
+        HttpResponse<String> r = get("/api/files", null, null);
+        Assertions.assertEquals(404, r.statusCode());
+    }
+
+    @Test
+    void files_endpoint_lists_entries_under_base_dir(@org.junit.jupiter.api.io.TempDir java.nio.file.Path tmp) throws Exception {
+        java.nio.file.Files.writeString(tmp.resolve("a.yaml"), "yaml: a");
+        java.nio.file.Files.writeString(tmp.resolve("b.xml"),  "<b/>");
+        java.nio.file.Files.createDirectory(tmp.resolve("sub"));
+
+        port = freePort();
+        svc = new WebAdminService();
+        svc.setListenPort(port);
+        svc.setHost("127.0.0.1");
+        svc.setLoaderBaseDir(tmp.toString());
+        svc.init();
+        svc.start();
+
+        HttpResponse<String> r = get("/api/files", null, null);
+        Assertions.assertEquals(200, r.statusCode(), r.body());
+        Assertions.assertTrue(r.body().contains("\"a.yaml\""), "body lists a.yaml: " + r.body());
+        Assertions.assertTrue(r.body().contains("\"b.xml\""),  "body lists b.xml: "  + r.body());
+        Assertions.assertTrue(r.body().contains("\"sub\""),    "body lists sub: "    + r.body());
+        Assertions.assertTrue(r.body().contains("\"isDir\":true"), "subdir marked isDir");
+    }
+
+    @Test
+    void files_endpoint_rejects_path_traversal(@org.junit.jupiter.api.io.TempDir java.nio.file.Path tmp) throws Exception {
+        port = freePort();
+        svc = new WebAdminService();
+        svc.setListenPort(port);
+        svc.setHost("127.0.0.1");
+        svc.setLoaderBaseDir(tmp.toString());
+        svc.init();
+        svc.start();
+
+        HttpResponse<String> r = get("/api/files?path=../../etc", null, null);
+        Assertions.assertEquals(400, r.statusCode());
+    }
+
+    @Test
+    void files_endpoint_rejects_absolute_path(@org.junit.jupiter.api.io.TempDir java.nio.file.Path tmp) throws Exception {
+        port = freePort();
+        svc = new WebAdminService();
+        svc.setListenPort(port);
+        svc.setHost("127.0.0.1");
+        svc.setLoaderBaseDir(tmp.toString());
+        svc.init();
+        svc.start();
+
+        HttpResponse<String> r = get("/api/files?path=/etc/passwd", null, null);
+        Assertions.assertEquals(400, r.statusCode());
+    }
+
+    @Test
+    void files_endpoint_blocked_unauth() throws Exception {
+        port = freePort();
+        svc = newBasicAuthService(port);
+        svc.setLoaderBaseDir(System.getProperty("java.io.tmpdir"));
+        svc.init();
+        svc.start();
+
+        HttpResponse<String> r = get("/api/files", null, null);
+        Assertions.assertEquals(401, r.statusCode());
+    }
+
     // ---------- M5 log tail ----------
 
     @Test
