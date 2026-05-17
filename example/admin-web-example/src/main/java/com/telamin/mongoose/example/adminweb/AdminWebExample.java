@@ -8,6 +8,9 @@ import com.telamin.mongoose.MongooseServer;
 import com.telamin.mongoose.config.MongooseServerConfig;
 import com.telamin.mongoose.config.ServiceConfig;
 import com.telamin.mongoose.plugin.svc.adminweb.WebAdminService;
+import com.telamin.mongoose.service.admin.AdminCommandRegistry;
+import com.telamin.mongoose.service.admin.impl.AdminCommandProcessor;
+import com.telamin.mongoose.service.servercontrol.MongooseServerAdmin;
 
 /**
  * Boots a Mongoose server with {@link WebAdminService} registered, leaving
@@ -40,7 +43,24 @@ public class AdminWebExample {
                 .name("adminWebService")
                 .build();
 
+        // AdminCommandProcessor is the registry implementation. Without it,
+        // commandList() is empty and the UI shows "no commands registered".
+        ServiceConfig<AdminCommandRegistry> registrySvc = ServiceConfig.<AdminCommandRegistry>builder()
+                .service(new AdminCommandProcessor())
+                .serviceClass(AdminCommandRegistry.class)
+                .name("adminCommandRegistry")
+                .build();
+
+        // MongooseServerAdmin publishes server.service.list, server.processors.list,
+        // server.processors.stop — gives the UI something to click out-of-the-box.
+        ServiceConfig<?> serverAdminSvc = ServiceConfig.builder()
+                .service(new MongooseServerAdmin())
+                .name("serverAdmin")
+                .build();
+
         MongooseServerConfig serverConfig = MongooseServerConfig.builder()
+                .addService(registrySvc)
+                .addService(serverAdminSvc)
                 .addService(adminWebSvc)
                 .build();
 

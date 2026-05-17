@@ -18,8 +18,11 @@ mvn exec:exec
 
 Then open:
 
-- `http://127.0.0.1:8181/healthz` — M1; returns `OK`.
-- `http://127.0.0.1:8181/` — populated in M3 onward.
+- `http://127.0.0.1:8181/` — SPA: command list + runner (M3+).
+- `http://127.0.0.1:8181/healthz` — liveness probe.
+- `http://127.0.0.1:8181/api/commands` — JSON command surface.
+
+The example registers `AdminCommandProcessor` + `MongooseServerAdmin`, so the UI shows three commands out-of-the-box: `server.service.list`, `server.processors.list`, `server.processors.stop`. Click any of them, hit **run**, and the output panel populates.
 
 `Ctrl-C` cleanly stops the Mongoose server via a shutdown hook.
 

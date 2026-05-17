@@ -12,19 +12,25 @@ import com.telamin.mongoose.dispatch.EventToQueuePublisher;
 import com.telamin.mongoose.service.EventFlowService;
 import com.telamin.mongoose.service.EventSubscriptionKey;
 import com.telamin.mongoose.service.admin.AdminCommandRegistry;
+import com.telamin.mongoose.service.admin.AdminCommandRequest;
 import io.javalin.Javalin;
 import io.javalin.http.Context;
 import io.javalin.http.Cookie;
 import io.javalin.http.HandlerType;
+import io.javalin.http.HttpStatus;
 import io.javalin.http.SameSite;
 import io.javalin.http.UnauthorizedResponse;
+import io.javalin.http.staticfiles.Location;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.log4j.Log4j2;
 
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -132,7 +138,15 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
     @Override
     public void start() {
         log.info("starting web admin UI on http://{}:{}{} (auth={})", host, listenPort, basePath, authMode);
-        javalin = Javalin.create().start(host, listenPort);
+        javalin = Javalin.create(config -> {
+            // Bundled UI assets — htmx + Alpine SPA shell. Served from classpath
+            // so a single jar is enough; no node toolchain, no staticDir config.
+            config.staticFiles.add(staticFileConfig -> {
+                staticFileConfig.hostedPath = "/";
+                staticFileConfig.directory = "/web";
+                staticFileConfig.location = Location.CLASSPATH;
+            });
+        }).start(host, listenPort);
 
         // Liveness probe — never auth-gated.
         javalin.get("/healthz", ctx -> ctx.result("OK"));
@@ -143,6 +157,10 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         // Session endpoints.
         javalin.post("/api/session/login", this::handleLogin);
         javalin.post("/api/session/logout", this::handleLogout);
+
+        // Admin command surface — list + invoke. Auth filter above gates both.
+        javalin.get("/api/commands", this::handleListCommands);
+        javalin.post("/api/commands/{name}", this::handleInvokeCommand);
     }
 
     @Override
@@ -303,6 +321,56 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         ctx.result("OK");
     }
 
+    // -------- admin command surface --------
+
+    private void handleListCommands(Context ctx) {
+        List<String> commands = adminCommandRegistry == null
+                ? Collections.emptyList()
+                : adminCommandRegistry.commandList();
+        ctx.json(Map.of("commands", commands));
+    }
+
+    private void handleInvokeCommand(Context ctx) {
+        if (adminCommandRegistry == null) {
+            ctx.status(HttpStatus.SERVICE_UNAVAILABLE);
+            ctx.json(Map.of("err", List.of("AdminCommandRegistry not wired")));
+            return;
+        }
+
+        String name = ctx.pathParam("name");
+        InvokeRequest body;
+        try {
+            body = ctx.bodyAsClass(InvokeRequest.class);
+        } catch (Exception e) {
+            body = null;
+        }
+
+        AdminCommandRequest req = new AdminCommandRequest();
+        req.setCommand(name);
+        if (body != null && body.args != null) {
+            req.setArguments(new ArrayList<>(body.args));
+        }
+
+        // output / errOutput may be called multiple times — buffer all into
+        // lists. v1: cancellation and streaming are deferred (§10.1).
+        List<String> outBuffer = Collections.synchronizedList(new ArrayList<>());
+        List<String> errBuffer = Collections.synchronizedList(new ArrayList<>());
+        req.setOutput(o -> outBuffer.add(String.valueOf(o)));
+        req.setErrOutput(e -> errBuffer.add(String.valueOf(e)));
+
+        try {
+            adminCommandRegistry.processAdminCommandRequest(req);
+        } catch (Exception e) {
+            log.warn("admin command '{}' threw", name, e);
+            errBuffer.add("exception: " + e.getMessage());
+        }
+
+        ctx.json(Map.of(
+                "command", name,
+                "output", new ArrayList<>(outBuffer),
+                "err", new ArrayList<>(errBuffer)));
+    }
+
     // -------- helpers --------
 
     private String randomToken() {
@@ -341,5 +409,10 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         public String username;
         public String password;
         public String token;
+    }
+
+    /** POST /api/commands/{name} body. */
+    public static class InvokeRequest {
+        public List<String> args;
     }
 }
