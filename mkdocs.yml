@@ -1,0 +1,109 @@
+site_name: Mongoose Plugins
+site_description: A catalogue of plugins for the Telamin Mongoose deterministic event-processing server — connectors, services, and libraries.
+site_url: https://telaminai.github.io/mongoose-plugins/
+repo_url: https://github.com/telaminai/mongoose-plugins
+repo_name: telaminai/mongoose-plugins
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.indexes
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+    - content.action.edit
+    - toc.follow
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: deep orange
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: deep orange
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  icon:
+    repo: fontawesome/brands/github
+    logo: material/connection
+  font:
+    text: Inter
+    code: JetBrains Mono
+
+extra_css:
+  - stylesheets/extra.css
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - def_list
+  - footnotes
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.tasklist:
+      custom_checkbox: true
+
+plugins:
+  - search
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/telaminai/mongoose-plugins
+    - icon: fontawesome/brands/twitter
+      link: https://twitter.com/telaminai
+  generator: false
+
+copyright: Copyright &copy; 2025 Gregory Higgins — AGPL-3.0-only
+
+nav:
+  - Home: index.md
+  - Getting started: getting-started.md
+  - Architecture: architecture.md
+  - Connectors:
+      - connectors/index.md
+      - connector-aeron: connectors/aeron.md
+      - connector-chronicle: connectors/chronicle.md
+      - connector-file: connectors/file.md
+      - connector-kafka: connectors/kafka.md
+      - connector-multicast: connectors/multicast.md
+  - Services:
+      - services/index.md
+      - svc-admin-rest: services/admin-rest.md
+      - svc-admin-telnet: services/admin-telnet.md
+      - svc-cache: services/cache.md
+      - svc-jdbc: services/jdbc.md
+      - svc-loader-yaml: services/loader-yaml.md
+      - svc-loader-spring: services/loader-spring.md
+  - Libraries:
+      - libraries/index.md
+      - lib-jsonserialiser: libraries/jsonserialiser.md
+  - Operational guide: operations.md
+  - Contributing: contributing-docs.md
