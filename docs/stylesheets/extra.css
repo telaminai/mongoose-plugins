@@ -127,3 +127,39 @@
   color: var(--md-default-fg-color--light);
   font-size: 0.9rem;
 }
+
+/*
+ * Mermaid diagrams — keep them legible in dark mode.
+ *
+ * Each diagram uses light pastel `fill:` colors (#fef3c7, #dbeafe, etc.) on
+ * the node rectangles. In Material's `slate` (dark) palette, the diagram's
+ * container background goes dark while the custom fills stay pastel — that's
+ * fine — but node *text* and *edge labels* inherit Material's dark-mode
+ * foreground (near-white), which then sits on the pastel fill and reads as
+ * white-on-pastel. Force diagram text dark in slate mode so it's legible
+ * against the pastel fills the diagrams were designed for.
+ */
+[data-md-color-scheme="slate"] .mermaid .nodeLabel,
+[data-md-color-scheme="slate"] .mermaid .label,
+[data-md-color-scheme="slate"] .mermaid .label foreignObject div,
+[data-md-color-scheme="slate"] .mermaid .edgeLabel,
+[data-md-color-scheme="slate"] .mermaid .edgeLabel rect,
+[data-md-color-scheme="slate"] .mermaid .cluster-label,
+[data-md-color-scheme="slate"] .mermaid text {
+  color: #1f2937 !important;
+  fill: #1f2937 !important;
+}
+
+/* Edge labels sit on the page background by default; in slate mode that's
+   dark text on dark — force the label background to a light wash so the
+   forced-dark text above reads cleanly. */
+[data-md-color-scheme="slate"] .mermaid .edgeLabel,
+[data-md-color-scheme="slate"] .mermaid .edgeLabel rect,
+[data-md-color-scheme="slate"] .mermaid .edgeLabel foreignObject div {
+  background-color: #f5f5f4 !important;
+}
+
+/* Cluster (subgraph) borders + titles also need legible contrast. */
+[data-md-color-scheme="slate"] .mermaid .cluster rect {
+  stroke: #9ca3af !important;
+}

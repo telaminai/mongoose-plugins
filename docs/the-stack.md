@@ -265,31 +265,33 @@ The output of compilation is **three artifacts**: a Java source file
 
 ```mermaid
 flowchart TB
-    classDef in fill:#fef3c7,stroke:#d97706
-    classDef disp fill:#dbeafe,stroke:#2563eb
-    classDef out fill:#dcfce7,stroke:#16a34a
-    classDef svc fill:#ddd6fe,stroke:#7c3aed
+    classDef in fill:#fef3c7,stroke:#d97706,stroke-width:1.5px
+    classDef disp fill:#dbeafe,stroke:#2563eb,stroke-width:1.5px
+    classDef out fill:#dcfce7,stroke:#16a34a,stroke-width:1.5px
+    classDef svc fill:#ddd6fe,stroke:#7c3aed,stroke-width:1.5px
 
-    F1[Source<br/>connector]:::in
-    F2[Source<br/>connector]:::in
+    F1[Source connector]:::in
+    F2[Source connector]:::in
 
     Q1[Queue]:::disp
     Q2[Queue]:::disp
 
-    P[Compiled processor<br/>single-thread<br/>deterministic dispatch]:::disp
+    P["Compiled processor
+    single-thread
+    deterministic dispatch"]:::disp
 
-    S1[Cache<br/>service]:::svc
-    S2[JDBC<br/>service]:::svc
+    S1[Cache service]:::svc
+    S2[JDBC service]:::svc
 
     SK1[Sink]:::out
     SK2[Sink]:::out
 
-    F1 -->|agent thread| Q1
-    F2 -->|agent thread| Q2
+    F1 -- agent thread --> Q1
+    F2 -- agent thread --> Q2
     Q1 --> P
     Q2 --> P
-    P <-->|@ServiceRegistered| S1
-    P <-->|@ServiceRegistered| S2
+    P --- S1
+    P --- S2
     P --> SK1
     P --> SK2
 ```
