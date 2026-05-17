@@ -14,7 +14,7 @@
 ## Quick start
 
 ```java
-import com.fluxtion.dataflow.serverplugin.testsupport.MongooseTestHarness;
+import com.telamin.mongoose.plugin.testsupport.MongooseTestHarness;
 import com.telamin.mongoose.connector.memory.InMemoryEventSource;
 import com.telamin.mongoose.connector.memory.InMemoryMessageSink;
 

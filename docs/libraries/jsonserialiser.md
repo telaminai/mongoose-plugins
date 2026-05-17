@@ -34,9 +34,9 @@ Wire it into a file feed:
 ```yaml
 eventFeeds:
   - name: trades
-    instance: !!com.fluxtion.dataflow.serverplugin.connector.file.FileEventSource
+    instance: !!com.telamin.mongoose.plugin.connector.file.FileEventSource
       filename: ./data-in/trades.jsonl
-    valueMapper: !!com.fluxtion.dataflow.serverplugin.lib.json.TypeSerialiser
+    valueMapper: !!com.telamin.mongoose.plugin.lib.json.TypeSerialiser
       typeMap:
         Trade: com.example.Trade
         Quote: com.example.Quote

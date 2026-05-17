@@ -29,7 +29,7 @@ For single-host pipelines, prefer `connector-file` or `connector-chronicle` — 
 ```yaml
 eventSinks:
   - name: enriched-out
-    instance: !!com.fluxtion.dataflow.serverplugin.connector.kafka.KafkaMessagePublisher
+    instance: !!com.telamin.mongoose.plugin.connector.kafka.KafkaMessagePublisher
       topic: enriched-trades
       flushEveryMessage: true
       registerShutdownHook: true
@@ -55,7 +55,7 @@ Async send callback tracks success / failure:
 ```yaml
 eventFeeds:
   - name: orders-feed
-    instance: !!com.fluxtion.dataflow.serverplugin.connector.kafka.KafkaMessageConsumer
+    instance: !!com.telamin.mongoose.plugin.connector.kafka.KafkaMessageConsumer
       topics: ["orders"]
       pollTimeoutMs: 100
       wakeupOnTearDown: true
