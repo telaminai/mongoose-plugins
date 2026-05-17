@@ -52,28 +52,39 @@ public class TelnetAdminCommandProcessor implements Lifecycle {
 
     @Override
     public void init() {
-
+        if (listenPort <= 0 || listenPort > 65535) {
+            throw new IllegalStateException("listenPort out of range: " + listenPort);
+        }
+        if (interfaceName == null || interfaceName.isEmpty()) {
+            throw new IllegalStateException("interfaceName must not be empty");
+        }
     }
 
     @Override
     public void start() {
         try {
-            log.info("Starting Jline admin command service port: {}", listenPort);
+            log.info("Starting Jline admin command service interface:{} port:{}", interfaceName, listenPort);
             Terminal terminal = TerminalBuilder.terminal();
             telnet = new Telnet(terminal, this::shell);
             telnet.telnetd(new String[]{"telnetd", "-i" + interfaceName, "-p" + listenPort, "start"});
         } catch (Exception e) {
             log.error("problem starting Jline admin command service", e);
+            telnet = null;
         }
     }
 
     @Override
     public void tearDown() {
+        if (telnet == null) {
+            return;
+        }
         try {
             log.info("Stopping Jline admin command service port: {}", listenPort);
             telnet.telnetd(new String[]{"stop"});
         } catch (Exception e) {
             log.error("problem stopping Jline admin command service", e);
+        } finally {
+            telnet = null;
         }
     }
 
@@ -110,6 +121,9 @@ public class TelnetAdminCommandProcessor implements Lifecycle {
     }
 
     private void processCommand(Terminal terminal, String[] commandArgs) {
+        if (commandArgs == null || commandArgs.length == 0 || commandArgs[0].isEmpty()) {
+            return;
+        }
         AdminCommandRequest adminCommandRequest = new AdminCommandRequest();
         List<String> commandArgsList = new ArrayList<>(Arrays.asList(commandArgs));
         commandArgsList.remove(0);

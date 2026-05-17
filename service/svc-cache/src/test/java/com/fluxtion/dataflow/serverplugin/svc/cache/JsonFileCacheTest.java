@@ -56,4 +56,40 @@ class JsonFileCacheTest {
         cache.setFileName(null);
         Assertions.assertThrows(IllegalStateException.class, cache::init);
     }
+
+    @Test
+    void init_with_negative_max_size_throws() {
+        JsonFileCache cache = new JsonFileCache();
+        cache.setFileName(tempDir.resolve("cache.json").toString());
+        cache.setMaxSize(-1);
+        Assertions.assertThrows(IllegalStateException.class, cache::init);
+    }
+
+    @Test
+    void bounded_cache_evicts_eldest_on_overflow() throws IOException {
+        Path cacheFile = tempDir.resolve("bounded.json");
+        JsonFileCache cache = new JsonFileCache();
+        cache.setFileName(cacheFile.toString());
+        cache.setMaxSize(2);
+        cache.setAsyncWrite(true); // skip per-put writes — we'll flush once at the end
+        cache.init();
+
+        cache.put("a", "1");
+        cache.put("b", "2");
+        cache.put("c", "3");
+
+        Assertions.assertEquals(2, cache.keys().size());
+        Assertions.assertNull(cache.get("a"));
+        Assertions.assertEquals("2", cache.get("b"));
+        Assertions.assertEquals("3", cache.get("c"));
+        Assertions.assertEquals(1, cache.getEvictedCount());
+
+        cache.tearDown();
+    }
+
+    @Test
+    void tear_down_without_init_is_safe() {
+        JsonFileCache cache = new JsonFileCache();
+        Assertions.assertDoesNotThrow(cache::tearDown);
+    }
 }

@@ -4,6 +4,8 @@
  */
 package com.fluxtion.dataflow.serverplugin.connector.kafka;
 
+import org.apache.kafka.clients.producer.MockProducer;
+import org.apache.kafka.common.serialization.StringSerializer;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -49,5 +51,74 @@ class KafkaMessagePublisherTest {
         publisher.init();
         Assertions.assertNotNull(publisher.getProperties());
         publisher.tearDown();
+    }
+
+    @Test
+    void init_without_topic_throws() {
+        KafkaMessagePublisher publisher = new KafkaMessagePublisher();
+        Assertions.assertThrows(IllegalStateException.class, publisher::init);
+    }
+
+    @Test
+    void mock_producer_round_trip_increments_send_count() {
+        @SuppressWarnings({"unchecked", "rawtypes"})
+        MockProducer<Object, Object> mock = (MockProducer<Object, Object>) (MockProducer)
+                new MockProducer<>(true, new StringSerializer(), new StringSerializer());
+        KafkaMessagePublisher publisher = new KafkaMessagePublisher();
+        publisher.setTopic("mock-topic");
+        publisher.setRegisterShutdownHook(false);
+        publisher.setProducer(mock);
+        publisher.init();
+
+        invokeSend(publisher, "hello");
+        invokeSend(publisher, "world");
+
+        Assertions.assertEquals(2, mock.history().size());
+        Assertions.assertEquals(2, publisher.getSendCount());
+        Assertions.assertEquals(0, publisher.getSendErrors());
+
+        publisher.tearDown();
+        Assertions.assertTrue(mock.closed(), "tearDown should close the producer");
+    }
+
+    @Test
+    void tear_down_is_idempotent() {
+        @SuppressWarnings({"unchecked", "rawtypes"})
+        MockProducer<Object, Object> mock = (MockProducer<Object, Object>) (MockProducer)
+                new MockProducer<>(true, new StringSerializer(), new StringSerializer());
+        KafkaMessagePublisher publisher = new KafkaMessagePublisher();
+        publisher.setTopic("mock-topic");
+        publisher.setRegisterShutdownHook(false);
+        publisher.setProducer(mock);
+        publisher.init();
+
+        publisher.tearDown();
+        Assertions.assertDoesNotThrow(publisher::tearDown);
+    }
+
+    @Test
+    void send_after_close_warns_but_does_not_throw() {
+        @SuppressWarnings({"unchecked", "rawtypes"})
+        MockProducer<Object, Object> mock = (MockProducer<Object, Object>) (MockProducer)
+                new MockProducer<>(true, new StringSerializer(), new StringSerializer());
+        KafkaMessagePublisher publisher = new KafkaMessagePublisher();
+        publisher.setTopic("mock-topic");
+        publisher.setRegisterShutdownHook(false);
+        publisher.setProducer(mock);
+        publisher.init();
+        publisher.tearDown();
+
+        Assertions.assertDoesNotThrow(() -> invokeSend(publisher, "after-close"));
+        Assertions.assertEquals(0, publisher.getSendCount());
+    }
+
+    private static void invokeSend(KafkaMessagePublisher publisher, Object value) {
+        try {
+            java.lang.reflect.Method m = KafkaMessagePublisher.class.getDeclaredMethod("sendToSink", Object.class);
+            m.setAccessible(true);
+            m.invoke(publisher, value);
+        } catch (ReflectiveOperationException e) {
+            throw new RuntimeException(e);
+        }
     }
 }

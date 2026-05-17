@@ -80,4 +80,71 @@ class FileMessageSinkTest {
         sink.init();
         Assertions.assertThrows(IllegalStateException.class, sink::start);
     }
+
+    @Test
+    void size_based_rotation_creates_backup() throws IOException {
+        Path outputFile = tempDir.resolve("out.log");
+        TestableFileMessageSink sink = new TestableFileMessageSink();
+        sink.setFilename(outputFile.toString());
+        sink.setRotateOnSizeBytes(20); // 20 bytes — small enough to trip on first write
+
+        sink.init();
+        sink.start();
+        sink.write("this-is-a-long-line-that-exceeds-twenty-bytes");
+        sink.write("after-rotate-line");
+        sink.stop();
+
+        List<String> backups = sink.listRotatedBackups();
+        Assertions.assertEquals(1, backups.size(), "expected one rotated backup: " + backups);
+        Assertions.assertTrue(Files.exists(outputFile), "active file should still exist");
+        Assertions.assertEquals(List.of("after-rotate-line"),
+                Files.readAllLines(outputFile, StandardCharsets.UTF_8));
+    }
+
+    @Test
+    void max_backup_files_prunes_oldest() throws IOException, InterruptedException {
+        Path outputFile = tempDir.resolve("out.log");
+        TestableFileMessageSink sink = new TestableFileMessageSink();
+        sink.setFilename(outputFile.toString());
+        sink.setRotateOnSizeBytes(1); // rotate on every write
+        sink.setMaxBackupFiles(2);
+
+        sink.init();
+        sink.start();
+        for (int i = 0; i < 5; i++) {
+            sink.write("line-" + i);
+            // ensure unique rotation timestamps
+            Thread.sleep(1100);
+        }
+        sink.stop();
+
+        List<String> backups = sink.listRotatedBackups();
+        Assertions.assertEquals(2, backups.size(),
+                "should retain at most maxBackupFiles=2 backups, got: " + backups);
+    }
+
+    @Test
+    void stop_is_idempotent() {
+        TestableFileMessageSink sink = new TestableFileMessageSink();
+        sink.setFilename(tempDir.resolve("idem.log").toString());
+        sink.init();
+        sink.start();
+        sink.stop();
+        Assertions.assertDoesNotThrow(sink::stop);
+    }
+
+    @Test
+    void start_with_negative_rotate_settings_throws() {
+        TestableFileMessageSink sink = new TestableFileMessageSink();
+        sink.setFilename(tempDir.resolve("x.log").toString());
+        sink.init();
+        sink.setRotateOnSizeBytes(-1);
+        Assertions.assertThrows(IllegalStateException.class, sink::start);
+        sink.setRotateOnSizeBytes(0);
+        sink.setRotateOnIntervalMillis(-1);
+        Assertions.assertThrows(IllegalStateException.class, sink::start);
+        sink.setRotateOnIntervalMillis(0);
+        sink.setMaxBackupFiles(-1);
+        Assertions.assertThrows(IllegalStateException.class, sink::start);
+    }
 }

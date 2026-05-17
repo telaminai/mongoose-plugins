@@ -46,14 +46,19 @@ EventSinkConfig<MessageSink<?>> tradeSink = EventSinkConfig.<MessageSink<?>>buil
 
 ## Operational notes
 
-- `setProperties(...)` is required before `init()`; the test suite confirms construction with the standard `bootstrap.servers` + serializer keys.
+- **Publisher** requires `topic` before `init()` — fails fast with `IllegalStateException`.
+- **Consumer** requires `properties` and at least one `topic` before `init()` — fails fast with `IllegalStateException`.
 - With `flushEveryMessage=true` (default) every send is followed by a synchronous `producer.flush()` — durable but slow.
 - With `flushEveryMessage=false` the publisher batches and only flushes on the agent's `doWork()` tick. Pair with a sensible idle strategy (e.g. `SleepingMillisIdleStrategy(1)`).
-- `tearDown()` flushes and closes the producer cleanly.
+- `tearDown()` on the publisher flushes, then `close(closeTimeoutMs)` (default 5 s) so buffered records ship out within the container's shutdown grace window. It is idempotent.
+- `registerShutdownHook=true` (default) installs a JVM shutdown hook so buffered records also flush on abrupt VM exit. Disable for unit tests that create many short-lived publishers.
+- Async send callback counts successes and failures — exposed via `getSendCount()` / `getSendErrors()`.
+- `tearDown()` on the consumer calls `wakeup()` to unblock an in-flight `poll()`, then `close()` — the agent thread exits cleanly within `pollTimeoutMs`.
 
 ## Tests
 
-- [`KafkaMessagePublisherTest`](src/test/java/com/fluxtion/dataflow/serverplugin/connector/kafka/KafkaMessagePublisherTest.java) — broker-free construction + properties handling.
+- `KafkaMessagePublisherTest` (6) — broker-free construction, missing-topic guard, `MockProducer` round-trip with send-count assertion, idempotent teardown, send-after-close is graceful.
+- `KafkaMessageConsumerTest` (4) — missing-properties guard, missing-topics guard, `MockConsumer` round-trip publishes records, safe teardown without start.
 
 End-to-end tests against a real broker require Docker; see [`src/test/environment/docker-compose.yml`](src/test/environment/docker-compose.yml) for the broker setup.
 

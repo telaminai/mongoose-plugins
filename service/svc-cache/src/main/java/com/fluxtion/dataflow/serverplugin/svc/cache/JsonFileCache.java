@@ -23,10 +23,13 @@ import lombok.extern.log4j.Log4j2;
 import java.io.File;
 import java.io.IOException;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
 @Data
@@ -44,20 +47,32 @@ public class JsonFileCache implements Cache, Agent, Lifecycle, EventFlowService<
     private String serviceName;
     private AdminCommandRegistry registry;
     private boolean asyncWrite = false;
+    /**
+     * Hard cap on entries. {@code 0} (default) means unbounded. When set, the
+     * backing map switches to access-order LRU and evicts the eldest entry on
+     * overflow. Eviction also flags {@code updated} so the JSON file reflects
+     * the trimmed state.
+     */
+    private int maxSize = 0;
+    @Setter(AccessLevel.NONE)
+    private final AtomicLong evictedCount = new AtomicLong();
 
     @SneakyThrows
     @Override
     public void init() {
-        log.info("init");
+        log.info("init maxSize:{}", maxSize);
         if (fileName == null || fileName.isEmpty()) {
             throw new IllegalStateException("JsonFileCache has no fileName configured");
         }
+        if (maxSize < 0) {
+            throw new IllegalStateException("JsonFileCache maxSize must be >= 0, got " + maxSize);
+        }
+        Map<String, TypedData> loaded = null;
         file = new File(fileName);
         if (file.exists() && file.length() > 0) {
             log.info("opened cache file:{}", fileName);
-            cacheMap = mapper.readValue(file, new TypeReference<Map<String, TypedData>>() {
+            loaded = mapper.readValue(file, new TypeReference<Map<String, TypedData>>() {
             });
-            cacheMap.forEach((k, v) -> get(k));
         } else {
             File parent = file.getParentFile();
             if (parent != null) {
@@ -65,6 +80,33 @@ public class JsonFileCache implements Cache, Agent, Lifecycle, EventFlowService<
             }
             log.info("no cache file:{} created:{}", fileName, file.createNewFile());
         }
+        cacheMap = buildBackingMap();
+        if (loaded != null) {
+            // bypass insertion-order constraint: oldest-first preserves prior LRU shape
+            cacheMap.putAll(loaded);
+            cacheMap.forEach((k, v) -> get(k));
+        }
+    }
+
+    private Map<String, TypedData> buildBackingMap() {
+        if (maxSize > 0) {
+            return Collections.synchronizedMap(new LinkedHashMap<String, TypedData>(16, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, TypedData> eldest) {
+                    if (size() > maxSize) {
+                        evictedCount.incrementAndGet();
+                        updated.set(true);
+                        return true;
+                    }
+                    return false;
+                }
+            });
+        }
+        return new ConcurrentHashMap<>();
+    }
+
+    public long getEvictedCount() {
+        return evictedCount.get();
     }
 
     @ServiceRegistered
@@ -174,6 +216,9 @@ public class JsonFileCache implements Cache, Agent, Lifecycle, EventFlowService<
     @SneakyThrows
     @Override
     public void tearDown() {
+        if (fileName == null || fileName.isEmpty()) {
+            return;
+        }
         mapper.writeValue(new File(fileName), cacheMap);
     }
 
