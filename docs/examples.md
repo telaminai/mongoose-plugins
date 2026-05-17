@@ -35,6 +35,7 @@ End-to-end runnable demos of specific connectors:
 | Example | Plugin |
 |---|---|
 | [plugins/connector-aeron-example](https://github.com/telaminai/mongoose-examples/tree/main/plugins/connector-aeron-example) | [`connector-aeron`](connectors/aeron.md) — in-memory → AeronMessageSink → embedded IPC → AeronArchiveEventSource → capture sink, asserted via `MongooseTestHarness`. |
+| [plugins/yaml-service-loader-example](https://github.com/telaminai/mongoose-examples/tree/main/plugins/yaml-service-loader-example) | [`svc-loader-yaml`](services/loader-yaml.md) — `EventHandlerLoader` registered as a service, instantiates a YAML-defined handler at boot, feeds it events from an in-memory source. |
 
 ## Authoring your own plugin
 
