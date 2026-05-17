@@ -7,13 +7,16 @@ hide:
 <div class="plugin-hero" markdown>
 <div markdown>
 
-# Mongoose Plugins
+# The production integration layer for deterministic systems
 
 <p class="lede">
-A curated catalogue of plugins for the <a href="https://github.com/telaminai/mongoose">Telamin Mongoose</a>
-deterministic event-processing server. Connectors, services, and libraries —
-each an independent Maven module, each pluggable into a Mongoose deployment via
-YAML, Spring XML, or plain Java config.
+<strong>Mongoose is the deployment surface for Fluxtion.</strong>
+Fluxtion compiles deterministic execution graphs; Mongoose connects those
+graphs to production event streams, services, admin endpoints, and
+enterprise configuration. This catalogue is the set of plugins that wire
+the two together — connectors, services, and libraries, each an independent
+Maven module, each pluggable into a Mongoose deployment via YAML, Spring
+XML, or plain Java config.
 </p>
 
 [Get started :material-arrow-right:](getting-started.md){ .md-button .md-button--primary }
@@ -31,6 +34,23 @@ YAML, Spring XML, or plain Java config.
   <dt>Latest</dt>
   <dd>0.2.8-SNAPSHOT</dd>
 </dl>
+</div>
+
+<div class="callout-row" markdown>
+<div class="callout" markdown>
+
+#### The pipeline
+
+**Compile** with Fluxtion → **deploy** into Mongoose → **connect** via Aeron / Kafka / Chronicle / File / Multicast → **operate** with admin + loaders + test harness.
+
+</div>
+<div class="callout" markdown>
+
+#### Why this matters
+
+These plugins turn deterministic execution from a compiled artifact into a production system: ingest live data, replay events, persist state, expose admin controls, and test deployments end-to-end.
+
+</div>
 </div>
 
 ---
