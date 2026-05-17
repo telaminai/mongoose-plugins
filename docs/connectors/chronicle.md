@@ -36,19 +36,19 @@
 ```yaml
 eventFeeds:
   - name: trades
-    instance: !!com.fluxtion.dataflow.serverplugin.connector.chronicle.ChronicleEventSource
+    instance: !!com.telamin.mongoose.plugin.connector.chronicle.ChronicleEventSource
       basePath: ./data/trades
       rollCycle: HOURLY
 
 eventSinks:
   - name: trades-out
-    instance: !!com.fluxtion.dataflow.serverplugin.connector.chronicle.ChronicleMessageSink
+    instance: !!com.telamin.mongoose.plugin.connector.chronicle.ChronicleMessageSink
       basePath: ./data/trades-out
       rollCycle: HOURLY
 
 services:
   - name: reference-data
-    instance: !!com.fluxtion.dataflow.serverplugin.connector.chronicle.ChronicleMapBuilderCache
+    instance: !!com.telamin.mongoose.plugin.connector.chronicle.ChronicleMapBuilderCache
       filePath: ./data/refdata.map
       entries: 1000000
       averageValueSize: 256

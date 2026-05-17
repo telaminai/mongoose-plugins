@@ -10,17 +10,17 @@ documents why, and the planned consolidation timeline.
 | `com.telamin.mongoose.*`                        | mongoose core runtime          | **Canonical** |
 | `com.telamin.mongoose.connector.file.*`         | mongoose core (built-in file connector) | Duplicate of plugin |
 | `com.telamin.mongoose.connector.memory.*`       | mongoose core (in-memory feed / sink)   | **Canonical** |
-| `com.fluxtion.dataflow.serverplugin.*`          | most of `mongoose-plugins`     | Legacy        |
-| `com.fluxtion.server.plugin.connector.aeron.*`  | `connector-aeron` (recently ported) | Legacy variant |
+| `com.telamin.mongoose.plugin.*`          | most of `mongoose-plugins`     | Legacy        |
+| `com.telamin.mongoose.plugin.connector.aeron.*`  | `connector-aeron` (recently ported) | Legacy variant |
 
 The split reflects history, not design:
 
 - mongoose-core has historically shipped a built-in file connector to keep the
   five-minute tutorial single-jar.
 - mongoose-plugins originated as `gregv12/fluxtion-server-plugins` and inherited
-  the `com.fluxtion.dataflow.serverplugin.*` package tree from that lineage.
+  the `com.telamin.mongoose.plugin.*` package tree from that lineage.
 - `connector-aeron` was ported recently from the same upstream and inherited
-  a slightly different sub-namespace (`com.fluxtion.server.plugin.*`).
+  a slightly different sub-namespace (`com.telamin.mongoose.plugin.*`).
 
 ## Why it matters
 
@@ -29,7 +29,7 @@ The split reflects history, not design:
 - The `mongoose-examples` repo references the core file connector
   (`com.telamin.mongoose.connector.file.FileEventSource`); this catalogue
   documents the plugin form
-  (`com.fluxtion.dataflow.serverplugin.connector.file.FileEventSource`).
+  (`com.telamin.mongoose.plugin.connector.file.FileEventSource`).
   Both work; the catalogue is the documented-going-forward shape.
 - YAML configs in production today reference whichever was current at
   install time. Renames break those configs.
@@ -48,7 +48,7 @@ makes the situation explicit.
 - Promote the `mongoose-plugins` namespace to `com.telamin.mongoose.plugin.*`
   alongside the legacy package. Both work, the legacy package emits a
   `@Deprecated` notice with a one-version sunset window.
-- Rename `connector-aeron` from `com.fluxtion.server.plugin.connector.aeron`
+- Rename `connector-aeron` from `com.telamin.mongoose.plugin.connector.aeron`
   to `com.telamin.mongoose.plugin.connector.aeron`. Same dual-export pattern.
 - Annotate the core file connector
   (`com.telamin.mongoose.connector.file.*`) `@Deprecated` and direct
@@ -56,8 +56,8 @@ makes the situation explicit.
 
 ### Phase 3 — mongoose 2.0.0
 
-- Remove the `com.fluxtion.dataflow.serverplugin.*` and
-  `com.fluxtion.server.plugin.*` packages from `mongoose-plugins`.
+- Remove the `com.telamin.mongoose.plugin.*` and
+  `com.telamin.mongoose.plugin.*` packages from `mongoose-plugins`.
 - Remove the duplicated file connector from `mongoose-core`. Users now have
   one canonical path: `connector-file`.
 - YAML configs need a single-line update; provide a sed recipe in the
@@ -67,9 +67,9 @@ makes the situation explicit.
 
 If you're starting fresh and want to be on the right side of the future:
 
-- Pick the **plugin** form of any connector (`com.fluxtion.dataflow.serverplugin.connector.file.FileEventSource`),
+- Pick the **plugin** form of any connector (`com.telamin.mongoose.plugin.connector.file.FileEventSource`),
   not the core form. The plugin is the published-catalogue target.
-- For `connector-aeron`, use `com.fluxtion.server.plugin.connector.aeron.*`
+- For `connector-aeron`, use `com.telamin.mongoose.plugin.connector.aeron.*`
   — this is the form documented today.
 - Pin to `mongoose-plugins:0.2.8-SNAPSHOT` (or whatever the next release is)
   alongside `mongoose:1.0.8`.

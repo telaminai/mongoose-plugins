@@ -20,12 +20,12 @@ JDBC connection registry + pool. Each entry is served from a [HikariCP](https://
 ```yaml
 services:
   - name: jdbcConnectionLoader
-    serviceClass: com.fluxtion.dataflow.serverplugin.svc.jdbc.JdbcConnectionLoader
-    instance: !!com.fluxtion.dataflow.serverplugin.svc.jdbc.impl.JdbcConnectionLoaderService
+    serviceClass: com.telamin.mongoose.plugin.svc.jdbc.JdbcConnectionLoader
+    instance: !!com.telamin.mongoose.plugin.svc.jdbc.impl.JdbcConnectionLoaderService
       testConnection: true
       fastFail: false
       connections:
-        marketdata: !!com.fluxtion.dataflow.serverplugin.svc.jdbc.impl.JdbcConnectionConfig
+        marketdata: !!com.telamin.mongoose.plugin.svc.jdbc.impl.JdbcConnectionConfig
           url: jdbc:postgresql://localhost:5432/marketdata
           username: $ENV.MARKETDATA_USER
           password: $ENV.MARKETDATA_PASSWORD
@@ -33,7 +33,7 @@ services:
           minimumIdle: 2
           connectionTimeoutMs: 10000
           validationQuery: "SELECT 1"
-        reference: !!com.fluxtion.dataflow.serverplugin.svc.jdbc.impl.JdbcConnectionConfig
+        reference: !!com.telamin.mongoose.plugin.svc.jdbc.impl.JdbcConnectionConfig
           url: jdbc:h2:./data/refdata
           username: sa
           password:

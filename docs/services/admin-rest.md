@@ -28,7 +28,7 @@ If `staticDir` is configured the server also serves static files from that direc
 ```yaml
 services:
   - name: adminRestService
-    instance: !!com.fluxtion.dataflow.serverplugin.svc.adminrest.JavalinAdminCommandService
+    instance: !!com.telamin.mongoose.plugin.svc.adminrest.JavalinAdminCommandService
       host: 127.0.0.1
       listenPort: 8080
       staticDir: ./web/dist

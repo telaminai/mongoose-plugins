@@ -33,5 +33,15 @@
              AssertionError on await timeouts. Consumers bring their own junit /
              TestNG / spock, so the test harness composes with any test runner
              without forcing a version. -->
+
+        <!-- Test-scope only: fluxtion-builder is needed by the dynamic-processor
+             registration regression test, which compiles a processor at test time
+             via Fluxtion.compile(...). Not exposed to consumers. -->
+        <dependency>
+            <groupId>com.telamin.fluxtion</groupId>
+            <artifactId>fluxtion-builder</artifactId>
+            <version>${fluxtion.version}</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 </project>

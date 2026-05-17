@@ -27,11 +27,11 @@ File tail (`FileEventSource`) + append-only sink (`FileMessageSink`) with size a
 ```yaml
 eventFeeds:
   - name: trades
-    instance: !!com.fluxtion.dataflow.serverplugin.connector.file.FileEventSource
+    instance: !!com.telamin.mongoose.plugin.connector.file.FileEventSource
       filename: ./data-in/trades.jsonl
       readStrategy: COMMITED        # or EARLIEST
     broadcast: true
-    valueMapper: !!com.fluxtion.dataflow.serverplugin.lib.json.TypeSerialiser {}
+    valueMapper: !!com.telamin.mongoose.plugin.lib.json.TypeSerialiser {}
     agentName: file-source-agent
     idleStrategy: !!org.agrona.concurrent.SleepingMillisIdleStrategy {}
 ```
@@ -43,7 +43,7 @@ The source tails the file, emitting each line as a discrete event. `readStrategy
 ```yaml
 eventSinks:
   - name: enriched-out
-    instance: !!com.fluxtion.dataflow.serverplugin.connector.file.FileMessageSink
+    instance: !!com.telamin.mongoose.plugin.connector.file.FileMessageSink
       filename: ./data-out/enriched.jsonl
       rotateOnSizeBytes: 10485760     # 10 MB
       rotateOnIntervalMillis: 86400000 # 24 h

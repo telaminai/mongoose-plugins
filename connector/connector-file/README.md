@@ -58,7 +58,7 @@ EventSinkConfig<MessageSink<?>> pnlSink = EventSinkConfig.<MessageSink<?>>builde
 ```yaml
 eventFeeds:
   - name: trade-feed
-    instance: !!com.fluxtion.dataflow.serverplugin.connector.file.FileEventSource
+    instance: !!com.telamin.mongoose.plugin.connector.file.FileEventSource
       filename: ./data-in/trades.jsonl
       readStrategy: COMMITED
     broadcast: true
@@ -67,7 +67,7 @@ eventFeeds:
 
 eventSinks:
   - name: pnl-sink
-    instance: !!com.fluxtion.dataflow.serverplugin.connector.file.FileMessageSink
+    instance: !!com.telamin.mongoose.plugin.connector.file.FileMessageSink
       filename: ./data-out/pnl.jsonl
 ```
 

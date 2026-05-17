@@ -36,25 +36,25 @@ Three idiomatic styles:
     ```yaml
     eventFeeds:
       - name: trades
-        instance: !!com.fluxtion.dataflow.serverplugin.connector.file.FileEventSource
+        instance: !!com.telamin.mongoose.plugin.connector.file.FileEventSource
           filename: ./data-in/trades.jsonl
           readStrategy: COMMITED
         broadcast: true
-        valueMapper: !!com.fluxtion.dataflow.serverplugin.lib.json.TypeSerialiser {}
+        valueMapper: !!com.telamin.mongoose.plugin.lib.json.TypeSerialiser {}
         agentName: file-source-agent
         idleStrategy: !!org.agrona.concurrent.SleepingMillisIdleStrategy {}
 
     eventSinks:
       - name: enriched-out
-        instance: !!com.fluxtion.dataflow.serverplugin.connector.file.FileMessageSink
+        instance: !!com.telamin.mongoose.plugin.connector.file.FileMessageSink
           filename: ./data-out/enriched.jsonl
           rotateOnSizeBytes: 10485760     # 10 MB
           maxBackupFiles: 5
 
     services:
       - name: state-cache
-        serviceClass: com.fluxtion.dataflow.serverplugin.svc.cache.Cache
-        instance: !!com.fluxtion.dataflow.serverplugin.svc.cache.JsonFileCache
+        serviceClass: com.telamin.mongoose.plugin.svc.cache.Cache
+        instance: !!com.telamin.mongoose.plugin.svc.cache.JsonFileCache
           fileName: ./data-out/state.json
           maxSize: 10000
     ```
@@ -102,13 +102,13 @@ Three idiomatic styles:
 
     ```xml
     <bean id="tradesFeed"
-          class="com.fluxtion.dataflow.serverplugin.connector.file.FileEventSource">
+          class="com.telamin.mongoose.plugin.connector.file.FileEventSource">
       <property name="filename" value="./data-in/trades.jsonl"/>
       <property name="readStrategy" value="COMMITED"/>
     </bean>
 
     <bean id="stateCache"
-          class="com.fluxtion.dataflow.serverplugin.svc.cache.JsonFileCache">
+          class="com.telamin.mongoose.plugin.svc.cache.JsonFileCache">
       <property name="fileName" value="./data-out/state.json"/>
       <property name="maxSize" value="10000"/>
     </bean>
