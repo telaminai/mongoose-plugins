@@ -7,6 +7,7 @@ package com.fluxtion.dataflow.serverplugin.loader.yaml;
 
 import org.agrona.concurrent.YieldingIdleStrategy;
 import com.telamin.fluxtion.Fluxtion;
+import com.telamin.fluxtion.FluxtionInterpreter;
 import com.telamin.fluxtion.builder.generation.classcompiler.StringCompilation;
 import com.telamin.fluxtion.builder.generation.config.EventProcessorConfig;
 import com.telamin.fluxtion.builder.compile.config.FluxtionCompilerConfig;
@@ -20,7 +21,7 @@ import com.telamin.fluxtion.runtime.lifecycle.Lifecycle;
 import com.telamin.fluxtion.runtime.partition.LambdaReflection;
 import com.telamin.fluxtion.runtime.partition.LambdaReflection.SerializableConsumer;
 import com.telamin.mongoose.service.admin.AdminCommandRegistry;
-import com.telamin.mongoose.service.servercontrol.FluxtionServerController;
+import com.telamin.mongoose.service.servercontrol.MongooseServerController;
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
@@ -42,7 +43,7 @@ import java.util.function.Consumer;
 @Log4j2
 public class EventHandlerLoader implements Lifecycle {
 
-    private FluxtionServerController serverController;
+    private MongooseServerController serverController;
     private static final String DEFAULT_GROUP_JAVA_SRC = "javaSourceLoader";
     private static final String DEFAULT_GROUP_YAML = "yamlLoader";
     @Getter
@@ -62,8 +63,8 @@ public class EventHandlerLoader implements Lifecycle {
     }
 
     @ServiceRegistered
-    public void fluxtionServer(FluxtionServerController serverController, String name) {
-        log.info("FluxtionServerController name: '{}'", name);
+    public void fluxtionServer(MongooseServerController serverController, String name) {
+        log.info("MongooseServerController name: '{}'", name);
         this.serverController = serverController;
     }
 
@@ -134,7 +135,7 @@ public class EventHandlerLoader implements Lifecycle {
                 Class<FluxtionGraphBuilder> compiledClass = StringCompilation.compile(className, Files.readString(javaSourceFilePath));
 
                 SerializableConsumer<EventProcessorConfig> buildGraph = compiledClass.getDeclaredConstructor().newInstance()::buildGraph;
-                CloneableDataFlow<?> eventProcessor = compileProcessor ? Fluxtion.compile(buildGraph) : Fluxtion.interpret(buildGraph);
+                CloneableDataFlow<?> eventProcessor = compileProcessor ? Fluxtion.compile(buildGraph) : FluxtionInterpreter.interpret(buildGraph);
 
                 eventProcessor.init();
                 eventProcessor.setAuditLogLevel(initialLogLevel);
@@ -191,7 +192,7 @@ public class EventHandlerLoader implements Lifecycle {
 
             };
 
-            CloneableDataFlow<?> eventProcessor = compileProcessor ? Fluxtion.compile(buildGraph) : Fluxtion.interpret(buildGraph);
+            CloneableDataFlow<?> eventProcessor = compileProcessor ? Fluxtion.compile(buildGraph) : FluxtionInterpreter.interpret(buildGraph);
             eventProcessor.init();
 
             out.accept("compiled and loaded processor" + eventProcessor.toString());

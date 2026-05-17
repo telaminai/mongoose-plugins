@@ -19,9 +19,8 @@
 
     <dependencies>
         <dependency>
-            <groupId>com.fluxtion.dataflow</groupId>
-            <artifactId>dataflow-imperative</artifactId>
-            <scope>compile</scope>
+            <groupId>com.telamin.fluxtion</groupId>
+            <artifactId>fluxtion-builder</artifactId>
             <version>${fluxtion.version}</version>
         </dependency>
         <dependency>

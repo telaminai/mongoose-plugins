@@ -10,7 +10,7 @@ import com.telamin.fluxtion.runtime.annotations.Start;
 import com.telamin.fluxtion.runtime.annotations.runtime.ServiceRegistered;
 import com.telamin.fluxtion.runtime.lifecycle.Lifecycle;
 import com.telamin.mongoose.dispatch.EventFlowManager;
-import com.telamin.mongoose.dispatch.EventFlowService;
+import com.telamin.mongoose.service.EventFlowService;
 import com.telamin.mongoose.service.admin.AdminCommandRegistry;
 import com.telamin.mongoose.service.admin.AdminCommandRequest;
 import io.javalin.Javalin;
@@ -19,7 +19,7 @@ import lombok.*;
 import lombok.extern.log4j.Log4j2;
 
 @Log4j2
-public class JavalinAdminCommandService implements EventFlowService, Lifecycle {
+public class JavalinAdminCommandService implements EventFlowService<Object>, Lifecycle {
 
     private Javalin javalin;
     private EventFlowManager eventFlowManager;
@@ -41,6 +41,24 @@ public class JavalinAdminCommandService implements EventFlowService, Lifecycle {
     public void adminRegistry(AdminCommandRegistry adminCommandRegistry, String name) {
         log.info("Admin registry: '{}' name: '{}'", adminCommandRegistry, name);
         this.adminCommandRegistry = adminCommandRegistry;
+    }
+
+    // EventFlowService -> EventSource contract: this REST admin endpoint
+    // does not publish events into the dispatch pipeline; the methods are
+    // intentional no-ops.
+    @Override
+    public void setEventToQueuePublisher(com.telamin.mongoose.dispatch.EventToQueuePublisher<Object> targetQueue) {
+        // no-op
+    }
+
+    @Override
+    public void subscribe(com.telamin.mongoose.service.EventSubscriptionKey<Object> eventSourceKey) {
+        // no-op
+    }
+
+    @Override
+    public void unSubscribe(com.telamin.mongoose.service.EventSubscriptionKey<Object> eventSourceKey) {
+        // no-op
     }
 
     @Override
