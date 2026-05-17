@@ -1,7 +1,6 @@
 /*
  * Mongoose Admin — SPA shell.
- * Alpine.js drives the small amount of local state (filter, selected command,
- * history, last result). All server I/O goes through fetch() against /api/*.
+ * Alpine.js drives local state; all server I/O goes through fetch() against /api/*.
  *
  * Auth model:
  *   - GET /api/commands probes whether we already have a session.
@@ -10,8 +9,8 @@
  *   - All subsequent POSTs carry X-CSRF-Token.
  */
 
-function adminApp() {
-    return {
+document.addEventListener('alpine:init', () => {
+    Alpine.data('adminApp', () => ({
         // auth state
         authed: false,
         authMode: 'unknown',           // NONE | BASIC | BEARER | unknown
@@ -34,13 +33,11 @@ function adminApp() {
         history: [],
 
         async boot() {
-            // First, try to fetch the command list — succeeds if (a) auth is
-            // NONE or (b) we already have a valid session cookie from a prior visit.
+            // Probe: if /api/commands returns 200, we're authed (or NONE mode).
             const r = await fetch('/api/commands', { credentials: 'same-origin' });
             if (r.status === 401) {
-                // We need to authenticate. We don't know which mode the server
-                // is in, but POST /api/session/login with no body returns 401
-                // with WWW-Authenticate hinting at the mode.
+                // Need credentials. Probe the login endpoint with empty body to
+                // sniff the auth mode from WWW-Authenticate.
                 const probe = await fetch('/api/session/login', {
                     method: 'POST',
                     credentials: 'same-origin',
@@ -48,8 +45,7 @@ function adminApp() {
                     body: '{}'
                 });
                 const challenge = probe.headers.get('WWW-Authenticate') || '';
-                if (challenge.startsWith('Bearer')) this.authMode = 'BEARER';
-                else this.authMode = 'BASIC';
+                this.authMode = challenge.startsWith('Bearer') ? 'BEARER' : 'BASIC';
                 this.authed = false;
                 return;
             }
@@ -57,19 +53,16 @@ function adminApp() {
                 console.warn('unexpected status from /api/commands', r.status);
                 return;
             }
-            // 200 OK — either NONE mode or pre-existing session.
-            // We still need a csrfToken to POST. Calling /api/session/login
-            // with no/empty body in NONE mode issues an anonymous session.
+            // 200 OK — either NONE mode or a pre-existing session.
             const data = await r.json();
             this.commands = data.commands || [];
             await this.bootstrapSession();
         },
 
         async bootstrapSession() {
-            // Hit login with empty body. In NONE mode the server returns a
-            // session+csrf for anonymous; in BASIC/BEARER we'd never reach
-            // here without a valid cookie, so this re-issues a CSRF token
-            // bound to our existing session.
+            // Empty-body login: in NONE mode the server issues an anonymous
+            // session+csrf; in BASIC/BEARER with a pre-existing cookie this
+            // re-issues a fresh CSRF token bound to the same session.
             const r = await fetch('/api/session/login', {
                 method: 'POST',
                 credentials: 'same-origin',
@@ -81,7 +74,7 @@ function adminApp() {
                 this.csrfToken = data.csrfToken;
                 this.userId = data.userId;
                 this.authed = true;
-                this.authMode = this.authMode === 'unknown' ? 'NONE' : this.authMode;
+                if (this.authMode === 'unknown') this.authMode = 'NONE';
             }
         },
 
@@ -106,7 +99,6 @@ function adminApp() {
             this.authed = true;
             this.loginPass = '';
             this.loginToken = '';
-            // Now load the command list
             const cmds = await fetch('/api/commands', { credentials: 'same-origin' });
             if (cmds.ok) {
                 this.commands = (await cmds.json()).commands || [];
@@ -180,5 +172,5 @@ function adminApp() {
             this.selected = h.command;
             this.argsText = h.args.join('\n');
         }
-    };
-}
+    }));
+});

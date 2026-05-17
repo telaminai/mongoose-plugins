@@ -32,10 +32,15 @@ class SessionTokenTest {
         long now = System.currentTimeMillis();
         String cookie = new SessionToken("alice", now + 60_000, "csrf").encode(SECRET);
 
-        // flip the last char of the signature
-        char last = cookie.charAt(cookie.length() - 1);
-        char flipped = last == 'A' ? 'B' : 'A';
-        String tampered = cookie.substring(0, cookie.length() - 1) + flipped;
+        // Tamper an INTERIOR char of the signature. Flipping the trailing
+        // base64 char can be a no-op when the padded bits don't change the
+        // decoded byte sequence — flip something a few chars in from the
+        // signature start, where every char encodes 6 bits of real payload.
+        int dot = cookie.indexOf('.');
+        int target = dot + 3; // a char inside the signature
+        char ch = cookie.charAt(target);
+        char flipped = ch == 'A' ? 'B' : 'A';
+        String tampered = cookie.substring(0, target) + flipped + cookie.substring(target + 1);
 
         Assertions.assertNull(SessionToken.decode(tampered, SECRET, now));
     }
