@@ -8,7 +8,7 @@
     <parent>
         <groupId>com.telamin</groupId>
         <artifactId>mongoose-plugins</artifactId>
-        <version>0.2.11</version>
+        <version>0.2.12-SNAPSHOT</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
