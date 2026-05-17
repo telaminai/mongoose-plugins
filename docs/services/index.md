@@ -37,6 +37,14 @@ Cross-cutting capabilities that processors inject via `@ServiceRegistered`. One 
       <span class="plugin-tag service">service</span>
     </span>
 
+-   :material-monitor-dashboard:{ .lg .middle } __[svc-admin-web](admin-web.md)__
+
+    Browser admin & monitoring SPA. Dashboard, live JVM/log over WebSocket, conditional cache + loader panels.
+
+    <span class="plugin-tags">
+      <span class="plugin-tag service">service</span>
+    </span>
+
 -   :material-file-code-outline:{ .lg .middle } __[svc-loader-yaml](loader-yaml.md)__
 
     Hot-reload processors from YAML or Java source.

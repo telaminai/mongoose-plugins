@@ -105,6 +105,7 @@ nav:
       - services/index.md
       - svc-admin-rest: services/admin-rest.md
       - svc-admin-telnet: services/admin-telnet.md
+      - svc-admin-web: services/admin-web.md
       - svc-cache: services/cache.md
       - svc-jdbc: services/jdbc.md
       - svc-loader-yaml: services/loader-yaml.md
