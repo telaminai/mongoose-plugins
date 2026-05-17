@@ -86,6 +86,7 @@ copyright: Copyright &copy; 2025 Gregory Higgins — AGPL-3.0-only
 nav:
   - Home: index.md
   - Getting started: getting-started.md
+  - Examples: examples.md
   - Architecture: architecture.md
   - Connectors:
       - connectors/index.md

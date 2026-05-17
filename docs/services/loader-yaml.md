@@ -41,6 +41,11 @@ At runtime, the admin command set is extended with:
 - `loader.<name>.load <file>` — load a processor from YAML or Java source
 - `loader.<name>.unload <id>` — remove a loaded processor
 
+## Examples
+
+- **[getting-started/five-minute-yaml-tutorial](https://github.com/telaminai/mongoose-examples/tree/main/getting-started/five-minute-yaml-tutorial)** — full YAML config flow into a booting server. Same config shape `svc-loader-yaml` consumes at runtime.
+- **[getting-started/app-integration-tutorial](https://github.com/telaminai/mongoose-examples/tree/main/getting-started/app-integration-tutorial)** — multi-process YAML config across a data-generator + PnL calculator.
+
 ## Source
 
 [`mongoose-plugins/service/svc-loader-yaml`](https://github.com/telaminai/mongoose-plugins/tree/main/service/svc-loader-yaml)

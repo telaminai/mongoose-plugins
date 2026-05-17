@@ -46,6 +46,10 @@ Hit `?` to list available commands; tab-complete is on.
 - `tearDown()` is safe to call without `start()` having been called.
 - Telnet is plain-text; there is no auth layer on the protocol itself. **Do not** bind to a routable interface in production.
 
+## Examples
+
+- **[how-to/writing-an-admin-command](https://github.com/telaminai/mongoose-examples/tree/main/how-to/writing-an-admin-command)** — register an admin command; `svc-admin-telnet` then surfaces it via the telnet shell with tab-complete.
+
 ## Source
 
 [`mongoose-plugins/service/svc-admin-telnet`](https://github.com/telaminai/mongoose-plugins/tree/main/service/svc-admin-telnet)

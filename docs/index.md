@@ -17,7 +17,8 @@ YAML, Spring XML, or plain Java config.
 </p>
 
 [Get started :material-arrow-right:](getting-started.md){ .md-button .md-button--primary }
-[Browse architecture](architecture.md){ .md-button }
+[Browse examples](examples.md){ .md-button }
+[Architecture](architecture.md){ .md-button }
 
 </div>
 <dl class="hero-stat">

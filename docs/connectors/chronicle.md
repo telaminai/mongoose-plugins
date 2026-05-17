@@ -60,6 +60,12 @@ services:
 - `tearDown()` flushes the Chronicle Queue cleanly; pair with a shutdown hook in your launcher for abrupt VM exits.
 - Schema for queue payloads is your responsibility — choose a wire-format (binary Chronicle, JSON, Protobuf) and stick to it.
 
+## Examples
+
+- **[plugins/event-source-example](https://github.com/telaminai/mongoose-examples/tree/main/plugins/event-source-example)** + **[plugins/message-sink-example](https://github.com/telaminai/mongoose-examples/tree/main/plugins/message-sink-example)** — source/sink templates; `ChronicleEventSource` / `ChronicleMessageSink` follow the same shape.
+
+A dedicated Chronicle round-trip example is on the [Examples](../examples.md) roadmap.
+
 ## Source
 
 [`mongoose-plugins/connector/connector-chronicle`](https://github.com/telaminai/mongoose-plugins/tree/main/connector/connector-chronicle)

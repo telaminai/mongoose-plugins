@@ -89,6 +89,10 @@ public class MyHandler extends ObjectEventHandlerNode {
 
 7 tests cover pool round-trip, max-size enforcement (exhaust + timeout), leak (50× borrow+release on max=2 then assert `activeConnections=0`), unpooled fallback, idempotent teardown, and fastFail bad-URL.
 
+## Examples
+
+- **[plugins/service-plugin-example](https://github.com/telaminai/mongoose-examples/tree/main/plugins/service-plugin-example)** — `@ServiceRegistered` wiring template; `JdbcConnectionLoader` is injected the same way.
+
 ## Source
 
 [`mongoose-plugins/service/svc-jdbc`](https://github.com/telaminai/mongoose-plugins/tree/main/service/svc-jdbc)

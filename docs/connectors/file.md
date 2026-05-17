@@ -87,6 +87,14 @@ Set both triggers to `0` (default) for an unbounded append-only file.
 - `stop()` is idempotent.
 - The sink is single-writer — the Mongoose dispatcher serialises `sendToSink` calls.
 
+## Examples
+
+Runnable end-to-end demos in [telaminai/mongoose-examples](https://github.com/telaminai/mongoose-examples):
+
+- **[five-minute-yaml-tutorial](https://github.com/telaminai/mongoose-examples/tree/main/getting-started/five-minute-yaml-tutorial)** — single-feed `FileEventSource` driven from `appConfig.yml`. Shortest path to a real file-tailed pipeline.
+- **[app-integration-tutorial](https://github.com/telaminai/mongoose-examples/tree/main/getting-started/app-integration-tutorial)** — multi-server PnL calculator + data generator with both `FileEventSource` and `FileMessageSink`. YAML + Java variants side by side.
+- **[how-to/replay](https://github.com/telaminai/mongoose-examples/tree/main/how-to/replay)** — replay from a captured file feed for deterministic re-runs.
+
 ## Source
 
 [`mongoose-plugins/connector/connector-file`](https://github.com/telaminai/mongoose-plugins/tree/main/connector/connector-file)

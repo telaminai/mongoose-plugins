@@ -47,6 +47,10 @@ eventSinks:
 - TTL defaults to `1` (don't escape the local subnet). Bump only if you've thought about your network topology.
 - No back-pressure — drops are silent at the UDP layer.
 
+## Examples
+
+- **[plugins/event-source-example](https://github.com/telaminai/mongoose-examples/tree/main/plugins/event-source-example)** — agent-hosted source template that maps directly onto `MulticastEventSource`.
+
 ## Source
 
 [`mongoose-plugins/connector/connector-multicast`](https://github.com/telaminai/mongoose-plugins/tree/main/connector/connector-multicast)

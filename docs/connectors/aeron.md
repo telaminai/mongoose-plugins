@@ -136,6 +136,13 @@ eventSinks:
 
 The plugin parent POM already wires this.
 
+## Examples
+
+- **[how-to/replay](https://github.com/telaminai/mongoose-examples/tree/main/how-to/replay)** — the cold-start replay pattern that pairs cleanly with `Mode.ARCHIVE`.
+- **[plugins/event-source-example](https://github.com/telaminai/mongoose-examples/tree/main/plugins/event-source-example)** — template for agent-hosted sources like `AeronArchiveEventSource`.
+
+A dedicated Aeron round-trip example is on the [Examples](../examples.md) roadmap.
+
 ## Source
 
 [`mongoose-plugins/connector/connector-aeron`](https://github.com/telaminai/mongoose-plugins/tree/main/connector/connector-aeron)

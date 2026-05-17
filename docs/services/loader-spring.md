@@ -52,6 +52,12 @@ admin > loader.springLoader.load trade-enricher.xml
 - Spring's full bean-definition parser is on the classpath; you get the usual `<bean>`, `<property>`, `<ref>`, profile, and import semantics.
 - The compiled topology runs as a regular Fluxtion processor — no Spring container at runtime.
 
+## Examples
+
+A dedicated Spring-XML loader example is on the [Examples](../examples.md) roadmap. For the runtime shape, see the YAML loader example — the loaded-processor side is identical:
+
+- **[getting-started/five-minute-yaml-tutorial](https://github.com/telaminai/mongoose-examples/tree/main/getting-started/five-minute-yaml-tutorial)**
+
 ## Source
 
 [`mongoose-plugins/service/svc-loader-spring`](https://github.com/telaminai/mongoose-plugins/tree/main/service/svc-loader-spring)

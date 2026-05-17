@@ -102,6 +102,11 @@ For `JsonFileCache`, eviction also flags the file as dirty so the next `doWork()
 - `tearDown()` writes the cache to disk and is safe to call without an `init()`.
 - The cache also registers admin commands `cache.<name>.keys` and `cache.<name>.get <key>` with the admin registry — wire `svc-admin-telnet` or `svc-admin-rest` to inspect cache contents at runtime.
 
+## Examples
+
+- **[plugins/service-plugin-example](https://github.com/telaminai/mongoose-examples/tree/main/plugins/service-plugin-example)** — `@ServiceRegistered` template.
+- **[how-to/data-mapping](https://github.com/telaminai/mongoose-examples/tree/main/how-to/data-mapping)** — the natural place to wire a cache for warmed reference data.
+
 ## Source
 
 [`mongoose-plugins/service/svc-cache`](https://github.com/telaminai/mongoose-plugins/tree/main/service/svc-cache)

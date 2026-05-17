@@ -81,6 +81,10 @@ curl -u "$ADMIN_USER:$ADMIN_PASSWORD" -X POST http://localhost:8080/admin \
 - Implements `EventFlowService<Object>` but is not an event source — `subscribe`/`unSubscribe`/`setEventToQueuePublisher` are no-ops.
 - Javalin uses SLF4J; add a binding (e.g. `log4j-slf4j2-impl`) to silence "no logger" notices in production.
 
+## Examples
+
+- **[how-to/writing-an-admin-command](https://github.com/telaminai/mongoose-examples/tree/main/how-to/writing-an-admin-command)** — register an admin command; `svc-admin-rest` then exposes it over HTTP.
+
 ## Source
 
 [`mongoose-plugins/service/svc-admin-rest`](https://github.com/telaminai/mongoose-plugins/tree/main/service/svc-admin-rest)

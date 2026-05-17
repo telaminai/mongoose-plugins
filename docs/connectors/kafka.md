@@ -96,6 +96,13 @@ eventFeeds:
 - The publisher uses an async send callback; if your `value.serializer` blows up the failure is logged at WARN and counted in `getSendErrors()`. Set `flushEveryMessage=true` and check `getSendErrors()` after a critical batch.
 - For at-least-once on the consumer side, configure `enable.auto.commit=false` in `properties` and commit manually from your processor.
 
+## Examples
+
+- **[plugins/event-source-example](https://github.com/telaminai/mongoose-examples/tree/main/plugins/event-source-example)** — agent-hosted source template; mirrors how `KafkaMessageConsumer` integrates.
+- **[plugins/message-sink-example](https://github.com/telaminai/mongoose-examples/tree/main/plugins/message-sink-example)** — sink template; same shape as `KafkaMessagePublisher`.
+
+A docker-compose-based round-trip example is on the [Examples](../examples.md) roadmap.
+
 ## Source
 
 [`mongoose-plugins/connector/connector-kafka`](https://github.com/telaminai/mongoose-plugins/tree/main/connector/connector-kafka)

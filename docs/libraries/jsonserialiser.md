@@ -69,6 +69,10 @@ public class TradeHandler extends ObjectEventHandlerNode {
 - Unknown `@type` values are logged and the line is skipped (does not throw).
 - Each entry in `typeMap` must be a real class on the classpath; misspellings throw at startup.
 
+## Examples
+
+- **[how-to/data-mapping](https://github.com/telaminai/mongoose-examples/tree/main/how-to/data-mapping)** — `valueMapper` chains. `TypeSerialiser` plugs in here.
+
 ## Source
 
 [`mongoose-plugins/library/lib-jsonserialiser`](https://github.com/telaminai/mongoose-plugins/tree/main/library/lib-jsonserialiser)

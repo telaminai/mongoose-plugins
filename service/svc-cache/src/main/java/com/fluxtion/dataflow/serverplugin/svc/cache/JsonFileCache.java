@@ -82,9 +82,13 @@ public class JsonFileCache implements Cache, Agent, Lifecycle, EventFlowService<
         }
         cacheMap = buildBackingMap();
         if (loaded != null) {
-            // bypass insertion-order constraint: oldest-first preserves prior LRU shape
             cacheMap.putAll(loaded);
-            cacheMap.forEach((k, v) -> get(k));
+            // Materialise the JSON-string values back into the cached `instance` field.
+            // Snapshot the key set first — get() touches access order under LRU mode and
+            // would otherwise trigger ConcurrentModificationException on live iteration.
+            for (String key : new java.util.ArrayList<>(cacheMap.keySet())) {
+                get(key);
+            }
         }
     }
 
