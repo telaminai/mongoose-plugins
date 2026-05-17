@@ -10,49 +10,49 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
- * Documents the integration seam between Mongoose's static-processor and
- * dynamic-processor registration paths.
+ * Documents the Fluxtion-compile + dynamic-registration seam.
  *
- * <p>A statically-registered processor (via {@code MongooseServerConfig.addProcessor(...)})
- * receives events from a {@code broadcast=true} feed without any handler-side
- * code — that's the documented contract.
+ * <p>The Mongoose dispatcher itself is symmetric for static vs dynamic
+ * registration — see {@code mongoose/src/test/.../DynamicProcessorRegistrationTest}
+ * in the mongoose repo, which uses a hand-rolled {@code DataFlow} that
+ * subscribes to its feed from {@code start()} and passes for both paths.
  *
- * <p>A dynamically-registered processor (via {@code MongooseServerController.addEventProcessor(...)}
- * called during a service's {@code start()} hook — the path that
- * {@code svc-loader-yaml} and {@code svc-loader-spring} use) should behave
- * the same way: a handler with no {@code subscribeToNamedFeed} call should
- * receive every event the static-path handler does.
+ * <p>The seam this test exercises lives one layer up. When the handler is an
+ * {@code ObjectEventHandlerNode} compiled into a {@code DataFlow} by
+ * {@code Fluxtion.compile(...)}, the generated processor relies on
+ * compile-time auto-subscription from the {@code @OnEventHandler}
+ * annotation. That auto-subscription wires correctly when the processor is
+ * known to the {@code EventFlowManager} during its static-wire phase, but
+ * does not re-fire when the processor is added later via
+ * {@code MongooseServerController.addEventProcessor(...)} from a service's
+ * {@code start()} hook — the path used by {@code svc-loader-yaml} and
+ * {@code svc-loader-spring}.
  *
- * <p>Today it doesn't, and the loader examples paper over the gap by calling
- * {@code getContext().subscribeToNamedFeed(name)} in the handler's
- * {@code start()}. That extra call is invisible to anyone reading the
- * catalogue's {@code @OnEventHandler} examples — a footgun.
+ * <p>The two loader-example handlers paper over the gap by overriding
+ * {@code start()} to call {@code getContext().subscribeToNamedFeed(name)}.
+ * That extra call is invisible to anyone copying the catalogue's plain
+ * {@code @OnEventHandler} examples — a footgun for adapters.
  *
- * <h2>TODO — unify static and dynamic processor registration</h2>
+ * <h2>TODO — auto-subscribe Fluxtion-compiled processors on dynamic registration</h2>
  *
- * The fix lives in Mongoose, not in this test:
+ * The fix most likely lives in fluxtion-builder rather than mongoose:
  *
  * <ol>
- *   <li>When {@link MongooseServerController#addEventProcessor} is invoked at
- *       any point in the server lifecycle, the resulting processor should
- *       inherit the same broadcast-feed subscriptions a static processor
- *       would have received at boot. Today {@code AbstractEventSourceService}
- *       only registers a subscriber for broadcast on processors known to it
- *       at start-time; processors added after wiring is "frozen" never
- *       receive the broadcast.</li>
- *   <li>The {@code MongooseServer.start()} late-start pass added in 1.0.9
- *       starts the agent thread, but doesn't replay the broadcast-subscribe
- *       step for the late-arriving processor.</li>
- *   <li>Either (a) make broadcast wiring lazy/reactive so adding a processor
- *       triggers (re)wiring against all existing broadcast feeds, or
- *       (b) document {@code subscribeToNamedFeed} as a required call for
- *       dynamic processors and surface that loudly in the catalogue
- *       loader-yaml / loader-spring pages.</li>
+ *   <li>When {@code ComposingEventProcessorAgent.checkForAdded()} calls
+ *       {@code eventProcessor.addEventFeed(this)} on a Fluxtion-compiled
+ *       processor, that processor should walk its {@code @OnEventHandler}
+ *       bindings and call {@code feed.subscribe(this, key)} for each one —
+ *       not just at compile-time-bound feeds, but at the live feeds it sees
+ *       through {@code addEventFeed}.</li>
+ *   <li>Equivalently: emit a {@code start()} body in the generated processor
+ *       that re-subscribes to feed names referenced by {@code @OnEventHandler}
+ *       annotations.</li>
  * </ol>
  *
- * <p>When this test passes, the loader examples can drop their {@code start()}
- * override and the catalogue's plain {@code @OnEventHandler} examples will be
- * accurate for both registration paths.
+ * <p>When this test passes, the loader-yaml / loader-spring example handlers
+ * can drop their {@code start()} override and the catalogue's plain
+ * {@code @OnEventHandler} examples will be accurate for both registration
+ * paths.
  */
 class DynamicProcessorRegistrationTest {
 
@@ -80,18 +80,21 @@ class DynamicProcessorRegistrationTest {
             h.awaitCondition(() -> staticHandler.count >= 3);
             assertEquals(3, staticHandler.count, "static handler should see all 3 events");
 
-            // TODO seam: the dynamically-registered processor SHOULD receive the same
-            // broadcast events as the static one. Today it doesn't, because the
-            // broadcast wiring path doesn't pick up processors added after the
-            // server lifecycle has progressed past EventFlowManager.start().
+            // TODO seam: a Fluxtion-compiled @OnEventHandler that is registered
+            // dynamically (via MongooseServerController.addEventProcessor from a
+            // service's start()) does not pick up its feed subscriptions. The
+            // same handler registered statically would. Today this assertion
+            // fails: dynamic handler sees 0 events.
             //
-            // Until that's fixed, the only way to make this pass is for
-            // CountingHandler to override start() with
+            // The fix lives in fluxtion-builder's generated processor — its
+            // addEventFeed(EventFeed) / start() should re-subscribe against the
+            // feeds named in its @OnEventHandler annotations. Until that ships,
+            // dynamically-loaded handlers must override start() with
             //     getContext().subscribeToNamedFeed("feed");
-            // — which means the catalogue's @OnEventHandler examples are subtly
-            // wrong for any handler loaded via svc-loader-yaml / svc-loader-spring.
+            // which is what the loader-yaml / loader-spring examples do — and
+            // which contradicts the catalogue's plain @OnEventHandler examples.
             assertEquals(3, registrar.handler.count,
-                    "dynamic handler should also see all 3 events via broadcast=true wiring");
+                    "dynamic handler should also see all 3 events via @OnEventHandler auto-subscribe");
         }
     }
 }
