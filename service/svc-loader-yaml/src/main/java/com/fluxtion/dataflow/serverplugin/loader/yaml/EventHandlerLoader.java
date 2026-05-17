@@ -5,22 +5,23 @@
 
 package com.fluxtion.dataflow.serverplugin.loader.yaml;
 
-import com.fluxtion.agrona.concurrent.YieldingIdleStrategy;
-import com.fluxtion.dataflow.Fluxtion;
-import com.fluxtion.dataflow.builder.generation.classcompiler.StringCompilation;
-import com.fluxtion.dataflow.builder.generation.config.EventProcessorConfig;
-import com.fluxtion.dataflow.compiler.config.FluxtionCompilerConfig;
-import com.fluxtion.dataflow.compiler.config.FluxtionGraphBuilder;
-import com.fluxtion.dataflow.runtime.CloneableDataFlow;
-import com.fluxtion.dataflow.runtime.annotations.feature.Experimental;
-import com.fluxtion.dataflow.runtime.annotations.runtime.ServiceRegistered;
-import com.fluxtion.dataflow.runtime.audit.Auditor;
-import com.fluxtion.dataflow.runtime.audit.EventLogControlEvent;
-import com.fluxtion.dataflow.runtime.lifecycle.Lifecycle;
-import com.fluxtion.dataflow.runtime.partition.LambdaReflection;
-import com.fluxtion.dataflow.runtime.partition.LambdaReflection.SerializableConsumer;
-import com.fluxtion.server.service.admin.AdminCommandRegistry;
-import com.fluxtion.server.service.servercontrol.FluxtionServerController;
+import org.agrona.concurrent.YieldingIdleStrategy;
+import com.telamin.fluxtion.Fluxtion;
+import com.telamin.fluxtion.FluxtionInterpreter;
+import com.telamin.fluxtion.builder.generation.classcompiler.StringCompilation;
+import com.telamin.fluxtion.builder.generation.config.EventProcessorConfig;
+import com.telamin.fluxtion.builder.compile.config.FluxtionCompilerConfig;
+import com.telamin.fluxtion.builder.compile.config.FluxtionGraphBuilder;
+import com.telamin.fluxtion.runtime.CloneableDataFlow;
+import com.telamin.fluxtion.runtime.annotations.feature.Experimental;
+import com.telamin.fluxtion.runtime.annotations.runtime.ServiceRegistered;
+import com.telamin.fluxtion.runtime.audit.Auditor;
+import com.telamin.fluxtion.runtime.audit.EventLogControlEvent;
+import com.telamin.fluxtion.runtime.lifecycle.Lifecycle;
+import com.telamin.fluxtion.runtime.partition.LambdaReflection;
+import com.telamin.fluxtion.runtime.partition.LambdaReflection.SerializableConsumer;
+import com.telamin.mongoose.service.admin.AdminCommandRegistry;
+import com.telamin.mongoose.service.servercontrol.MongooseServerController;
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
@@ -42,7 +43,7 @@ import java.util.function.Consumer;
 @Log4j2
 public class EventHandlerLoader implements Lifecycle {
 
-    private FluxtionServerController serverController;
+    private MongooseServerController serverController;
     private static final String DEFAULT_GROUP_JAVA_SRC = "javaSourceLoader";
     private static final String DEFAULT_GROUP_YAML = "yamlLoader";
     @Getter
@@ -62,8 +63,8 @@ public class EventHandlerLoader implements Lifecycle {
     }
 
     @ServiceRegistered
-    public void fluxtionServer(FluxtionServerController serverController, String name) {
-        log.info("FluxtionServerController name: '{}'", name);
+    public void fluxtionServer(MongooseServerController serverController, String name) {
+        log.info("MongooseServerController name: '{}'", name);
         this.serverController = serverController;
     }
 
@@ -134,7 +135,7 @@ public class EventHandlerLoader implements Lifecycle {
                 Class<FluxtionGraphBuilder> compiledClass = StringCompilation.compile(className, Files.readString(javaSourceFilePath));
 
                 SerializableConsumer<EventProcessorConfig> buildGraph = compiledClass.getDeclaredConstructor().newInstance()::buildGraph;
-                CloneableDataFlow<?> eventProcessor = compileProcessor ? Fluxtion.compile(buildGraph) : Fluxtion.interpret(buildGraph);
+                CloneableDataFlow<?> eventProcessor = compileProcessor ? Fluxtion.compile(buildGraph) : FluxtionInterpreter.interpret(buildGraph);
 
                 eventProcessor.init();
                 eventProcessor.setAuditLogLevel(initialLogLevel);
@@ -191,7 +192,7 @@ public class EventHandlerLoader implements Lifecycle {
 
             };
 
-            CloneableDataFlow<?> eventProcessor = compileProcessor ? Fluxtion.compile(buildGraph) : Fluxtion.interpret(buildGraph);
+            CloneableDataFlow<?> eventProcessor = compileProcessor ? Fluxtion.compile(buildGraph) : FluxtionInterpreter.interpret(buildGraph);
             eventProcessor.init();
 
             out.accept("compiled and loaded processor" + eventProcessor.toString());

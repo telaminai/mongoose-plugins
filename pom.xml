@@ -7,14 +7,15 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>com.fluxtion.dataflow.serverplugin</groupId>
-    <artifactId>dataflow-server-plugins</artifactId>
-    <version>0.2.4</version>
-    <name>dataflow.serverplugin</name>
+    <groupId>com.telamin</groupId>
+
+    <artifactId>mongoose-plugins</artifactId>
+    <version>0.2.8-SNAPSHOT</version>
+    <name>telamin :: mongoose-plugins</name>
     <packaging>pom</packaging>
 
     <description>
-        A set of plugins for the Fluxtion server
+        A set of plugins for the telamin mongoose server
     </description>
 
     <url>https://github.com/gregv12/fluxtion-server-plugins</url>
@@ -22,10 +23,11 @@
     <properties>
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
-        <dataflow.version>1.0.6</dataflow.version>
-        <dataflow.server.version>0.1.0</dataflow.server.version>
-        <dataflow.maven-plugin.version>1.0</dataflow.maven-plugin.version>
+        <fluxtion.version>0.9.33</fluxtion.version>
+        <fluxtion.generator.version>1.0.27</fluxtion.generator.version>
+        <mongoose.version>1.0.9</mongoose.version>
         <log4j2.version>2.24.3</log4j2.version>
+        <lombok.version>1.18.42</lombok.version>
         <jackson.version>2.18.2</jackson.version>
         <argLine>--add-exports java.base/jdk.internal.misc=ALL-UNNAMED</argLine>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -34,15 +36,15 @@
     <developers>
         <developer>
             <name>Greg Higgins</name>
-            <email>greg.higgins@v12technology.com</email>
+            <email>greg.higgins@telamin.com</email>
         </developer>
     </developers>
 
     <scm>
-        <connection>scm:git:https://github.com/telaminai/dataflow-server-plugins.git</connection>
-        <developerConnection>scm:git:https://github.com/telaminai/dataflow-server-plugins.git</developerConnection>
-        <url>https://github.com/telaminai/dataflow-server-plugins/</url>
-        <tag>v0.2.4</tag>
+        <connection>scm:git:https://github.com/telaminai/mongoose-plugins.git</connection>
+        <developerConnection>scm:git:https://github.com/telaminai/mongoose-plugins.git</developerConnection>
+        <url>https://github.com/telaminai/mongoose-plugins/</url>
+        <tag>v0.1.0</tag>
     </scm>
 
 
@@ -85,29 +87,39 @@
         <module>service/svc-jdbc</module>
         <module>service/svc-loader-yaml</module>
         <module>service/svc-loader-spring</module>
+        <module>connector/connector-aeron</module>
         <module>connector/connector-chronicle</module>
         <module>connector/connector-file</module>
         <module>connector/connector-kafka</module>
+        <module>connector/connector-multicast</module>
         <module>library/lib-jsonserialiser</module>
+        <module>test-support/mongoose-test-support</module>
     </modules>
 
     <dependencies>
+<!--        <dependency>-->
+<!--            <groupId>com.fluxtion.dataflow</groupId>-->
+<!--            <artifactId>dataflow-server</artifactId>-->
+<!--            <version>${mongoose.version}</version>-->
+<!--        </dependency>-->
+
         <dependency>
-            <groupId>com.fluxtion.dataflow</groupId>
-            <artifactId>dataflow-server</artifactId>
-            <version>${dataflow.server.version}</version>
+            <groupId>com.telamin</groupId>
+            <artifactId>mongoose</artifactId>
+            <version>${mongoose.version}</version>
         </dependency>
-        <dependency>
-            <groupId>com.fluxtion.dataflow</groupId>
-            <artifactId>dataflow-imperative</artifactId>
-            <scope>provided</scope>
-            <version>${dataflow.version}</version>
-        </dependency>
+
+<!--        <dependency>-->
+<!--            <groupId>com.fluxtion.dataflow</groupId>-->
+<!--            <artifactId>dataflow-imperative</artifactId>-->
+<!--            <scope>provided</scope>-->
+<!--            <version>${fluxtion.version}</version>-->
+<!--        </dependency>-->
 
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
-            <version>1.18.36</version>
+            <version>${lombok.version}</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
@@ -135,18 +147,18 @@
 
     <build>
         <plugins>
-            <plugin>
-                <groupId>com.fluxtion.dataflow</groupId>
-                <artifactId>dataflow-maven-plugin</artifactId>
-                <version>${dataflow.maven-plugin.version}</version>
-                <executions>
-                    <execution>
-                        <goals>
-                            <goal>scan</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
+<!--            <plugin>-->
+<!--                <groupId>com.fluxtion.dataflow</groupId>-->
+<!--                <artifactId>dataflow-maven-plugin</artifactId>-->
+<!--                <version>${dataflow.maven-plugin.version}</version>-->
+<!--                <executions>-->
+<!--                    <execution>-->
+<!--                        <goals>-->
+<!--                            <goal>scan</goal>-->
+<!--                        </goals>-->
+<!--                    </execution>-->
+<!--                </executions>-->
+<!--            </plugin>-->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-release-plugin</artifactId>
@@ -161,6 +173,21 @@
 
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.13.0</version>
+                <configuration>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                            <version>${lombok.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
                     <argLine>
@@ -169,6 +196,7 @@
                         --add-opens java.base/java.lang.reflect=ALL-UNNAMED
                         --add-opens java.base/sun.nio.ch=ALL-UNNAMED
                         --add-opens java.base/java.lang=ALL-UNNAMED
+                        --add-opens java.base/jdk.internal.misc=ALL-UNNAMED
                         --illegal-access=permit
                         --add-exports java.base/jdk.internal.ref=ALL-UNNAMED
                         --add-exports jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED

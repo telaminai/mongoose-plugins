@@ -21,3 +21,8 @@ target/
 /.idea/misc.xml
 /.idea/.gitignore
 /.idea/
+
+# MkDocs build output + Python venv
+site/
+.venv/
+__pycache__/

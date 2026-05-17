@@ -5,9 +5,9 @@
 
 package com.fluxtion.dataflow.serverplugin.connector.chronicle;
 
-import com.fluxtion.dataflow.runtime.event.NamedFeedEvent;
-import com.fluxtion.server.dispatch.EventToQueuePublisher;
-import com.fluxtion.server.service.AbstractAgentHostedEventSourceService;
+import com.telamin.fluxtion.runtime.event.NamedFeedEvent;
+import com.telamin.mongoose.dispatch.EventToQueuePublisher;
+import com.telamin.mongoose.service.extension.AbstractAgentHostedEventSourceService;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.SneakyThrows;
@@ -17,7 +17,6 @@ import net.openhft.chronicle.map.ChronicleMap;
 import net.openhft.chronicle.queue.ExcerptTailer;
 import net.openhft.chronicle.queue.impl.single.SingleChronicleQueue;
 import net.openhft.chronicle.queue.impl.single.SingleChronicleQueueBuilder;
-import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
 import java.util.List;
@@ -40,7 +39,7 @@ public class ChronicleEventSource extends AbstractAgentHostedEventSourceService 
     private boolean publishToQueue = false;
     private MethodReader methodReader;
     private ChronicleMap<Long, Long> readpointer;
-    private @NotNull ExcerptTailer tailer;
+    private ExcerptTailer tailer;
 
     public ChronicleEventSource(String name) {
         super(name);
@@ -53,8 +52,13 @@ public class ChronicleEventSource extends AbstractAgentHostedEventSourceService 
     @SneakyThrows
     @Override
     public void onStart() {
+        if (chroniclePath == null || chroniclePath.isEmpty()) {
+            throw new IllegalStateException(
+                    "ChronicleEventSource " + serviceName + " has no chroniclePath configured");
+        }
         chronicleQueuePath = chroniclePath + "/chronicle-queue";
         chronicleMapPath = chroniclePath + "/chronicle-map";
+        new File(chronicleQueuePath).mkdirs();
         SingleChronicleQueue chronicleQueue = SingleChronicleQueueBuilder.binary(chronicleQueuePath).build();
         MessageSink messageSink = this::publish;
         tailer = chronicleQueue.createTailer();
