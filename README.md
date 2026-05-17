@@ -14,6 +14,7 @@ Mongoose itself ships with the runtime, the dispatch core, and an in-memory even
 | [connector-chronicle](connector/connector-chronicle/) | Chronicle Queue + Chronicle Map | Microsecond-latency persistent log on disk; binary, memory-mapped, indexed. Better than file for high-throughput single-host. | `connector-chronicle` |
 | [connector-kafka](connector/connector-kafka/) | Apache Kafka producer + consumer | Cross-process / cross-host messaging via a real broker. Use when you've outgrown single-host. | `connector-kafka` |
 | [connector-multicast](connector/connector-multicast/) | UDP multicast source + sink | LAN-scoped pubsub without a broker. Discovery, heartbeats, test rigs. No persistence. | `connector-multicast` |
+| [connector-aeron](connector/connector-aeron/) | Aeron live + archive replay source, Aeron sink | Sub-microsecond IPC and UDP transport. Cold-start replay from Aeron Archive. Single-host or LAN. | `connector-aeron` |
 
 ### Services (cross-cutting capabilities)
 
@@ -77,6 +78,7 @@ These are lessons baked into every plugin in this repo as of this revision — t
 mongoose-plugins/
 ├── pom.xml                     ← parent, version + properties + shared deps
 ├── connector/
+│   ├── connector-aeron/
 │   ├── connector-file/
 │   ├── connector-chronicle/
 │   ├── connector-kafka/
@@ -100,7 +102,7 @@ mvn clean install -pl connector/connector-file  # one module
 mvn -pl service/svc-cache -am test              # one module + deps, tests only
 ```
 
-Build status: all 12 modules compile and tests pass on JDK 21+ as of mongoose `1.0.8` / fluxtion `0.9.33`.
+Build status: all 13 modules compile and tests pass on JDK 21+ as of mongoose `1.0.8` / fluxtion `0.9.33`.
 
 ## Versioning
 
