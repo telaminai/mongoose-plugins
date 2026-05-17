@@ -8,12 +8,12 @@ package com.fluxtion.dataflow.serverplugin.svc.cache;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fluxtion.agrona.concurrent.Agent;
-import com.fluxtion.dataflow.runtime.annotations.runtime.ServiceRegistered;
-import com.fluxtion.dataflow.runtime.lifecycle.Lifecycle;
-import com.fluxtion.server.dispatch.EventFlowManager;
-import com.fluxtion.server.dispatch.EventFlowService;
-import com.fluxtion.server.service.admin.AdminCommandRegistry;
+import org.agrona.concurrent.Agent;
+import com.telamin.fluxtion.runtime.annotations.runtime.ServiceRegistered;
+import com.telamin.fluxtion.runtime.lifecycle.Lifecycle;
+import com.telamin.mongoose.dispatch.EventFlowManager;
+import com.telamin.mongoose.service.EventFlowService;
+import com.telamin.mongoose.service.admin.AdminCommandRegistry;
 import lombok.AccessLevel;
 import lombok.Data;
 import lombok.Setter;
@@ -23,15 +23,18 @@ import lombok.extern.log4j.Log4j2;
 import java.io.File;
 import java.io.IOException;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
 @Data
 @Log4j2
-public class JsonFileCache implements Cache, Agent, Lifecycle, EventFlowService {
+public class JsonFileCache implements Cache, Agent, Lifecycle, EventFlowService<Object> {
 
     private String fileName;
     private final AtomicBoolean updated = new AtomicBoolean(false);
@@ -43,21 +46,71 @@ public class JsonFileCache implements Cache, Agent, Lifecycle, EventFlowService 
     private File redoLogFile;
     private String serviceName;
     private AdminCommandRegistry registry;
+    private boolean asyncWrite = false;
+    /**
+     * Hard cap on entries. {@code 0} (default) means unbounded. When set, the
+     * backing map switches to access-order LRU and evicts the eldest entry on
+     * overflow. Eviction also flags {@code updated} so the JSON file reflects
+     * the trimmed state.
+     */
+    private int maxSize = 0;
+    @Setter(AccessLevel.NONE)
+    private final AtomicLong evictedCount = new AtomicLong();
 
     @SneakyThrows
     @Override
     public void init() {
-        log.info("init");
+        log.info("init maxSize:{}", maxSize);
+        if (fileName == null || fileName.isEmpty()) {
+            throw new IllegalStateException("JsonFileCache has no fileName configured");
+        }
+        if (maxSize < 0) {
+            throw new IllegalStateException("JsonFileCache maxSize must be >= 0, got " + maxSize);
+        }
+        Map<String, TypedData> loaded = null;
         file = new File(fileName);
         if (file.exists() && file.length() > 0) {
             log.info("opened cache file:{}", fileName);
-            cacheMap = mapper.readValue(file, new TypeReference<Map<String, TypedData>>() {
+            loaded = mapper.readValue(file, new TypeReference<Map<String, TypedData>>() {
             });
-            cacheMap.forEach((k, v) -> get(k));
         } else {
-            file.getParentFile().mkdirs();
+            File parent = file.getParentFile();
+            if (parent != null) {
+                parent.mkdirs();
+            }
             log.info("no cache file:{} created:{}", fileName, file.createNewFile());
         }
+        cacheMap = buildBackingMap();
+        if (loaded != null) {
+            cacheMap.putAll(loaded);
+            // Materialise the JSON-string values back into the cached `instance` field.
+            // Snapshot the key set first — get() touches access order under LRU mode and
+            // would otherwise trigger ConcurrentModificationException on live iteration.
+            for (String key : new java.util.ArrayList<>(cacheMap.keySet())) {
+                get(key);
+            }
+        }
+    }
+
+    private Map<String, TypedData> buildBackingMap() {
+        if (maxSize > 0) {
+            return Collections.synchronizedMap(new LinkedHashMap<String, TypedData>(16, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, TypedData> eldest) {
+                    if (size() > maxSize) {
+                        evictedCount.incrementAndGet();
+                        updated.set(true);
+                        return true;
+                    }
+                    return false;
+                }
+            });
+        }
+        return new ConcurrentHashMap<>();
+    }
+
+    public long getEvictedCount() {
+        return evictedCount.get();
     }
 
     @ServiceRegistered
@@ -74,6 +127,24 @@ public class JsonFileCache implements Cache, Agent, Lifecycle, EventFlowService 
         registry.registerCommand("cache." + serviceName + ".keys", this::listKeys);
     }
 
+    // EventFlowService -> EventSource contract: this cache does not push events
+    // into the dispatch pipeline, it only services lookups, so the queue
+    // publisher and (un)subscribe calls are intentionally no-ops.
+    @Override
+    public void setEventToQueuePublisher(com.telamin.mongoose.dispatch.EventToQueuePublisher<Object> targetQueue) {
+        // no-op
+    }
+
+    @Override
+    public void subscribe(com.telamin.mongoose.service.EventSubscriptionKey<Object> eventSourceKey) {
+        // no-op
+    }
+
+    @Override
+    public void unSubscribe(com.telamin.mongoose.service.EventSubscriptionKey<Object> eventSourceKey) {
+        // no-op
+    }
+
     @Override
     public Collection<String> keys() {
         return cacheMap.keySet();
@@ -88,7 +159,10 @@ public class JsonFileCache implements Cache, Agent, Lifecycle, EventFlowService 
             typedData.setInstance(value);
             typedData.setData(mapper.writeValueAsString(value));
             cacheMap.put(key, typedData);
-        } catch (IOException e) {
+            if (!asyncWrite) {
+                doWork();
+            }
+        } catch (Exception e) {
             throw new RuntimeException(e);
         }
     }
@@ -113,10 +187,14 @@ public class JsonFileCache implements Cache, Agent, Lifecycle, EventFlowService 
         return null;
     }
 
+    @SneakyThrows
     @Override
     public void remove(String key) {
         updated.set(true);
         cacheMap.remove(key);
+        if (!asyncWrite) {
+            doWork();
+        }
     }
 
     @Override
@@ -142,6 +220,9 @@ public class JsonFileCache implements Cache, Agent, Lifecycle, EventFlowService 
     @SneakyThrows
     @Override
     public void tearDown() {
+        if (fileName == null || fileName.isEmpty()) {
+            return;
+        }
         mapper.writeValue(new File(fileName), cacheMap);
     }
 

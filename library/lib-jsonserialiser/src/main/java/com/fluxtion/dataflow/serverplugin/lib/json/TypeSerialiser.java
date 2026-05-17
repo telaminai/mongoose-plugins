@@ -11,7 +11,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fluxtion.server.batch.BatchDto;
+import com.telamin.mongoose.batch.BatchDto;
 import lombok.extern.log4j.Log4j2;
 
 import java.util.List;

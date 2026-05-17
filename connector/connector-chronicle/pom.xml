@@ -2,14 +2,14 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <parent>
-        <groupId>com.fluxtion.dataflow.serverplugin</groupId>
-        <artifactId>dataflow-server-plugins</artifactId>
-        <version>0.2.8-SNAPSHOT</version>
+        <groupId>com.telamin</groupId>
+        <artifactId>mongoose-plugins</artifactId>
+        <version>0.2.12-SNAPSHOT</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
     <artifactId>connector-chronicle</artifactId>
-    <name>dataflow.serverplugin :: connector-connector</name>
+    <name>telamin :: mongoose-plugins :: connector-chronicle</name>
 
     <properties>
         <maven.compiler.source>21</maven.compiler.source>
@@ -38,6 +38,12 @@
         <dependency>
             <groupId>net.openhft</groupId>
             <artifactId>chronicle-map</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.telamin</groupId>
+            <artifactId>mongoose-test-support</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 </project>

@@ -5,15 +5,16 @@
 
 package com.fluxtion.dataflow.serverplugin.loader.spring;
 
-import com.fluxtion.agrona.concurrent.YieldingIdleStrategy;
-import com.fluxtion.dataflow.extern.spring.FluxtionSpring;
-import com.fluxtion.dataflow.runtime.CloneableDataFlow;
-import com.fluxtion.dataflow.runtime.annotations.feature.Preview;
-import com.fluxtion.dataflow.runtime.annotations.runtime.ServiceRegistered;
-import com.fluxtion.dataflow.runtime.audit.EventLogControlEvent;
-import com.fluxtion.dataflow.runtime.lifecycle.Lifecycle;
-import com.fluxtion.server.service.admin.AdminCommandRegistry;
-import com.fluxtion.server.service.servercontrol.FluxtionServerController;
+import org.agrona.concurrent.YieldingIdleStrategy;
+import com.telamin.fluxtion.builder.extern.spring.FluxtionSpring;
+import com.telamin.fluxtion.builder.extern.spring.FluxtionSpringInterpreter;
+import com.telamin.fluxtion.runtime.CloneableDataFlow;
+import com.telamin.fluxtion.runtime.annotations.feature.Preview;
+import com.telamin.fluxtion.runtime.annotations.runtime.ServiceRegistered;
+import com.telamin.fluxtion.runtime.audit.EventLogControlEvent;
+import com.telamin.fluxtion.runtime.lifecycle.Lifecycle;
+import com.telamin.mongoose.service.admin.AdminCommandRegistry;
+import com.telamin.mongoose.service.servercontrol.MongooseServerController;
 import lombok.Data;
 import lombok.Getter;
 import lombok.Setter;
@@ -29,7 +30,7 @@ import java.util.function.Consumer;
 @Log4j2
 public class SpringEventHandlerLoader implements Lifecycle {
 
-    private FluxtionServerController serverController;
+    private MongooseServerController serverController;
     private AdminCommandRegistry adminCommandRegistry;
     private boolean addEventAuditor = true;
     private EventLogControlEvent.LogLevel traceLogLevel;
@@ -54,8 +55,8 @@ public class SpringEventHandlerLoader implements Lifecycle {
     }
 
     @ServiceRegistered
-    public void fluxtionServer(FluxtionServerController serverController, String name) {
-        log.info("FluxtionServerController name: '{}'", name);
+    public void fluxtionServer(MongooseServerController serverController, String name) {
+        log.info("MongooseServerController name: '{}'", name);
         this.serverController = serverController;
     }
 
@@ -144,7 +145,7 @@ public class SpringEventHandlerLoader implements Lifecycle {
                 }
             });
         } else {
-            eventProcessor = FluxtionSpring.interpret(springFilePath, cfg -> {
+            eventProcessor = FluxtionSpringInterpreter.interpret(springFilePath, cfg -> {
                 if (addEventAuditor) {
                     cfg.addEventAudit();
                     cfg.addEventAudit(traceLogLevel);
