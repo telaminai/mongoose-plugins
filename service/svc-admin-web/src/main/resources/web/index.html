@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Mongoose Admin</title>
+    <link rel="stylesheet" href="/style.css">
+    <!--
+        IMPORTANT load order:
+        1. app.js loads EAGERLY (no defer) so it attaches the `alpine:init`
+           listener before Alpine's deferred script runs. Alpine's CDN build
+           calls Alpine.start() during its own script execution, not on
+           DOMContentLoaded, so any listener attached after Alpine loads is
+           too late.
+        2. htmx + Alpine load with defer.
+    -->
+    <script src="/app.js"></script>
+    <script src="/vendor/htmx-2.0.4.min.js" defer></script>
+    <script src="/vendor/alpine-3.14.8.min.js" defer></script>
+</head>
+<body x-data="adminApp()" x-init="boot()" x-cloak>
+
+<header class="topbar">
+    <div class="brand">Mongoose Admin</div>
+    <div class="auth-state">
+        <template x-if="authed">
+            <span>
+                <span class="user" x-text="userId"></span>
+                <button class="link" @click="logout()">log out</button>
+            </span>
+        </template>
+        <template x-if="!authed && authMode !== 'NONE'">
+            <span class="muted">not authenticated</span>
+        </template>
+        <template x-if="authMode === 'NONE'">
+            <span class="warn">auth disabled — local dev only</span>
+        </template>
+    </div>
+</header>
+
+<main x-show="authed || authMode === 'NONE'">
+    <section class="dashboard" x-show="server || jvm">
+        <h2>Dashboard</h2>
+        <div class="dash-grid">
+            <div class="card" x-show="server">
+                <h3>Server</h3>
+                <dl>
+                    <dt>PID</dt><dd x-text="server?.pid"></dd>
+                    <dt>Runtime</dt><dd x-text="server?.runtime"></dd>
+                    <dt>Uptime</dt><dd x-text="formatUptime(jvm?.ts ?? Date.now(), server?.startTime)"></dd>
+                </dl>
+            </div>
+            <div class="card" x-show="jvm">
+                <h3>JVM <span class="muted" x-text="wsStatus"></span></h3>
+                <dl>
+                    <dt>Heap</dt><dd>
+                        <span x-text="formatBytes(jvm?.jvm?.heapUsed)"></span>
+                        / <span x-text="formatBytes(jvm?.jvm?.heapCommitted)"></span>
+                        <span class="muted">(max <span x-text="formatBytes(jvm?.jvm?.heapMax)"></span>)</span>
+                    </dd>
+                    <dt>Non-heap</dt><dd x-text="formatBytes(jvm?.jvm?.nonHeapUsed)"></dd>
+                    <dt>Threads</dt><dd x-text="jvm?.jvm?.threads"></dd>
+                    <dt>GC</dt><dd>
+                        <template x-for="g in (jvm?.jvm?.gc ?? [])" :key="g.name">
+                            <span><span x-text="g.name"></span>: <span x-text="g.count"></span>×, <span x-text="g.timeMs"></span>ms&nbsp;&nbsp;</span>
+                        </template>
+                    </dd>
+                </dl>
+            </div>
+        </div>
+    </section>
+
+    <section class="logs" x-show="logs.length || logsStatus">
+        <h2>Logs <span class="muted" x-text="logsStatus"></span></h2>
+        <div class="log-toolbar">
+            <label>level
+                <select x-model="logLevel">
+                    <option value="">ALL</option>
+                    <option value="INFO">INFO+</option>
+                    <option value="WARNING">WARN+</option>
+                    <option value="SEVERE">ERROR</option>
+                </select>
+            </label>
+            <input type="search" placeholder="filter…" x-model="logFilter" class="log-filter">
+            <label><input type="checkbox" x-model="logAutoScroll"> auto-scroll</label>
+            <button class="link" type="button" @click="clearLogs()">clear</button>
+        </div>
+        <pre class="log-pane" x-ref="logPane">
+            <template x-for="line in filteredLogs()" :key="line.ts + line.logger + line.msg">
+                <div :class="'log-line lvl-' + (line.level || 'INFO').toUpperCase()">
+                    <span class="log-ts" x-text="formatLogTs(line.ts)"></span>
+                    <span class="log-lvl" x-text="line.level"></span>
+                    <span class="log-logger" x-text="line.logger"></span>
+                    <span class="log-msg" x-text="line.msg"></span>
+                </div>
+            </template>
+        </pre>
+    </section>
+
+    <section class="cache panel" x-show="hasCacheCommands()">
+        <h2>Cache</h2>
+        <div class="panel-actions">
+            <button type="button" @click="cacheList()" :disabled="cacheBusy">list caches</button>
+            <form @submit.prevent="cacheKeys()" class="inline-form">
+                <input type="text" x-model="cacheNameInput" placeholder="cache name">
+                <button type="submit" :disabled="cacheBusy || !cacheNameInput">keys</button>
+            </form>
+            <form @submit.prevent="cacheGet()" class="inline-form">
+                <input type="text" x-model="cacheGetName" placeholder="cache name">
+                <input type="text" x-model="cacheGetKey"  placeholder="key">
+                <button type="submit" :disabled="cacheBusy || !cacheGetName || !cacheGetKey">get</button>
+            </form>
+        </div>
+        <pre class="out" x-show="cacheOutput.length"><template x-for="line in cacheOutput" :key="line"><span x-text="line + '\n'"></span></template></pre>
+        <pre class="err" x-show="cacheErr.length"><template x-for="line in cacheErr" :key="line"><span x-text="line + '\n'"></span></template></pre>
+    </section>
+
+    <section class="loader panel" x-show="hasLoaderCommands()">
+        <h2>Loader</h2>
+        <template x-if="hasYamlLoader()">
+            <form @submit.prevent="yamlCompile()" class="loader-form">
+                <h3>YAML — compileProcessor</h3>
+                <label>path
+                    <input type="text" x-model="yamlPath" placeholder="processor.yaml">
+                    <button class="link" type="button" @click="openPicker('yamlPath')" x-show="loaderBaseDirAvailable">browse…</button>
+                </label>
+                <label>group
+                    <input type="text" x-model="yamlGroup" placeholder="default">
+                </label>
+                <button type="submit" :disabled="loaderBusy || !yamlPath">compile</button>
+            </form>
+        </template>
+        <template x-if="hasSpringLoader()">
+            <form @submit.prevent="springCompile()" class="loader-form">
+                <h3>Spring — compileProcessor</h3>
+                <label>path
+                    <input type="text" x-model="springPath" placeholder="processor.xml">
+                    <button class="link" type="button" @click="openPicker('springPath')" x-show="loaderBaseDirAvailable">browse…</button>
+                </label>
+                <label>group
+                    <input type="text" x-model="springGroup" placeholder="default">
+                </label>
+                <button type="submit" :disabled="loaderBusy || !springPath">compile</button>
+            </form>
+        </template>
+        <pre class="out" x-show="loaderOutput.length"><template x-for="line in loaderOutput" :key="line"><span x-text="line + '\n'"></span></template></pre>
+        <pre class="err" x-show="loaderErr.length"><template x-for="line in loaderErr" :key="line"><span x-text="line + '\n'"></span></template></pre>
+
+        <div class="picker" x-show="pickerOpen" @keydown.escape.window="pickerOpen=false">
+            <div class="picker-box">
+                <div class="picker-header">
+                    <span class="muted">/<span x-text="pickerCwd"></span></span>
+                    <button class="link" type="button" @click="pickerOpen=false">close</button>
+                </div>
+                <ul class="picker-list">
+                    <li x-show="pickerCwd">
+                        <button class="link" type="button" @click="pickerUp()">..</button>
+                    </li>
+                    <template x-for="e in pickerEntries" :key="e.name">
+                        <li>
+                            <button class="link" type="button" @click="pickerSelect(e)">
+                                <span x-text="e.name + (e.isDir ? '/' : '')"></span>
+                            </button>
+                        </li>
+                    </template>
+                    <li x-show="!pickerEntries.length" class="muted">(empty)</li>
+                </ul>
+            </div>
+        </div>
+    </section>
+
+    <section class="commands">
+        <h2>Commands</h2>
+        <input type="search" placeholder="filter…" x-model="filter" class="filter">
+        <ul class="cmd-list">
+            <template x-for="cmd in filteredCommands()" :key="cmd">
+                <li>
+                    <button class="cmd" :class="{ active: selected === cmd }" @click="select(cmd)" x-text="cmd"></button>
+                </li>
+            </template>
+            <template x-if="commands.length === 0">
+                <li class="muted">no commands registered</li>
+            </template>
+        </ul>
+    </section>
+
+    <section class="runner">
+        <h2>
+            <span x-text="selected || 'select a command'"></span>
+        </h2>
+        <form @submit.prevent="invoke()">
+            <label>arguments (one per line)</label>
+            <textarea x-model="argsText" rows="3" placeholder=""></textarea>
+            <button type="submit" :disabled="!selected || running">
+                <span x-show="!running">run</span>
+                <span x-show="running">running…</span>
+            </button>
+        </form>
+
+        <section class="result" x-show="lastResult">
+            <h3>result</h3>
+            <pre class="out" x-show="lastResult?.output?.length"><template x-for="line in lastResult?.output ?? []" :key="line"><span x-text="line + '\n'"></span></template></pre>
+            <pre class="err" x-show="lastResult?.err?.length"><template x-for="line in lastResult?.err ?? []" :key="line"><span x-text="line + '\n'"></span></template></pre>
+            <p class="muted" x-show="lastResult?.output?.length === 0 && lastResult?.err?.length === 0">(no output)</p>
+        </section>
+
+        <section class="history" x-show="history.length">
+            <h3>history</h3>
+            <ul>
+                <template x-for="(h, i) in history" :key="i">
+                    <li>
+                        <button class="link" @click="replay(h)" x-text="h.command + (h.args.length ? ' ' + h.args.join(' ') : '')"></button>
+                    </li>
+                </template>
+            </ul>
+        </section>
+    </section>
+</main>
+
+<section class="login" x-show="!authed && authMode !== 'NONE'">
+    <h2>Sign in</h2>
+    <form @submit.prevent="login()">
+        <template x-if="authMode === 'BASIC' || authMode === 'unknown'">
+            <div>
+                <label>username</label>
+                <input type="text" x-model="loginUser" autocomplete="username" required>
+                <label>password</label>
+                <input type="password" x-model="loginPass" autocomplete="current-password" required>
+            </div>
+        </template>
+        <template x-if="authMode === 'BEARER'">
+            <div>
+                <label>bearer token</label>
+                <input type="password" x-model="loginToken" required>
+            </div>
+        </template>
+        <button type="submit">sign in</button>
+        <p class="err" x-text="loginError" x-show="loginError"></p>
+    </form>
+</section>
+
+</body>
+</html>
