@@ -9,7 +9,7 @@
     </parent>
 
     <artifactId>library-jsonserialiser</artifactId>
-    <name>dataflow.serverplugin :: library-jsonserialiser</name>
+    <name>telamin :: mongoose-plugins :: lib-jsonserialiser</name>
 
     <properties>
         <maven.compiler.source>21</maven.compiler.source>

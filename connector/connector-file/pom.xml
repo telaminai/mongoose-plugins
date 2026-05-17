@@ -9,7 +9,7 @@
     </parent>
 
     <artifactId>connector-file</artifactId>
-    <name>dataflow.serverplugin :: connector-file</name>
+    <name>telamin :: mongoose-plugins :: connector-file</name>
 
     <properties>
         <maven.compiler.source>21</maven.compiler.source>

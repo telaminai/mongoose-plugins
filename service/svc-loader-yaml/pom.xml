@@ -9,7 +9,7 @@
     </parent>
 
     <artifactId>svc-loader-yaml</artifactId>
-    <name>dataflow.serverplugin :: svc-loader-yaml</name>
+    <name>telamin :: mongoose-plugins :: svc-loader-yaml</name>
 
     <properties>
         <maven.compiler.source>21</maven.compiler.source>

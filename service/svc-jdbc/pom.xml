@@ -9,7 +9,7 @@
     </parent>
 
     <artifactId>svc-jdbc</artifactId>
-    <name>dataflow.serverplugin :: svc-jdbc</name>
+    <name>telamin :: mongoose-plugins :: svc-jdbc</name>
 
     <properties>
         <maven.compiler.source>21</maven.compiler.source>

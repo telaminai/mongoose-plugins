@@ -9,7 +9,7 @@
     </parent>
 
     <artifactId>svc-cache</artifactId>
-    <name>dataflow.serverplugin :: svc-cache</name>
+    <name>telamin :: mongoose-plugins :: svc-cache</name>
     <properties>
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>

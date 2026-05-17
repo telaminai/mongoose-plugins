@@ -9,7 +9,7 @@
     </parent>
 
     <artifactId>connector-chronicle</artifactId>
-    <name>dataflow.serverplugin :: connector-connector</name>
+    <name>telamin :: mongoose-plugins :: connector-connector</name>
 
     <properties>
         <maven.compiler.source>21</maven.compiler.source>

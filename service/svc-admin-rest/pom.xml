@@ -9,7 +9,7 @@
     </parent>
 
     <artifactId>svc-admin-rest</artifactId>
-    <name>dataflow.serverplugin :: svc-admin-rest</name>
+    <name>telamin :: mongoose-plugins :: svc-admin-rest</name>
 
     <properties>
         <maven.compiler.source>21</maven.compiler.source>

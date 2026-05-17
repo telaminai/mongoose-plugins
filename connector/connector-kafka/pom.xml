@@ -9,7 +9,7 @@
     </parent>
 
     <artifactId>connector-kafka</artifactId>
-    <name>dataflow.serverplugin :: connector-kafka</name>
+    <name>telamin :: mongoose-plugins :: connector-kafka</name>
 
     <properties>
         <maven.compiler.source>21</maven.compiler.source>
