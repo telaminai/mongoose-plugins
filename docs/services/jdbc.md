@@ -20,6 +20,7 @@ JDBC connection registry + pool. Each entry is served from a [HikariCP](https://
 ```yaml
 services:
   - name: jdbcConnectionLoader
+    serviceClass: com.fluxtion.dataflow.serverplugin.svc.jdbc.JdbcConnectionLoader
     instance: !!com.fluxtion.dataflow.serverplugin.svc.jdbc.impl.JdbcConnectionLoaderService
       testConnection: true
       fastFail: false
@@ -38,6 +39,17 @@ services:
           password:
           pooled: false   # raw DriverManager — no pool
 ```
+
+!!! tip "Registering as an interface"
+    `serviceClass` is the fully qualified type the service is registered under in
+    Mongoose's service registry. `@ServiceRegistered` matches by parameter type, so
+    if you want `@ServiceRegistered JdbcConnectionLoader jdbc` injection to find this
+    service, register it under the interface, not the concrete `JdbcConnectionLoaderService`.
+
+    Omit `serviceClass` and Mongoose falls back to the concrete class —
+    useful when the consumer injects the concrete impl directly.
+
+    See [`com.telamin.mongoose.config.ServiceConfig#serviceClass`](https://github.com/telaminai/mongoose/blob/main/mongoose/src/main/java/com/telamin/mongoose/config/ServiceConfig.java).
 
 Inject into a processor:
 

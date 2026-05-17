@@ -38,6 +38,11 @@ services:
       realm: mongoose-admin
 ```
 
+The admin endpoints aren't injected into processors — they call back into the
+shared `AdminCommandRegistry` — so registering under the concrete class is the
+right choice here. Add `serviceClass: <interface-FQN>` only if you want to
+abstract the endpoint type for a custom integration.
+
 Invoke an admin command:
 
 ```bash

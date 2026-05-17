@@ -62,6 +62,38 @@ Plugins are POJOs with setters; the actual wiring is done in one of three format
 
 All three reach the same internal `MongooseServerConfig` shape, so a plugin authored against one is automatically usable from the others.
 
+## Service registration and the `serviceClass` field
+
+Services are published into Mongoose's service registry under a **specific class
+or interface**, not their full type hierarchy. `@ServiceRegistered` matches by
+parameter type — so for a processor to inject a service via an interface, the
+service must be registered under that interface.
+
+In YAML, `services[].serviceClass` controls this:
+
+```yaml
+services:
+  - name: state-cache
+    serviceClass: com.fluxtion.dataflow.serverplugin.svc.cache.Cache
+    instance: !!com.fluxtion.dataflow.serverplugin.svc.cache.JsonFileCache
+      fileName: ./data-out/state.json
+```
+
+| `serviceClass` value | Effect |
+|---|---|
+| _omitted_ | Registers under the concrete `instance` class. Use when consumers inject the concrete impl. |
+| Interface FQN (e.g. `Cache`) | Registers under the interface. Multiple impls become drop-in interchangeable. |
+| Other class FQN | Registers under that class — useful for legacy types or abstract base classes. |
+
+In Java, the equivalent on `ServiceConfig` is `.serviceClass(MyInterface.class)`
+on the builder (or `serviceClassName(String)` for late-bound class names). See
+[`ServiceConfig#serviceClass`](https://github.com/telaminai/mongoose/blob/main/mongoose/src/main/java/com/telamin/mongoose/config/ServiceConfig.java).
+
+**Rule of thumb:** if your plugin exposes a public interface (`Cache`,
+`JdbcConnectionLoader`), register under it. Consumers code against the
+interface; you keep the freedom to swap implementations without breaking the
+processor wiring.
+
 ## Threading model
 
 - Each connector and service runs on its **own agent thread** (Agrona's `AgentRunner`). One thread per plugin instance.

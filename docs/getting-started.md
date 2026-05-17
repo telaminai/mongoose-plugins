@@ -53,10 +53,21 @@ Three idiomatic styles:
 
     services:
       - name: state-cache
+        serviceClass: com.fluxtion.dataflow.serverplugin.svc.cache.Cache
         instance: !!com.fluxtion.dataflow.serverplugin.svc.cache.JsonFileCache
           fileName: ./data-out/state.json
           maxSize: 10000
     ```
+
+    !!! tip "`serviceClass` registers a service under a specific type"
+        `services[].serviceClass` is the fully qualified type the service is
+        published under in Mongoose's service registry. `@ServiceRegistered`
+        matches by parameter type, so registering as an interface lets multiple
+        implementations be swapped without touching the consumer.
+
+        Omit `serviceClass` to register under the concrete class. Both are valid
+        — pick by whether your processor injects the interface or the impl. See
+        [`ServiceConfig#serviceClass`](https://github.com/telaminai/mongoose/blob/main/mongoose/src/main/java/com/telamin/mongoose/config/ServiceConfig.java).
 
     Boot with:
     ```java

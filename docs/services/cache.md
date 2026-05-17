@@ -28,15 +28,26 @@ Both implement the same `Cache` interface so the consuming processor is implemen
 ```yaml
 services:
   - name: state-cache
+    serviceClass: com.fluxtion.dataflow.serverplugin.svc.cache.Cache
     instance: !!com.fluxtion.dataflow.serverplugin.svc.cache.JsonFileCache
       fileName: ./data-out/state.json
       maxSize: 10000            # 0 = unbounded
       asyncWrite: false         # write on every put if false
 
   - name: hot-prices
+    serviceClass: com.fluxtion.dataflow.serverplugin.svc.cache.Cache
     instance: !!com.fluxtion.dataflow.serverplugin.svc.cache.InMemoryCache
       maxSize: 5000
 ```
+
+!!! tip "Registering as `Cache`, not the concrete impl"
+    `serviceClass: com.fluxtion.dataflow.serverplugin.svc.cache.Cache` registers the
+    service under the **interface** so processors that inject `@ServiceRegistered
+    Cache cache` find it regardless of which implementation is wired. Drop in
+    `JsonFileCache` for persistence or `InMemoryCache` for pure in-memory —
+    consumers don't care.
+
+    Omit `serviceClass` to register under the concrete class instead.
 
 Inject:
 
