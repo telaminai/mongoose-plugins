@@ -10,7 +10,7 @@
     <groupId>com.telamin</groupId>
 
     <artifactId>mongoose-plugins</artifactId>
-    <version>0.2.13-SNAPSHOT</version>
+    <version>0.2.14-SNAPSHOT</version>
     <name>telamin :: mongoose-plugins</name>
     <packaging>pom</packaging>
 
