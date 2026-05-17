@@ -63,6 +63,10 @@ public class FileEventSource extends AbstractAgentHostedEventSourceService {
     @Override
     public void start() {
         log.info("start FileEventSource {} file:{}", serviceName, filename);
+        if (filename == null || filename.isEmpty()) {
+            throw new IllegalStateException(
+                    "FileEventSource " + serviceName + " has no filename configured");
+        }
         tail = readStrategy == ReadStrategy.COMMITED | readStrategy == ReadStrategy.EARLIEST | readStrategy == ReadStrategy.LATEST;
         once = !tail;
         commitRead = readStrategy == ReadStrategy.COMMITED;
@@ -70,6 +74,12 @@ public class FileEventSource extends AbstractAgentHostedEventSourceService {
         log.info("tail:{} once:{}, commitRead:{} latestRead:{} readStrategy:{}", tail, once, commitRead, latestRead, readStrategy);
 
         File committedReadFile = new File(filename + ".readPointer");
+        File readPointerParent = committedReadFile.getParentFile();
+        if (readPointerParent != null && !readPointerParent.exists()) {
+            if (!readPointerParent.mkdirs() && !readPointerParent.exists()) {
+                log.warn("could not create parent dir for {} — mapping may fail", committedReadFile.getAbsolutePath());
+            }
+        }
         if (readStrategy == ReadStrategy.ONCE_EARLIEST | readStrategy == ReadStrategy.EARLIEST) {
             streamOffset = 0;
         } else if (committedReadFile.exists()) {
@@ -82,9 +92,6 @@ public class FileEventSource extends AbstractAgentHostedEventSourceService {
             log.info("{} creating committedReadFile:{}, streamOffset:{}", serviceName, committedReadFile.getAbsolutePath(), streamOffset);
         }
 
-        if (filename == null || filename.isEmpty()) {
-            //throw an  error
-        }
         connectReader();
         tail = true;
 

@@ -88,10 +88,10 @@
 <!--        <module>service/svc-loader-yaml</module>-->
 <!--        <module>service/svc-loader-spring</module>-->
 <!--        <module>connector/connector-chronicle</module>-->
-<!--        <module>connector/connector-file</module>-->
+        <module>connector/connector-file</module>
 <!--        <module>connector/connector-kafka</module>-->
         <module>connector/connector-multicast</module>
-<!--        <module>library/lib-jsonserialiser</module>-->
+        <module>library/lib-jsonserialiser</module>
     </modules>
 
     <dependencies>
@@ -194,6 +194,7 @@
                         --add-opens java.base/java.lang.reflect=ALL-UNNAMED
                         --add-opens java.base/sun.nio.ch=ALL-UNNAMED
                         --add-opens java.base/java.lang=ALL-UNNAMED
+                        --add-opens java.base/jdk.internal.misc=ALL-UNNAMED
                         --illegal-access=permit
                         --add-exports java.base/jdk.internal.ref=ALL-UNNAMED
                         --add-exports jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED
