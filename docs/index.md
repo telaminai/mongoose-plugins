@@ -32,7 +32,7 @@ XML, or plain Java config.
   <dt>License</dt>
   <dd>AGPL-3.0-only</dd>
   <dt>Latest</dt>
-  <dd>0.2.8-SNAPSHOT</dd>
+  <dd>0.2.11</dd>
 </dl>
 </div>
 
