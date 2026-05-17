@@ -22,13 +22,6 @@ jobs:
           java-version: '21'
           distribution: 'adopt'
 
-      - name: Cache the Maven packages to speed up build
-        uses: actions/cache@v4
-        with:
-          path: ~/.m2
-          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
-          restore-keys: ${{ runner.os }}-m2
-
       - name: Configure Git user
         run: |
           git config user.email "actions@github.com"
@@ -40,6 +33,7 @@ jobs:
 
       - name: Publish to Repsy
         run: ./mvnw -B -s .github/settings.xml -Darguments=-DskipTests release:prepare release:perform
+        #        run: ./mvnw -B -s .github/settings.xml release:prepare release:perform
         env:
           MAVEN_USERNAME: ${{ secrets.REPSY_USER }}
           MAVEN_CENTRAL_TOKEN: ${{ secrets.REPSY_PASSWORD }}
