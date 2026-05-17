@@ -5,9 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Mongoose Admin</title>
     <link rel="stylesheet" href="/style.css">
+    <!--
+        IMPORTANT load order:
+        1. app.js loads EAGERLY (no defer) so it attaches the `alpine:init`
+           listener before Alpine's deferred script runs. Alpine's CDN build
+           calls Alpine.start() during its own script execution, not on
+           DOMContentLoaded, so any listener attached after Alpine loads is
+           too late.
+        2. htmx + Alpine load with defer.
+    -->
+    <script src="/app.js"></script>
     <script src="/vendor/htmx-2.0.4.min.js" defer></script>
     <script src="/vendor/alpine-3.14.8.min.js" defer></script>
-    <script src="/app.js" defer></script>
 </head>
 <body x-data="adminApp()" x-init="boot()" x-cloak>
 
