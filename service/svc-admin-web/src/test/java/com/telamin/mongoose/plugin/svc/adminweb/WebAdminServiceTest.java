@@ -338,6 +338,51 @@ class WebAdminServiceTest {
         Assertions.assertEquals(401, r.statusCode());
     }
 
+    // ---------- M4 dashboard endpoints ----------
+
+    @Test
+    void server_endpoint_returns_identity_json() throws Exception {
+        port = freePort();
+        svc = new WebAdminService();
+        svc.setListenPort(port);
+        svc.setHost("127.0.0.1");
+        svc.init();
+        svc.start();
+
+        HttpResponse<String> r = get("/api/server", null, null);
+        Assertions.assertEquals(200, r.statusCode());
+        Assertions.assertTrue(r.body().contains("\"pid\""), "server body has pid: " + r.body());
+        Assertions.assertTrue(r.body().contains("\"runtime\""), "server body has runtime: " + r.body());
+        Assertions.assertTrue(r.body().contains("\"startTime\""), "server body has startTime: " + r.body());
+    }
+
+    @Test
+    void jvm_endpoint_returns_snapshot() throws Exception {
+        port = freePort();
+        svc = new WebAdminService();
+        svc.setListenPort(port);
+        svc.setHost("127.0.0.1");
+        svc.init();
+        svc.start();
+
+        HttpResponse<String> r = get("/api/jvm", null, null);
+        Assertions.assertEquals(200, r.statusCode());
+        Assertions.assertTrue(r.body().contains("\"heapUsed\""), "jvm body has heapUsed: " + r.body());
+        Assertions.assertTrue(r.body().contains("\"threads\""), "jvm body has threads: " + r.body());
+        Assertions.assertTrue(r.body().contains("\"queues\""), "jvm body has queues array: " + r.body());
+    }
+
+    @Test
+    void server_endpoint_blocked_unauth() throws Exception {
+        port = freePort();
+        svc = newBasicAuthService(port);
+        svc.init();
+        svc.start();
+
+        HttpResponse<String> r = get("/api/server", null, null);
+        Assertions.assertEquals(401, r.statusCode());
+    }
+
     // ---------- helpers ----------
 
     private static WebAdminService newBasicAuthService(int port) {

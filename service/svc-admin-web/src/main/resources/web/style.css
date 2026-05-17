@@ -48,6 +48,27 @@ main {
     margin: 0 auto;
 }
 
+.dashboard {
+    grid-column: 1 / -1;
+}
+
+.dash-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1rem;
+}
+
+.card {
+    background: #ffffff;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem;
+}
+.card h3 { margin-top: 0; color: var(--muted); }
+.card dl { display: grid; grid-template-columns: max-content 1fr; gap: 0.25rem 0.75rem; margin: 0; }
+.card dt { color: var(--muted); }
+.card dd { margin: 0; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.85rem; word-break: break-all; }
+
 h2 { margin: 0 0 0.75rem 0; font-size: 1rem; font-weight: 600; }
 h3 { margin: 1rem 0 0.5rem 0; font-size: 0.85rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
 

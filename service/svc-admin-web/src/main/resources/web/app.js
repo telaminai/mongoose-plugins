@@ -32,6 +32,12 @@ document.addEventListener('alpine:init', () => {
         lastResult: null,
         history: [],
 
+        // dashboard state
+        server: null,
+        jvm: null,
+        ws: null,
+        wsStatus: '',
+
         async boot() {
             // Probe: if /api/commands returns 200, we're authed (or NONE mode).
             const r = await fetch('/api/commands', { credentials: 'same-origin' });
@@ -57,6 +63,67 @@ document.addEventListener('alpine:init', () => {
             const data = await r.json();
             this.commands = data.commands || [];
             await this.bootstrapSession();
+            await this.loadDashboard();
+            this.openMonitorWs();
+        },
+
+        async loadDashboard() {
+            try {
+                const [sr, jr] = await Promise.all([
+                    fetch('/api/server', { credentials: 'same-origin' }),
+                    fetch('/api/jvm',    { credentials: 'same-origin' })
+                ]);
+                if (sr.ok) this.server = await sr.json();
+                if (jr.ok) this.jvm = await jr.json();
+            } catch (e) {
+                console.warn('dashboard load failed', e);
+            }
+        },
+
+        openMonitorWs() {
+            if (this.ws) {
+                try { this.ws.close(); } catch (e) {}
+            }
+            const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const csrf = this.csrfToken ? '?csrf=' + encodeURIComponent(this.csrfToken) : '';
+            const url = `${proto}//${location.host}/ws/monitor${csrf}`;
+            this.wsStatus = 'connecting…';
+            try {
+                this.ws = new WebSocket(url);
+            } catch (e) {
+                this.wsStatus = 'unavailable';
+                return;
+            }
+            this.ws.onopen = () => { this.wsStatus = 'live'; };
+            this.ws.onmessage = (evt) => {
+                try {
+                    this.jvm = JSON.parse(evt.data);
+                } catch (e) {
+                    console.warn('bad monitor frame', e);
+                }
+            };
+            this.ws.onclose = () => { this.wsStatus = 'closed'; };
+            this.ws.onerror = () => { this.wsStatus = 'error'; };
+        },
+
+        formatBytes(b) {
+            if (b == null) return '—';
+            if (b < 0) return '—';
+            const units = ['B', 'KB', 'MB', 'GB'];
+            let i = 0;
+            let v = b;
+            while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+            return v.toFixed(v < 10 && i > 0 ? 1 : 0) + ' ' + units[i];
+        },
+
+        formatUptime(nowTs, startTs) {
+            if (!startTs) return '—';
+            const ms = nowTs - startTs;
+            const s = Math.floor(ms / 1000);
+            const h = Math.floor(s / 3600);
+            const m = Math.floor((s % 3600) / 60);
+            const sec = s % 60;
+            return (h ? h + 'h ' : '') + (m || h ? m + 'm ' : '') + sec + 's';
         },
 
         async bootstrapSession() {
@@ -103,6 +170,8 @@ document.addEventListener('alpine:init', () => {
             if (cmds.ok) {
                 this.commands = (await cmds.json()).commands || [];
             }
+            await this.loadDashboard();
+            this.openMonitorWs();
         },
 
         async logout() {
@@ -111,12 +180,18 @@ document.addEventListener('alpine:init', () => {
                 credentials: 'same-origin',
                 headers: { 'X-CSRF-Token': this.csrfToken || '' }
             });
+            if (this.ws) {
+                try { this.ws.close(); } catch (e) {}
+                this.ws = null;
+            }
             this.authed = false;
             this.userId = null;
             this.csrfToken = null;
             this.commands = [];
             this.selected = null;
             this.lastResult = null;
+            this.server = null;
+            this.jvm = null;
         },
 
         filteredCommands() {

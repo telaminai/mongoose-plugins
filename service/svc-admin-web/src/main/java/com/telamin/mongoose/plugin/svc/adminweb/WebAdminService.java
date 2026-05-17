@@ -21,6 +21,8 @@ import io.javalin.http.HttpStatus;
 import io.javalin.http.SameSite;
 import io.javalin.http.UnauthorizedResponse;
 import io.javalin.http.staticfiles.Location;
+import io.javalin.websocket.WsConfig;
+import io.javalin.websocket.WsContext;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.log4j.Log4j2;
@@ -57,6 +59,8 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
     private AdminCommandRegistry adminCommandRegistry;
     private byte[] resolvedSessionSecret;
     private final SecureRandom random = new SecureRandom();
+    private MonitoringSampler monitoringSampler;
+    private final java.util.Set<WsContext> monitorClients = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     // bind config
     @Getter @Setter private int    listenPort = 8181;
@@ -161,10 +165,30 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         // Admin command surface — list + invoke. Auth filter above gates both.
         javalin.get("/api/commands", this::handleListCommands);
         javalin.post("/api/commands/{name}", this::handleInvokeCommand);
+
+        // Dashboard endpoints.
+        javalin.get("/api/server", this::handleServer);
+        javalin.get("/api/jvm", this::handleJvm);
+
+        // Monitoring WebSocket. Same auth filter applies to the HTTP upgrade
+        // request because Javalin's before() runs on the upgrade. CSRF on WS
+        // is carried as ?csrf=... query param (browsers can't add headers).
+        javalin.before("/ws/*", this::enforceWsUpgradeAuth);
+        javalin.ws("/ws/monitor", this::configureMonitorWs);
+
+        // Periodic sampler — broadcasts to all live monitor clients.
+        monitoringSampler = new MonitoringSampler(metricsIntervalMs);
+        monitoringSampler.subscribe(this::broadcastMonitorSnapshot);
+        monitoringSampler.start();
     }
 
     @Override
     public void tearDown() {
+        if (monitoringSampler != null) {
+            monitoringSampler.stop();
+            monitoringSampler = null;
+        }
+        monitorClients.clear();
         if (javalin != null) {
             log.info("stopping web admin UI");
             javalin.stop();
@@ -370,6 +394,87 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
                 "output", new ArrayList<>(outBuffer),
                 "err", new ArrayList<>(errBuffer)));
     }
+
+    // -------- dashboard --------
+
+    private void handleServer(Context ctx) {
+        ctx.json(MonitoringSampler.serverInfo());
+    }
+
+    private void handleJvm(Context ctx) {
+        ctx.json(MonitoringSampler.snapshot());
+    }
+
+    // -------- WebSocket monitor --------
+
+    private void enforceWsUpgradeAuth(Context ctx) {
+        // Auth: same as /api/*. Origin allow-list: same-origin only by default
+        // (browser cookies aren't sent on cross-origin WS upgrade anyway, but
+        // belt+braces). CSRF on WS comes through ?csrf=... query param.
+        if (authMode != AuthMode.NONE) {
+            boolean authed = hasValidSessionCookie(ctx) || hasValidAuthHeader(ctx);
+            if (!authed) {
+                reject(ctx);
+                return;
+            }
+            SessionToken session = currentSession(ctx);
+            if (session != null) {
+                String presented = ctx.queryParam("csrf");
+                if (presented == null || !constantTimeEquals(presented, session.csrfToken)) {
+                    throw new UnauthorizedResponse("missing or invalid CSRF query token", Map.of());
+                }
+            }
+            // Header-auth (no cookie) clients skip the CSRF check, mirroring
+            // the /api/* policy.
+        }
+
+        String origin = ctx.header("Origin");
+        if (origin != null && !originAllowed(origin)) {
+            throw new UnauthorizedResponse("origin not allowed: " + origin, Map.of());
+        }
+    }
+
+    private boolean originAllowed(String origin) {
+        // Default policy: same host:port we're bound to. Behind a reverse
+        // proxy on a different host, this becomes a config knob; deferred.
+        String expectedHttp = "http://" + host + ":" + listenPort;
+        String expectedHttps = "https://" + host + ":" + listenPort;
+        return origin.equals(expectedHttp) || origin.equals(expectedHttps);
+    }
+
+    private void configureMonitorWs(WsConfig ws) {
+        ws.onConnect(ctx -> {
+            monitorClients.add(ctx);
+            // Send a fresh snapshot immediately so the dashboard populates
+            // before the first scheduled tick lands.
+            try {
+                ctx.send(MonitoringSampler.snapshot());
+            } catch (Exception e) {
+                log.warn("initial monitor snapshot failed", e);
+            }
+        });
+        ws.onClose(ctx -> monitorClients.remove(ctx));
+        ws.onError(ctx -> {
+            log.warn("monitor ws error", ctx.error());
+            monitorClients.remove(ctx);
+        });
+    }
+
+    private void broadcastMonitorSnapshot(MonitoringSampler.JvmSnapshot snapshot) {
+        for (WsContext c : monitorClients) {
+            try {
+                if (c.session.isOpen()) {
+                    c.send(snapshot);
+                } else {
+                    monitorClients.remove(c);
+                }
+            } catch (Exception e) {
+                log.warn("monitor send failed; dropping client", e);
+                monitorClients.remove(c);
+            }
+        }
+    }
+
 
     // -------- helpers --------
 

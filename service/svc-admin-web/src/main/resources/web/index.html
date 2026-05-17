@@ -39,6 +39,37 @@
 </header>
 
 <main x-show="authed || authMode === 'NONE'">
+    <section class="dashboard" x-show="server || jvm">
+        <h2>Dashboard</h2>
+        <div class="dash-grid">
+            <div class="card" x-show="server">
+                <h3>Server</h3>
+                <dl>
+                    <dt>PID</dt><dd x-text="server?.pid"></dd>
+                    <dt>Runtime</dt><dd x-text="server?.runtime"></dd>
+                    <dt>Uptime</dt><dd x-text="formatUptime(jvm?.ts ?? Date.now(), server?.startTime)"></dd>
+                </dl>
+            </div>
+            <div class="card" x-show="jvm">
+                <h3>JVM <span class="muted" x-text="wsStatus"></span></h3>
+                <dl>
+                    <dt>Heap</dt><dd>
+                        <span x-text="formatBytes(jvm?.jvm?.heapUsed)"></span>
+                        / <span x-text="formatBytes(jvm?.jvm?.heapCommitted)"></span>
+                        <span class="muted">(max <span x-text="formatBytes(jvm?.jvm?.heapMax)"></span>)</span>
+                    </dd>
+                    <dt>Non-heap</dt><dd x-text="formatBytes(jvm?.jvm?.nonHeapUsed)"></dd>
+                    <dt>Threads</dt><dd x-text="jvm?.jvm?.threads"></dd>
+                    <dt>GC</dt><dd>
+                        <template x-for="g in (jvm?.jvm?.gc ?? [])" :key="g.name">
+                            <span><span x-text="g.name"></span>: <span x-text="g.count"></span>×, <span x-text="g.timeMs"></span>ms&nbsp;&nbsp;</span>
+                        </template>
+                    </dd>
+                </dl>
+            </div>
+        </div>
+    </section>
+
     <section class="commands">
         <h2>Commands</h2>
         <input type="search" placeholder="filter…" x-model="filter" class="filter">
