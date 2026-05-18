@@ -10,7 +10,7 @@ Load and reload processors at runtime from Spring XML. Same surface as `svc-load
 <dependency>
     <groupId>com.telamin</groupId>
     <artifactId>svc-loader-spring</artifactId>
-    <version>0.2.8-SNAPSHOT</version>
+    <version>{{ plugin_version }}</version>
 </dependency>
 ```
 

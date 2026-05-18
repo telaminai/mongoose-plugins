@@ -10,7 +10,7 @@ Key/value cache for reference data shared across processors. Two implementations
 <dependency>
     <groupId>com.telamin</groupId>
     <artifactId>svc-cache</artifactId>
-    <version>0.2.8-SNAPSHOT</version>
+    <version>{{ plugin_version }}</version>
 </dependency>
 ```
 

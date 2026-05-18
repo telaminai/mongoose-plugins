@@ -171,7 +171,7 @@ Shared utilities used across plugins and applications.
 <dependency>
     <groupId>com.telamin</groupId>
     <artifactId>connector-file</artifactId>
-    <version>0.2.8-SNAPSHOT</version>
+    <version>{{ plugin_version }}</version>
 </dependency>
 ```
 

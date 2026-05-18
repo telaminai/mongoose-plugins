@@ -76,6 +76,7 @@ markdown_extensions:
 
 plugins:
   - search
+  - macros
 
 extra:
   social:
@@ -84,6 +85,10 @@ extra:
     - icon: fontawesome/brands/twitter
       link: https://twitter.com/telaminai
   generator: false
+  # Single source of truth for the plugin release version quoted in docs.
+  # Referenced from Maven dependency snippets as {{ plugin_version }}.
+  # Keep in sync with the <version> in the root pom.xml.
+  plugin_version: 0.2.14-SNAPSHOT
 
 copyright: Copyright &copy; 2025 Gregory Higgins — AGPL-3.0-only
 

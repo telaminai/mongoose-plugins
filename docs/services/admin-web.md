@@ -14,7 +14,7 @@ Frontend is plain HTML/CSS/JS with [htmx 2.0.4](https://htmx.org) + [Alpine.js 3
 <dependency>
     <groupId>com.telamin</groupId>
     <artifactId>svc-admin-web</artifactId>
-    <version>0.2.13-SNAPSHOT</version>
+    <version>{{ plugin_version }}</version>
 </dependency>
 ```
 

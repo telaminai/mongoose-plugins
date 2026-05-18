@@ -10,7 +10,7 @@ Load and reload processors at runtime from YAML or Java source. Hot-reload graph
 <dependency>
     <groupId>com.telamin</groupId>
     <artifactId>svc-loader-yaml</artifactId>
-    <version>0.2.8-SNAPSHOT</version>
+    <version>{{ plugin_version }}</version>
 </dependency>
 ```
 
