@@ -23,7 +23,7 @@ Short focused recipes for specific patterns:
 |---|---|
 | [how-to/data-mapping](https://github.com/telaminai/mongoose-examples/tree/main/how-to/data-mapping) | `valueMapper` chains — natural home for [`lib-jsonserialiser`](libraries/jsonserialiser.md). |
 | [how-to/subscribing-to-named-event-feeds](https://github.com/telaminai/mongoose-examples/tree/main/how-to/subscribing-to-named-event-feeds) | Multi-feed dispatch — applies to every connector source. |
-| [how-to/writing-an-admin-command](https://github.com/telaminai/mongoose-examples/tree/main/how-to/writing-an-admin-command) | Register a command and invoke it from [`svc-admin-rest`](services/admin-rest.md) or [`svc-admin-telnet`](services/admin-telnet.md). |
+| [how-to/writing-an-admin-command](https://github.com/telaminai/mongoose-examples/tree/main/how-to/writing-an-admin-command) | Register a command and invoke it from [`svc-admin-rest`](services/admin-rest.md), [`svc-admin-telnet`](services/admin-telnet.md), or [`svc-admin-web`](services/admin-web.md). |
 | [how-to/replay](https://github.com/telaminai/mongoose-examples/tree/main/how-to/replay) | Cold-start replay flow — pairs with [`connector-file`](connectors/file.md) and [`connector-aeron`](connectors/aeron.md) (archive mode). |
 | [how-to/using-the-scheduler-service](https://github.com/telaminai/mongoose-examples/tree/main/how-to/using-the-scheduler-service) | Time-based triggers in processors. |
 | [how-to/injecting-config-into-a-processor](https://github.com/telaminai/mongoose-examples/tree/main/how-to/injecting-config-into-a-processor) | Per-processor config injection. |

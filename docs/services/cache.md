@@ -111,7 +111,7 @@ For `JsonFileCache`, eviction also flags the file as dirty so the next `doWork()
 - Parent directories are auto-created.
 - Bare basenames (no `/`) work — no `getParentFile()` NPE.
 - `tearDown()` writes the cache to disk and is safe to call without an `init()`.
-- The cache also registers admin commands `cache.<name>.keys` and `cache.<name>.get <key>` with the admin registry — wire `svc-admin-telnet` or `svc-admin-rest` to inspect cache contents at runtime.
+- The cache also registers admin commands `cache.<name>.keys` and `cache.<name>.get <key>` with the admin registry — wire `svc-admin-telnet`, `svc-admin-rest`, or `svc-admin-web` to inspect cache contents at runtime. (`svc-admin-web` auto-renders these as a dedicated **Cache** panel.)
 
 ## Examples
 

@@ -17,6 +17,8 @@
     <file url="file://$PROJECT_DIR$/service/svc-admin-rest/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/service/svc-admin-telnet/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/service/svc-admin-telnet/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/service/svc-admin-web/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/service/svc-admin-web/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/service/svc-cache/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/service/svc-cache/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/service/svc-jdbc/src/main/java" charset="UTF-8" />
