@@ -8,9 +8,12 @@ Built against `io.javalin:javalin:6.3.0`. Frontend is plain HTML/CSS/JS with [ht
 
 ## What you get
 
-- **Dashboard** — server identity (pid, runtime, uptime) and live JVM stats (heap, non-heap, threads, GC counts) pushed over WebSocket at `metricsIntervalMs`.
+A nav-rail console with a light/dark theme toggle — one view at a time, live WebSocket streams running in the background.
+
+- **Dashboard** — server identity (pid, runtime, uptime) and live JVM stats (heap usage meter, heap sparkline, non-heap, threads, GC table) pushed over WebSocket at `metricsIntervalMs`.
 - **Commands** — filterable list of every command registered with `AdminCommandRegistry`, with an args form, captured stdout/stderr, and a replay-able history.
 - **Logs** — bounded ring buffer of recent `java.util.logging` records (debug bridges from SLF4J/Log4j2 to j.u.l flow in too), streamed live over WebSocket; level filter, substring filter, auto-scroll.
+- **Services / Agents / Queues** (conditional) — dispatcher introspection. **Queues** renders the `eventSources` dispatch topology; **Services** and **Agents** appear when `server.service.list` / `server.processors.list` are registered. Each view self-hides when its source command is absent.
 - **Cache panel** (conditional) — when `cache.*` commands are present, surfaces `cache.list`, `cache.{name}.keys`, `cache.{name}.get` as inline forms.
 - **Loader panel** (conditional) — when `yamlLoader.*` or `springLoader.*` commands are present, surfaces `compileProcessor` forms with an optional file picker scoped to `loaderBaseDir`.
 
@@ -57,6 +60,8 @@ Then point a browser at `http://127.0.0.1:8181/`.
 | `POST` | `/api/commands/{name}`     | yes + CSRF  | Invokes an admin command                    |
 | `GET`  | `/api/server`              | yes         | Server identity (pid, runtime, startTime)   |
 | `GET`  | `/api/jvm`                 | yes         | One-shot JVM snapshot                       |
+| `GET`  | `/api/services`            | yes         | Service inventory; `404` when `server.service.list` is absent |
+| `GET`  | `/api/agents`              | yes         | Agent groups + processors; `404` when `server.processors.list` is absent |
 | `GET`  | `/api/files`               | yes         | File-picker entries under `loaderBaseDir`; `404` when feature unconfigured |
 | `POST` | `/api/session/login`       | _per mode_  | Exchanges credentials for an HMAC-signed cookie + CSRF token |
 | `POST` | `/api/session/logout`      | yes + CSRF  | Invalidates the session cookie              |

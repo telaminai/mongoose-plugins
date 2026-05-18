@@ -65,6 +65,7 @@ public class AdminWebExample {
                 .build();
 
         MongooseServer server = MongooseServer.bootServer(serverConfig);
+        server.start();
 
         System.out.println();
         System.out.println("  svc-admin-web example running");
