@@ -11,7 +11,7 @@ UDP multicast source + sink. LAN-scoped pub-sub without a broker — discovery, 
 <dependency>
     <groupId>com.telamin</groupId>
     <artifactId>connector-multicast</artifactId>
-    <version>0.2.8-SNAPSHOT</version>
+    <version>{{ plugin_version }}</version>
 </dependency>
 ```
 

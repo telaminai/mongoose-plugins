@@ -10,7 +10,7 @@
 <dependency>
     <groupId>com.telamin</groupId>
     <artifactId>svc-admin-rest</artifactId>
-    <version>0.2.8-SNAPSHOT</version>
+    <version>{{ plugin_version }}</version>
 </dependency>
 ```
 

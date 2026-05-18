@@ -123,6 +123,12 @@ Cross-cutting capabilities shared across processors.
 
     Javalin REST admin endpoint with BASIC / BEARER auth (constant-time compare). Hostable static SPA directory.
 
+-   :material-monitor-dashboard: **[svc-admin-web](services/admin-web.md)**
+
+    <span class="plugin-tags"><span class="plugin-tag service">service</span></span>
+
+    Browser admin & monitoring SPA. Same command surface as telnet/rest, plus a dashboard, live JVM monitor + log tail over WebSocket, and conditional cache/loader panels.
+
 -   :material-file-code-outline: **[svc-loader-yaml](services/loader-yaml.md)**
 
     <span class="plugin-tags"><span class="plugin-tag service">service</span></span>
@@ -165,7 +171,7 @@ Shared utilities used across plugins and applications.
 <dependency>
     <groupId>com.telamin</groupId>
     <artifactId>connector-file</artifactId>
-    <version>0.2.8-SNAPSHOT</version>
+    <version>{{ plugin_version }}</version>
 </dependency>
 ```
 

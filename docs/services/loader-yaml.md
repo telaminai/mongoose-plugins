@@ -10,7 +10,7 @@ Load and reload processors at runtime from YAML or Java source. Hot-reload graph
 <dependency>
     <groupId>com.telamin</groupId>
     <artifactId>svc-loader-yaml</artifactId>
-    <version>0.2.8-SNAPSHOT</version>
+    <version>{{ plugin_version }}</version>
 </dependency>
 ```
 
@@ -73,7 +73,7 @@ explicit `subscribeToNamedFeed(...)` call required. Under `broadcast=true`
 feeds (the catalogue's default), the dispatcher wires the dynamically-loaded
 processor through the same subscription path as a statically-registered one.
 
-When `svc-admin-rest` or `svc-admin-telnet` is on the classpath, the loader
+When `svc-admin-rest`, `svc-admin-telnet`, or `svc-admin-web` is on the classpath, the loader
 also registers four admin commands:
 
 - `yamlLoader.compileProcessor <yamlFile> [group]` — compile and add a YAML topology

@@ -76,7 +76,7 @@ flowchart TB
     M[Mongoose server<br/>agent-hosted dispatcher]:::runtime
 
     P1[Connectors<br/>aeron / chronicle / file / kafka / multicast]:::plugins
-    P2[Services<br/>cache / jdbc / admin-rest / admin-telnet / loaders]:::plugins
+    P2[Services<br/>cache / jdbc / admin-rest / admin-telnet / admin-web / loaders]:::plugins
     P3[Libraries<br/>lib-jsonserialiser]:::plugins
 
     T[mongoose-test-support<br/>+ examples + replay]:::tools
@@ -348,8 +348,9 @@ flowchart TB
         S2[svc-jdbc]:::cat
         S3[svc-admin-rest]:::cat
         S4[svc-admin-telnet]:::cat
-        S5[svc-loader-yaml]:::cat
-        S6[svc-loader-spring]:::cat
+        S5[svc-admin-web]:::cat
+        S6[svc-loader-yaml]:::cat
+        S7[svc-loader-spring]:::cat
     end
 
     subgraph LIB[Libraries]

@@ -70,6 +70,7 @@ mongoose-plugins/
 │   │   ├── index.md
 │   │   ├── admin-rest.md
 │   │   ├── admin-telnet.md
+│   │   ├── admin-web.md
 │   │   ├── cache.md
 │   │   ├── jdbc.md
 │   │   ├── loader-yaml.md

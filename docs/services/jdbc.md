@@ -11,7 +11,7 @@ JDBC connection registry + pool. Each entry is served from a [HikariCP](https://
 <dependency>
     <groupId>com.telamin</groupId>
     <artifactId>svc-jdbc</artifactId>
-    <version>0.2.8-SNAPSHOT</version>
+    <version>{{ plugin_version }}</version>
 </dependency>
 ```
 
