@@ -32,8 +32,11 @@ import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -171,6 +174,12 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         // Dashboard endpoints.
         javalin.get("/api/server", this::handleServer);
         javalin.get("/api/jvm", this::handleJvm);
+
+        // Dispatcher introspection. Structured JSON for the UI, sourced by
+        // invoking + parsing the server.service.list / server.processors.list
+        // admin commands — no extra service wiring needed.
+        javalin.get("/api/services", this::handleServices);
+        javalin.get("/api/agents", this::handleAgents);
 
         // Conditional file picker for loader forms. Always mounted, but returns
         // 404 when loaderBaseDir is unset so the UI hides the tab automatically.
@@ -421,6 +430,111 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
 
     private void handleJvm(Context ctx) {
         ctx.json(MonitoringSampler.snapshot());
+    }
+
+    // -------- dispatcher introspection --------
+
+    private static final String CMD_SERVICE_LIST   = "server.service.list";
+    private static final String CMD_PROCESSOR_LIST = "server.processors.list";
+
+    // Service.toString() carries the implementation class as
+    // "serviceClass=class com.foo.Bar"; pull the FQN out of it.
+    private static final Pattern SERVICE_CLASS =
+            Pattern.compile("serviceClass=(?:class\\s+)?([^,)\\s]+)");
+
+    private void handleServices(Context ctx) {
+        String text = invokeForText(CMD_SERVICE_LIST);
+        if (text == null) {
+            ctx.status(HttpStatus.NOT_FOUND);
+            ctx.json(Map.of("err", CMD_SERVICE_LIST + " is not registered"));
+            return;
+        }
+        ctx.json(Map.of("services", parseServiceList(text)));
+    }
+
+    private void handleAgents(Context ctx) {
+        String text = invokeForText(CMD_PROCESSOR_LIST);
+        if (text == null) {
+            ctx.status(HttpStatus.NOT_FOUND);
+            ctx.json(Map.of("err", CMD_PROCESSOR_LIST + " is not registered"));
+            return;
+        }
+        ctx.json(Map.of("agents", parseProcessorList(text)));
+    }
+
+    /**
+     * Invoke a no-arg admin command and return its buffered stdout, or
+     * {@code null} when the command is not registered or its handler failed —
+     * the caller then answers 404 so the UI hides the corresponding tab.
+     */
+    private String invokeForText(String command) {
+        if (adminCommandRegistry == null) return null;
+        if (!adminCommandRegistry.commandList().contains(command)) return null;
+        List<String> out = Collections.synchronizedList(new ArrayList<>());
+        AdminCommandRequest req = new AdminCommandRequest();
+        req.setCommand(command);
+        req.setArguments(new ArrayList<>());
+        req.setOutput(o -> out.add(String.valueOf(o)));
+        req.setErrOutput(e -> { });
+        try {
+            adminCommandRegistry.processAdminCommandRequest(req);
+        } catch (Exception e) {
+            log.warn("introspection command '{}' threw", command, e);
+            return null;
+        }
+        return String.join("\n", out);
+    }
+
+    /**
+     * Parse {@code server.service.list} text — {@code services:} followed by
+     * {@code <name>: <Service.toString()>} lines — into structured entries.
+     */
+    static List<Map<String, Object>> parseServiceList(String text) {
+        List<Map<String, Object>> services = new ArrayList<>();
+        for (String raw : text.split("\n")) {
+            String line = raw.trim();
+            if (line.isEmpty() || line.equals("services:")) continue;
+            int colon = line.indexOf(": ");
+            if (colon < 0) continue;
+            String value = line.substring(colon + 2).trim();
+            Matcher m = SERVICE_CLASS.matcher(value);
+            Map<String, Object> svc = new LinkedHashMap<>();
+            svc.put("name", line.substring(0, colon).trim());
+            svc.put("type", "service");
+            svc.put("className", m.find() ? m.group(1).trim() : value);
+            services.add(svc);
+        }
+        return services;
+    }
+
+    /**
+     * Parse {@code server.processors.list} text — {@code group:<name>} blocks
+     * each followed by {@code <group>/<processor> -> <DataFlow>} lines — into
+     * structured agent-group entries.
+     */
+    static List<Map<String, Object>> parseProcessorList(String text) {
+        List<Map<String, Object>> groups = new ArrayList<>();
+        List<Map<String, Object>> members = null;
+        for (String raw : text.split("\n")) {
+            String line = raw.trim();
+            if (line.isEmpty() || line.equals("processors:")) continue;
+            if (line.startsWith("group:")) {
+                members = new ArrayList<>();
+                Map<String, Object> group = new LinkedHashMap<>();
+                group.put("group", line.substring("group:".length()).trim());
+                group.put("type", "processor");
+                group.put("members", members);
+                groups.add(group);
+            } else if (members != null && line.contains("->")) {
+                String left = line.substring(0, line.indexOf("->")).trim();
+                int slash = left.indexOf('/');
+                Map<String, Object> member = new LinkedHashMap<>();
+                member.put("name", slash >= 0 ? left.substring(slash + 1) : left);
+                member.put("kind", "processor");
+                members.add(member);
+            }
+        }
+        return groups;
     }
 
     private void handleListFiles(Context ctx) {

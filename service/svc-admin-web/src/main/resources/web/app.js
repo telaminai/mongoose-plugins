@@ -7,23 +7,36 @@
  *   - If 401: render login form, then POST /api/session/login with the
  *     credentials. Server sets HttpOnly cookie + returns csrfToken in body.
  *   - All subsequent POSTs carry X-CSRF-Token.
+ *
+ * Layout: a single Alpine component renders a nav-rail console; `activeView`
+ * selects which view is shown. The /ws/monitor + /ws/logs streams run in the
+ * background regardless of the active view, so switching is instant.
  */
+
+const THEME_KEY = 'mongoose-admin-theme';
 
 document.addEventListener('alpine:init', () => {
     Alpine.data('adminApp', () => ({
-        // auth state
+        // ── shell ──
+        activeView: 'dashboard',
+        theme: document.documentElement.getAttribute('data-theme') || 'light',
+        now: Date.now(),
+        toasts: [],
+        _toastSeq: 0,
+
+        // ── auth ──
         authed: false,
         authMode: 'unknown',           // NONE | BASIC | BEARER | unknown
         userId: null,
         csrfToken: null,
 
-        // login form
+        // ── login form ──
         loginUser: '',
         loginPass: '',
         loginToken: '',
         loginError: null,
 
-        // command runner state
+        // ── command runner ──
         commands: [],
         filter: '',
         selected: null,
@@ -32,13 +45,15 @@ document.addEventListener('alpine:init', () => {
         lastResult: null,
         history: [],
 
-        // dashboard state
+        // ── dashboard ──
         server: null,
         jvm: null,
         ws: null,
         wsStatus: '',
+        heapHistory: [],
+        heapCap: 90,
 
-        // log tail state
+        // ── log tail ──
         logs: [],
         logsWs: null,
         logsStatus: '',
@@ -47,7 +62,18 @@ document.addEventListener('alpine:init', () => {
         logAutoScroll: true,
         logCap: 1000,
 
-        // cache panel state
+        // ── dispatcher introspection ──
+        // Queues are derived from the `eventSources` built-in admin command,
+        // which is available today. Services / agents need structured
+        // endpoints (pending M8) — see loadIntrospection().
+        services: [],
+        servicesAvailable: false,
+        agents: [],
+        agentsAvailable: false,
+        eventSources: [],
+        queuesAvailable: false,
+
+        // ── cache panel ──
         cacheBusy: false,
         cacheNameInput: '',
         cacheGetName: '',
@@ -55,7 +81,7 @@ document.addEventListener('alpine:init', () => {
         cacheOutput: [],
         cacheErr: [],
 
-        // loader panel state
+        // ── loader panel ──
         loaderBusy: false,
         loaderBaseDirAvailable: false,
         yamlPath: '',
@@ -65,18 +91,23 @@ document.addEventListener('alpine:init', () => {
         loaderOutput: [],
         loaderErr: [],
 
-        // file picker state
+        // ── file picker ──
         pickerOpen: false,
         pickerTargetField: null,
         pickerCwd: '',
         pickerEntries: [],
 
+        // ─────────────────────────────────────────────────────────────────
+
         async boot() {
+            // A 1 Hz clock keeps the uptime readouts live without a server round-trip.
+            setInterval(() => { this.now = Date.now(); }, 1000);
+
             // Probe: if /api/commands returns 200, we're authed (or NONE mode).
             const r = await fetch('/api/commands', { credentials: 'same-origin' });
             if (r.status === 401) {
-                // Need credentials. Probe the login endpoint with empty body to
-                // sniff the auth mode from WWW-Authenticate.
+                // Need credentials. Probe the login endpoint to sniff the auth
+                // mode from the WWW-Authenticate challenge.
                 const probe = await fetch('/api/session/login', {
                     method: 'POST',
                     credentials: 'same-origin',
@@ -96,11 +127,54 @@ document.addEventListener('alpine:init', () => {
             const data = await r.json();
             this.commands = data.commands || [];
             await this.bootstrapSession();
+            await this.afterAuth();
+        },
+
+        // Everything that needs a live session — run once after boot or login.
+        async afterAuth() {
             await this.loadDashboard();
             this.openMonitorWs();
             this.openLogsWs();
             await this.probeLoaderBaseDir();
+            await this.loadIntrospection();
         },
+
+        // ── view + theme ──
+
+        go(view) { this.activeView = view; },
+
+        toggleTheme() {
+            this.theme = this.theme === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', this.theme);
+            try { localStorage.setItem(THEME_KEY, this.theme); } catch (e) {}
+        },
+
+        // ── toasts ──
+
+        toast(msg, kind = 'success') {
+            const id = ++this._toastSeq;
+            this.toasts.push({ id, msg, kind });
+            setTimeout(() => {
+                this.toasts = this.toasts.filter(t => t.id !== id);
+            }, 4000);
+        },
+
+        // ── status pills ──
+
+        statusPill(status) {
+            switch (status) {
+                case 'live':        return { cls: 'pill-ok',   label: 'Live' };
+                case 'connecting…': return { cls: 'pill-warn', label: 'Connecting' };
+                case 'closed':      return { cls: 'pill-err',  label: 'Disconnected' };
+                case 'error':       return { cls: 'pill-err',  label: 'Error' };
+                case 'unavailable': return { cls: 'pill-err',  label: 'Unavailable' };
+                default:            return { cls: 'pill-warn', label: 'Idle' };
+            }
+        },
+        wsPill()   { return this.statusPill(this.wsStatus); },
+        logsPill() { return this.statusPill(this.logsStatus); },
+
+        // ── dashboard ──
 
         async loadDashboard() {
             try {
@@ -109,16 +183,134 @@ document.addEventListener('alpine:init', () => {
                     fetch('/api/jvm',    { credentials: 'same-origin' })
                 ]);
                 if (sr.ok) this.server = await sr.json();
-                if (jr.ok) this.jvm = await jr.json();
+                if (jr.ok) { this.jvm = await jr.json(); this.recordHeap(this.jvm); }
             } catch (e) {
                 console.warn('dashboard load failed', e);
             }
         },
 
-        openMonitorWs() {
-            if (this.ws) {
-                try { this.ws.close(); } catch (e) {}
+        recordHeap(snapshot) {
+            const j = snapshot && snapshot.jvm;
+            if (!j || j.heapUsed == null) return;
+            this.heapHistory.push({ used: j.heapUsed, max: j.heapMax, ts: snapshot.ts });
+            if (this.heapHistory.length > this.heapCap) {
+                this.heapHistory.splice(0, this.heapHistory.length - this.heapCap);
             }
+        },
+
+        heapRatio() {
+            const j = this.jvm && this.jvm.jvm;
+            if (!j || !j.heapMax) return 0;
+            return j.heapUsed / j.heapMax;
+        },
+        heapPct() {
+            const r = this.heapRatio();
+            return r ? Math.round(r * 100) : 0;
+        },
+        meterClass(ratio) {
+            if (ratio >= 0.9) return 'crit';
+            if (ratio >= 0.75) return 'warn';
+            return '';
+        },
+        metricsHint() {
+            const n = this.heapHistory.length;
+            return n > 1 ? n + ' samples' : '';
+        },
+
+        // Build an SVG polyline across the 240×64 viewBox from heap history.
+        sparkLine() {
+            const h = this.heapHistory;
+            if (h.length < 2) return '';
+            const ceil = Math.max(1, ...h.map(p => p.max || p.used));
+            const n = h.length;
+            return h.map((p, i) => {
+                const x = (i / (n - 1)) * 240;
+                const y = 62 - (p.used / ceil) * 58;
+                return x.toFixed(1) + ',' + y.toFixed(1);
+            }).join(' ');
+        },
+        sparkArea() {
+            const line = this.sparkLine();
+            if (!line) return '';
+            return '0,64 ' + line + ' 240,64';
+        },
+
+        // ── introspection (Services / Agents / Queues) ──
+        // Queues come from the `eventSources` built-in command (available now).
+        // Services / agents need structured endpoints; until those land the
+        // fetches 404, the *Available flags stay false, and the nav items
+        // stay hidden — same pattern as the conditional Cache/Loader tabs.
+        //
+        // Expected JSON contracts for the pending endpoints:
+        //   GET /api/services → { services: [{name, type, className, agentGroup}] }
+        //   GET /api/agents   → { agents: [{group, type, thread, state,
+        //                                   idleStrategy, members:[{name,kind}]}] }
+
+        async loadIntrospection() {
+            this.servicesAvailable = await this._loadInto('/api/services', 'services', 'services');
+            this.agentsAvailable   = await this._loadInto('/api/agents',   'agents',   'agents');
+            await this.loadEventSources();
+        },
+
+        async _loadInto(url, key, field) {
+            try {
+                const r = await fetch(url, { credentials: 'same-origin' });
+                if (!r.ok) return false;
+                const data = await r.json();
+                this[field] = data[key] || [];
+                return true;
+            } catch (e) {
+                return false;
+            }
+        },
+
+        // The `eventSources` admin command prints the dispatch topology as
+        // text. Each block is:
+        //   eventSource:<name>
+        //       readQueues:
+        //           <agentGroup>/<feed>/<callback> -> <queue object>
+        async loadEventSources() {
+            this.queuesAvailable = this.commands.includes('eventSources');
+            if (!this.queuesAvailable) { this.eventSources = []; return; }
+            const res = await this.invokeRaw('eventSources', []);
+            this.eventSources = this.parseEventSources((res.output || []).join('\n'));
+        },
+
+        parseEventSources(text) {
+            const sources = [];
+            let current = null;
+            for (const raw of text.split('\n')) {
+                const line = raw.trim();
+                if (!line) continue;
+                if (line.startsWith('eventSource:')) {
+                    current = { source: line.slice('eventSource:'.length).trim(), queues: [] };
+                    sources.push(current);
+                } else if (current && line !== 'readQueues:' && line.includes('->')) {
+                    const path = line.split('->')[0].trim();
+                    const parts = path.split('/');
+                    const callback = parts[parts.length - 1];
+                    current.queues.push({
+                        path: path,
+                        agentGroup: parts[0] || path,
+                        callback: callback.includes('.') ? callback.slice(callback.lastIndexOf('.') + 1) : callback
+                    });
+                }
+            }
+            return sources;
+        },
+
+        threadTagClass(state) {
+            const s = (state || '').toUpperCase();
+            if (s === 'RUNNABLE' || s === 'RUNNING' || s === 'ACTIVE') return 'ok';
+            if (s === 'WAITING' || s === 'TIMED_WAITING' || s === 'IDLE') return 'warn';
+            if (s === 'BLOCKED' || s === 'TERMINATED' || s === 'STOPPED') return 'err';
+            return '';
+        },
+
+        // ── monitor WebSocket ──
+
+        openMonitorWs() {
+            if (this.ws) { try { this.ws.close(); } catch (e) {} }
             const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
             const csrf = this.csrfToken ? '?csrf=' + encodeURIComponent(this.csrfToken) : '';
             const url = `${proto}//${location.host}/ws/monitor${csrf}`;
@@ -133,6 +325,7 @@ document.addEventListener('alpine:init', () => {
             this.ws.onmessage = (evt) => {
                 try {
                     this.jvm = JSON.parse(evt.data);
+                    this.recordHeap(this.jvm);
                 } catch (e) {
                     console.warn('bad monitor frame', e);
                 }
@@ -142,9 +335,7 @@ document.addEventListener('alpine:init', () => {
         },
 
         openLogsWs() {
-            if (this.logsWs) {
-                try { this.logsWs.close(); } catch (e) {}
-            }
+            if (this.logsWs) { try { this.logsWs.close(); } catch (e) {} }
             const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
             const csrf = this.csrfToken ? '?csrf=' + encodeURIComponent(this.csrfToken) : '';
             const url = `${proto}//${location.host}/ws/logs${csrf}`;
@@ -163,7 +354,7 @@ document.addEventListener('alpine:init', () => {
                     if (this.logs.length > this.logCap) {
                         this.logs.splice(0, this.logs.length - this.logCap);
                     }
-                    if (this.logAutoScroll) {
+                    if (this.logAutoScroll && this.activeView === 'logs') {
                         this.$nextTick(() => {
                             const pane = this.$refs.logPane;
                             if (pane) pane.scrollTop = pane.scrollHeight;
@@ -176,6 +367,8 @@ document.addEventListener('alpine:init', () => {
             this.logsWs.onclose = () => { this.logsStatus = 'closed'; };
             this.logsWs.onerror = () => { this.logsStatus = 'error'; };
         },
+
+        // ── logs ──
 
         levelRank(l) {
             switch ((l || '').toUpperCase()) {
@@ -198,37 +391,39 @@ document.addEventListener('alpine:init', () => {
             });
         },
 
-        clearLogs() {
-            this.logs = [];
+        clearLogs() { this.logs = []; },
+
+        shortLevel(l) {
+            const s = (l || 'INFO').toUpperCase();
+            if (s === 'WARNING') return 'WARN';
+            if (s === 'SEVERE') return 'ERROR';
+            return s;
+        },
+
+        shortLogger(name) {
+            if (!name) return '';
+            const parts = name.split('.');
+            return parts.length > 2 ? parts.slice(-2).join('.') : name;
         },
 
         formatLogTs(ms) {
             if (!ms) return '';
             const d = new Date(ms);
-            const pad = (n, w=2) => String(n).padStart(w, '0');
+            const pad = (n, w = 2) => String(n).padStart(w, '0');
             return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds())
                  + '.' + pad(d.getMilliseconds(), 3);
         },
 
-        // ---- conditional tab predicates ----
+        // ── conditional tab predicates ──
 
         hasCacheCommands() {
             return this.commands.some(c => c === 'cache.list' || c.startsWith('cache.'));
         },
+        hasYamlLoader()   { return this.commands.some(c => c.startsWith('yamlLoader.')); },
+        hasSpringLoader() { return this.commands.some(c => c.startsWith('springLoader.')); },
+        hasLoaderCommands() { return this.hasYamlLoader() || this.hasSpringLoader(); },
 
-        hasYamlLoader() {
-            return this.commands.some(c => c.startsWith('yamlLoader.'));
-        },
-
-        hasSpringLoader() {
-            return this.commands.some(c => c.startsWith('springLoader.'));
-        },
-
-        hasLoaderCommands() {
-            return this.hasYamlLoader() || this.hasSpringLoader();
-        },
-
-        // ---- command invocation helper (no UI runner state) ----
+        // ── command invocation helper (no UI runner state) ──
 
         async invokeRaw(name, args) {
             try {
@@ -241,16 +436,14 @@ document.addEventListener('alpine:init', () => {
                     },
                     body: JSON.stringify({ args: args || [] })
                 });
-                if (!r.ok) {
-                    return { output: [], err: ['HTTP ' + r.status] };
-                }
+                if (!r.ok) return { output: [], err: ['HTTP ' + r.status] };
                 return await r.json();
             } catch (e) {
                 return { output: [], err: ['network error: ' + e.message] };
             }
         },
 
-        // ---- cache panel actions ----
+        // ── cache panel ──
 
         async cacheList() {
             this.cacheBusy = true;
@@ -259,28 +452,24 @@ document.addEventListener('alpine:init', () => {
             this.cacheErr    = res.err    || [];
             this.cacheBusy = false;
         },
-
         async cacheKeys() {
             if (!this.cacheNameInput) return;
             this.cacheBusy = true;
-            const cmd = 'cache.' + this.cacheNameInput + '.keys';
-            const res = await this.invokeRaw(cmd, []);
+            const res = await this.invokeRaw('cache.' + this.cacheNameInput + '.keys', []);
             this.cacheOutput = res.output || [];
             this.cacheErr    = res.err    || [];
             this.cacheBusy = false;
         },
-
         async cacheGet() {
             if (!this.cacheGetName || !this.cacheGetKey) return;
             this.cacheBusy = true;
-            const cmd = 'cache.' + this.cacheGetName + '.get';
-            const res = await this.invokeRaw(cmd, [this.cacheGetKey]);
+            const res = await this.invokeRaw('cache.' + this.cacheGetName + '.get', [this.cacheGetKey]);
             this.cacheOutput = res.output || [];
             this.cacheErr    = res.err    || [];
             this.cacheBusy = false;
         },
 
-        // ---- loader panel actions ----
+        // ── loader panel ──
 
         async yamlCompile() {
             if (!this.yamlPath) return;
@@ -290,8 +479,9 @@ document.addEventListener('alpine:init', () => {
             this.loaderOutput = res.output || [];
             this.loaderErr    = res.err    || [];
             this.loaderBusy = false;
+            this.toast(res.err && res.err.length ? 'YAML compile failed' : 'YAML processor compiled',
+                       res.err && res.err.length ? 'error' : 'success');
         },
-
         async springCompile() {
             if (!this.springPath) return;
             this.loaderBusy = true;
@@ -300,9 +490,11 @@ document.addEventListener('alpine:init', () => {
             this.loaderOutput = res.output || [];
             this.loaderErr    = res.err    || [];
             this.loaderBusy = false;
+            this.toast(res.err && res.err.length ? 'Spring compile failed' : 'Spring processor compiled',
+                       res.err && res.err.length ? 'error' : 'success');
         },
 
-        // ---- file picker (loaderBaseDir-rooted) ----
+        // ── file picker (loaderBaseDir-rooted) ──
 
         async probeLoaderBaseDir() {
             try {
@@ -312,22 +504,17 @@ document.addEventListener('alpine:init', () => {
                 this.loaderBaseDirAvailable = false;
             }
         },
-
         async openPicker(targetField) {
             this.pickerTargetField = targetField;
             this.pickerCwd = '';
             await this.loadPicker('');
             this.pickerOpen = true;
         },
-
         async loadPicker(path) {
             const qs = path ? '?path=' + encodeURIComponent(path) : '';
             try {
                 const r = await fetch('/api/files' + qs, { credentials: 'same-origin' });
-                if (!r.ok) {
-                    this.pickerEntries = [];
-                    return;
-                }
+                if (!r.ok) { this.pickerEntries = []; return; }
                 const data = await r.json();
                 this.pickerCwd = data.cwd || '';
                 this.pickerEntries = data.entries || [];
@@ -335,7 +522,6 @@ document.addEventListener('alpine:init', () => {
                 this.pickerEntries = [];
             }
         },
-
         async pickerSelect(e) {
             const next = this.pickerCwd ? (this.pickerCwd + '/' + e.name) : e.name;
             if (e.isDir) {
@@ -345,32 +531,43 @@ document.addEventListener('alpine:init', () => {
                 this.pickerOpen = false;
             }
         },
-
         async pickerUp() {
             const parts = this.pickerCwd.split('/').filter(Boolean);
             parts.pop();
             await this.loadPicker(parts.join('/'));
         },
 
+        // ── formatting ──
+
         formatBytes(b) {
-            if (b == null) return '—';
-            if (b < 0) return '—';
-            const units = ['B', 'KB', 'MB', 'GB'];
-            let i = 0;
-            let v = b;
+            if (b == null || b < 0) return '—';
+            const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+            let i = 0, v = b;
             while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
             return v.toFixed(v < 10 && i > 0 ? 1 : 0) + ' ' + units[i];
         },
 
         formatUptime(nowTs, startTs) {
             if (!startTs) return '—';
-            const ms = nowTs - startTs;
-            const s = Math.floor(ms / 1000);
-            const h = Math.floor(s / 3600);
+            const s = Math.max(0, Math.floor((nowTs - startTs) / 1000));
+            const d = Math.floor(s / 86400);
+            const h = Math.floor((s % 86400) / 3600);
             const m = Math.floor((s % 3600) / 60);
             const sec = s % 60;
-            return (h ? h + 'h ' : '') + (m || h ? m + 'm ' : '') + sec + 's';
+            if (d) return d + 'd ' + h + 'h ' + m + 'm';
+            if (h) return h + 'h ' + m + 'm ' + sec + 's';
+            if (m) return m + 'm ' + sec + 's';
+            return sec + 's';
         },
+
+        formatClock(ms) {
+            if (!ms) return '—';
+            return new Date(ms).toLocaleString();
+        },
+
+        hostLabel() { return location.host; },
+
+        // ── auth ──
 
         async bootstrapSession() {
             // Empty-body login: in NONE mode the server issues an anonymous
@@ -403,7 +600,7 @@ document.addEventListener('alpine:init', () => {
                 body: JSON.stringify(body)
             });
             if (!r.ok) {
-                this.loginError = 'sign-in failed';
+                this.loginError = 'Sign-in failed — check your credentials.';
                 return;
             }
             const data = await r.json();
@@ -413,13 +610,9 @@ document.addEventListener('alpine:init', () => {
             this.loginPass = '';
             this.loginToken = '';
             const cmds = await fetch('/api/commands', { credentials: 'same-origin' });
-            if (cmds.ok) {
-                this.commands = (await cmds.json()).commands || [];
-            }
-            await this.loadDashboard();
-            this.openMonitorWs();
-            this.openLogsWs();
-            await this.probeLoaderBaseDir();
+            if (cmds.ok) this.commands = (await cmds.json()).commands || [];
+            await this.afterAuth();
+            this.toast('Signed in as ' + this.userId);
         },
 
         async logout() {
@@ -428,16 +621,12 @@ document.addEventListener('alpine:init', () => {
                 credentials: 'same-origin',
                 headers: { 'X-CSRF-Token': this.csrfToken || '' }
             });
-            if (this.ws) {
-                try { this.ws.close(); } catch (e) {}
-                this.ws = null;
-            }
-            if (this.logsWs) {
-                try { this.logsWs.close(); } catch (e) {}
-                this.logsWs = null;
-            }
+            if (this.ws)     { try { this.ws.close(); }     catch (e) {} this.ws = null; }
+            if (this.logsWs) { try { this.logsWs.close(); } catch (e) {} this.logsWs = null; }
             this.logs = [];
             this.logsStatus = '';
+            this.wsStatus = '';
+            this.heapHistory = [];
             this.authed = false;
             this.userId = null;
             this.csrfToken = null;
@@ -446,7 +635,12 @@ document.addEventListener('alpine:init', () => {
             this.lastResult = null;
             this.server = null;
             this.jvm = null;
+            this.servicesAvailable = this.agentsAvailable = this.queuesAvailable = false;
+            this.eventSources = [];
+            this.activeView = 'dashboard';
         },
+
+        // ── command runner ──
 
         filteredCommands() {
             if (!this.filter) return this.commands;
@@ -461,10 +655,7 @@ document.addEventListener('alpine:init', () => {
         },
 
         parseArgs() {
-            return this.argsText
-                .split('\n')
-                .map(l => l.trim())
-                .filter(l => l.length > 0);
+            return this.argsText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
         },
 
         async invoke() {
@@ -484,14 +675,18 @@ document.addEventListener('alpine:init', () => {
                 });
                 if (r.status === 401) {
                     this.authed = false;
-                    this.loginError = 'session expired — please sign in again';
+                    this.loginError = 'Session expired — please sign in again.';
                     return;
                 }
                 this.lastResult = await r.json();
                 this.history.unshift({ command: this.selected, args });
                 this.history = this.history.slice(0, 20);
+                const failed = this.lastResult && this.lastResult.err && this.lastResult.err.length;
+                this.toast(failed ? this.selected + ' reported errors' : this.selected + ' completed',
+                           failed ? 'error' : 'success');
             } catch (e) {
                 this.lastResult = { output: [], err: ['network error: ' + e.message] };
+                this.toast('Command failed: ' + e.message, 'error');
             } finally {
                 this.running = false;
             }
@@ -500,6 +695,19 @@ document.addEventListener('alpine:init', () => {
         replay(h) {
             this.selected = h.command;
             this.argsText = h.args.join('\n');
+        },
+
+        copyResult() {
+            if (!this.lastResult) return;
+            const text = []
+                .concat(this.lastResult.output || [])
+                .concat(this.lastResult.err || [])
+                .join('\n');
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText(text)
+                    .then(() => this.toast('Result copied to clipboard'))
+                    .catch(() => this.toast('Copy failed', 'error'));
+            }
         }
     }));
 });

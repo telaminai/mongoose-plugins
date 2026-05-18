@@ -10,7 +10,7 @@ Type-discriminated JSONL deserialiser. Each line is a JSON object with a `@type`
 <dependency>
     <groupId>com.telamin</groupId>
     <artifactId>lib-jsonserialiser</artifactId>
-    <version>0.2.8-SNAPSHOT</version>
+    <version>{{ plugin_version }}</version>
 </dependency>
 ```
 

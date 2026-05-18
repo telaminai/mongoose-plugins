@@ -6,7 +6,7 @@
 <dependency>
     <groupId>com.telamin</groupId>
     <artifactId>mongoose-test-support</artifactId>
-    <version>0.2.8-SNAPSHOT</version>
+    <version>{{ plugin_version }}</version>
     <scope>test</scope>
 </dependency>
 ```

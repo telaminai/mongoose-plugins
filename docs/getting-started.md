@@ -18,7 +18,7 @@ This guide walks through adding a plugin to a Mongoose deployment from scratch �
 <dependency>
     <groupId>com.telamin</groupId>
     <artifactId>connector-file</artifactId>
-    <version>0.2.8-SNAPSHOT</version>
+    <version>{{ plugin_version }}</version>
 </dependency>
 ```
 
@@ -76,6 +76,7 @@ Three idiomatic styles:
 
 === "Java"
 
+    {% raw %}
     ```java
     var cfg = MongooseServerConfig.builder()
         .addEventFeed(EventFeedConfig.builder()
@@ -97,6 +98,7 @@ Three idiomatic styles:
 
     MongooseServer.bootServer(cfg);
     ```
+    {% endraw %}
 
 === "Spring XML"
 
@@ -170,7 +172,7 @@ Skim the [Connectors](connectors/index.md), [Services](services/index.md), and [
 - **Need a source/sink** → connectors. Pick by where the data lives (file, Kafka, Aeron channel, …).
 - **Need to share data between processors** → svc-cache (in-memory or persistent).
 - **Need to call a database** → svc-jdbc (pooled by default).
-- **Need to inspect or drive the server at runtime** → svc-admin-telnet or svc-admin-rest.
+- **Need to inspect or drive the server at runtime** → svc-admin-telnet (shell), svc-admin-rest (scripts/CI), or svc-admin-web (browser dashboard + live monitor + log tail).
 - **Need to load processors dynamically** → svc-loader-yaml or svc-loader-spring.
 
 ## Next

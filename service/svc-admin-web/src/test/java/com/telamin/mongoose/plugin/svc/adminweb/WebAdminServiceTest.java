@@ -499,6 +499,96 @@ class WebAdminServiceTest {
         Assertions.assertEquals(401, r.statusCode());
     }
 
+    // ---------- M8 dispatcher introspection ----------
+
+    @Test
+    void services_endpoint_parses_service_list_command() throws Exception {
+        port = freePort();
+        FakeRegistry registry = new FakeRegistry();
+        registry.register("server.service.list", (args, out, err) -> out.accept(
+                "services:\n"
+                        + "\tadminWeb: Service(serviceClass=class com.telamin.AdminWeb, serviceName=adminWeb, instance=x)\n"
+                        + "\tobjectCache: Service(serviceClass=class com.telamin.Cache, serviceName=objectCache, instance=y)\n"));
+
+        svc = new WebAdminService();
+        svc.setListenPort(port);
+        svc.setHost("127.0.0.1");
+        svc.adminRegistry(registry, "test");
+        svc.init();
+        svc.start();
+
+        HttpResponse<String> r = get("/api/services", null, null);
+        Assertions.assertEquals(200, r.statusCode(), r.body());
+        Assertions.assertTrue(r.body().contains("\"adminWeb\""), "lists adminWeb: " + r.body());
+        Assertions.assertTrue(r.body().contains("\"objectCache\""), "lists objectCache: " + r.body());
+        Assertions.assertTrue(r.body().contains("com.telamin.Cache"), "extracts className: " + r.body());
+    }
+
+    @Test
+    void services_endpoint_404_when_command_not_registered() throws Exception {
+        port = freePort();
+        FakeRegistry registry = new FakeRegistry();
+        registry.register("ping", (args, out, err) -> out.accept("pong"));
+
+        svc = new WebAdminService();
+        svc.setListenPort(port);
+        svc.setHost("127.0.0.1");
+        svc.adminRegistry(registry, "test");
+        svc.init();
+        svc.start();
+
+        HttpResponse<String> r = get("/api/services", null, null);
+        Assertions.assertEquals(404, r.statusCode(),
+                "endpoint 404s when server.service.list is absent so the UI hides the tab");
+    }
+
+    @Test
+    void services_endpoint_blocked_unauth() throws Exception {
+        port = freePort();
+        svc = newBasicAuthService(port);
+        svc.init();
+        svc.start();
+
+        HttpResponse<String> r = get("/api/services", null, null);
+        Assertions.assertEquals(401, r.statusCode());
+    }
+
+    @Test
+    void agents_endpoint_parses_processor_list_command() throws Exception {
+        port = freePort();
+        FakeRegistry registry = new FakeRegistry();
+        registry.register("server.processors.list", (args, out, err) -> out.accept(
+                "\ngroup:core\nprocessors:\n"
+                        + "\tcore/orderHandler -> DataFlow@1\n"
+                        + "\tcore/riskHandler -> DataFlow@2\n\n"));
+
+        svc = new WebAdminService();
+        svc.setListenPort(port);
+        svc.setHost("127.0.0.1");
+        svc.adminRegistry(registry, "test");
+        svc.init();
+        svc.start();
+
+        HttpResponse<String> r = get("/api/agents", null, null);
+        Assertions.assertEquals(200, r.statusCode(), r.body());
+        Assertions.assertTrue(r.body().contains("\"core\""), "lists group core: " + r.body());
+        Assertions.assertTrue(r.body().contains("\"orderHandler\""), "lists orderHandler: " + r.body());
+        Assertions.assertTrue(r.body().contains("\"riskHandler\""), "lists riskHandler: " + r.body());
+    }
+
+    @Test
+    void agents_endpoint_404_when_command_not_registered() throws Exception {
+        port = freePort();
+        svc = new WebAdminService();
+        svc.setListenPort(port);
+        svc.setHost("127.0.0.1");
+        svc.init();
+        svc.start();
+
+        HttpResponse<String> r = get("/api/agents", null, null);
+        Assertions.assertEquals(404, r.statusCode());
+    }
+
     // ---------- helpers ----------
 
     private static WebAdminService newBasicAuthService(int port) {

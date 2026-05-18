@@ -55,6 +55,7 @@ By default:
 
 - `svc-admin-telnet` binds to `127.0.0.1`. Override only if you're behind a TLS proxy.
 - `svc-admin-rest` binds to `0.0.0.0`. **Set `host: 127.0.0.1` for production**, and enable `authMode: BASIC` or `BEARER`.
+- `svc-admin-web` binds to `127.0.0.1` by default. For multi-host access, change explicitly and front with TLS. Enable `authMode: BASIC`/`BEARER` and pin `sessionSecret` via env so cookies survive restarts. WS upgrades enforce an `Origin` allow-list — set this when fronting with a reverse proxy.
 - Secrets resolve `$ENV.NAME` — environment first, system property second.
 
 Constant-time string comparison is used for auth — credential timing leaks are off the table.

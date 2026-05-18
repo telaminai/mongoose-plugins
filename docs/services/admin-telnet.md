@@ -10,7 +10,7 @@ JLine-backed telnet admin endpoint for a running Mongoose server. Tab-completion
 <dependency>
     <groupId>com.telamin</groupId>
     <artifactId>svc-admin-telnet</artifactId>
-    <version>0.2.8-SNAPSHOT</version>
+    <version>{{ plugin_version }}</version>
 </dependency>
 ```
 
