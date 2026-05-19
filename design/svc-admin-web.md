@@ -242,7 +242,7 @@ YAML example (lives alongside the other services):
 ```yaml
 services:
   - name: adminWebService
-    instance: !!com.telamin.mongoose.plugin.svc.adminweb.WebAdminService
+    service: !!com.telamin.mongoose.plugin.svc.adminweb.WebAdminService
       host: 127.0.0.1
       listenPort: 8181
       authMode: BASIC

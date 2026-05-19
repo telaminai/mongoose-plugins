@@ -25,7 +25,7 @@ The configuration interface is intentionally thin — wire a connection per name
 ```yaml
 services:
   - name: jdbcConnectionLoader
-    instance: !!com.telamin.mongoose.plugin.svc.jdbc.impl.JdbcConnectionLoaderService
+    service: !!com.telamin.mongoose.plugin.svc.jdbc.impl.JdbcConnectionLoaderService
       testConnection: true
       fastFail: false
       connections:

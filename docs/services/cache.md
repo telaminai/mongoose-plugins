@@ -29,14 +29,14 @@ Both implement the same `Cache` interface so the consuming processor is implemen
 services:
   - name: state-cache
     serviceClass: com.telamin.mongoose.plugin.svc.cache.Cache
-    instance: !!com.telamin.mongoose.plugin.svc.cache.JsonFileCache
+    service: !!com.telamin.mongoose.plugin.svc.cache.JsonFileCache
       fileName: ./data-out/state.json
       maxSize: 10000            # 0 = unbounded
       asyncWrite: false         # write on every put if false
 
   - name: hot-prices
     serviceClass: com.telamin.mongoose.plugin.svc.cache.Cache
-    instance: !!com.telamin.mongoose.plugin.svc.cache.InMemoryCache
+    service: !!com.telamin.mongoose.plugin.svc.cache.InMemoryCache
       maxSize: 5000
 ```
 

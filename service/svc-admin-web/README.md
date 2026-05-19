@@ -34,7 +34,7 @@ The panels appear automatically when their commands are registered — pure disc
 ```yaml
 services:
   - name: adminWebService
-    instance: !!com.telamin.mongoose.plugin.svc.adminweb.WebAdminService
+    service: !!com.telamin.mongoose.plugin.svc.adminweb.WebAdminService
       host: 127.0.0.1
       listenPort: 8181
       authMode: BASIC

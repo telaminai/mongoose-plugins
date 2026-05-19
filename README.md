@@ -57,11 +57,11 @@ eventSinks:
 
 services:
   - name: state-cache
-    instance: !!com.telamin.mongoose.plugin.svc.cache.JsonFileCache
+    service: !!com.telamin.mongoose.plugin.svc.cache.JsonFileCache
       fileName: ./data-out/state.json
 
   - name: adminTelnet
-    instance: !!com.telamin.mongoose.plugin.svc.admintelnet.TelnetAdminCommandProcessor
+    service: !!com.telamin.mongoose.plugin.svc.admintelnet.TelnetAdminCommandProcessor
       listenPort: 2024
 ```
 

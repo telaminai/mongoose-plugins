@@ -28,7 +28,7 @@ Built against `org.jline:jline` (terminal + line reader + builtin telnet server)
 ```yaml
 services:
   - name: adminTelnetService
-    instance: !!com.telamin.mongoose.plugin.svc.admintelnet.TelnetAdminCommandProcessor
+    service: !!com.telamin.mongoose.plugin.svc.admintelnet.TelnetAdminCommandProcessor
       listenPort: 2024
       welcomeMessage: "Mongoose admin (telnet). Type 'help' for commands."
 ```
