@@ -32,7 +32,7 @@ XML, or plain Java config.
   <dt>License</dt>
   <dd>AGPL-3.0-only</dd>
   <dt>Latest</dt>
-  <dd>0.2.13</dd>
+  <dd>{{ plugin_version }}</dd>
 </dl>
 </div>
 
