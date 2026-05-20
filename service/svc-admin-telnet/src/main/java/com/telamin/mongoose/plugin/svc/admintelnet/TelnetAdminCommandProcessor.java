@@ -25,6 +25,7 @@ import org.jline.terminal.TerminalBuilder;
 import org.jline.utils.AttributedString;
 
 import java.io.IOException;
+import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -104,6 +105,17 @@ public class TelnetAdminCommandProcessor implements Lifecycle {
         // JLine telnet's TelnetIO layer still handles the IAC negotiation on
         // the underlying socket; we are only swapping the front-end the line
         // editor sees.
+        // `wireWriter` is the direct path to JLine telnet's TelnetIO — the
+        // PrintWriter on the per-connection terminal handed to us. Command
+        // output (admin handlers, the startup banner, the goodbye string)
+        // goes through this writer so the bytes flow straight through the
+        // socket; the wrapped line-editor terminal below is only for
+        // LineReader's prompt + editing display, and its writer was
+        // observed to swallow / buffer admin-handler writes invisibly when
+        // the handler runs on a different thread under MongooseServer's
+        // dispatcher. Explicit flush after every write keeps the line
+        // editor's display in sync with the command output.
+        final PrintWriter wireWriter = connTerminal.writer();
         Terminal lineTerminal = null;
         try {
             lineTerminal = TerminalBuilder.builder()
@@ -125,7 +137,7 @@ public class TelnetAdminCommandProcessor implements Lifecycle {
                     })
                     .build();
 
-            processCommand(t, new String[]{"commands"});
+            processCommand(wireWriter, new String[]{"commands"});
             while (true) {
                 String line;
                 try {
@@ -143,12 +155,12 @@ public class TelnetAdminCommandProcessor implements Lifecycle {
                     continue;
                 }
                 if (line.equalsIgnoreCase("quit") || line.equalsIgnoreCase("exit")) {
-                    t.writer().print("bye\r\n");
-                    t.writer().flush();
+                    wireWriter.print("bye\r\n");
+                    wireWriter.flush();
                     break;
                 }
                 reader.getHistory().add(line);
-                processCommand(t, line.split("\\s+"));
+                processCommand(wireWriter, line.split("\\s+"));
             }
         } catch (Exception e) {
             log.error("problem executing shell", e);
@@ -162,7 +174,7 @@ public class TelnetAdminCommandProcessor implements Lifecycle {
         }
     }
 
-    private void processCommand(Terminal terminal, String[] commandArgs) {
+    private void processCommand(PrintWriter wireWriter, String[] commandArgs) {
         if (commandArgs == null || commandArgs.length == 0 || commandArgs[0].isEmpty()) {
             return;
         }
@@ -172,8 +184,20 @@ public class TelnetAdminCommandProcessor implements Lifecycle {
 
         adminCommandRequest.setCommand(commandArgs[0]);
         adminCommandRequest.setArguments(commandArgsList);
-        adminCommandRequest.setOutput(terminal.writer()::println);
-        adminCommandRequest.setErrOutput(terminal.writer()::println);
+        // Flush after every line — handler may run on a dispatcher thread
+        // (when AdminCommandProcessor's start() registered the command
+        // under a processor context, registrations go through an event
+        // queue and execute on the dispatcher agent), so the writes are
+        // off the shell thread and need to be pushed through immediately
+        // rather than waiting for the LineReader's next display cycle.
+        adminCommandRequest.setOutput(line -> {
+            wireWriter.println(line);
+            wireWriter.flush();
+        });
+        adminCommandRequest.setErrOutput(line -> {
+            wireWriter.println(line);
+            wireWriter.flush();
+        });
 
         log.info("adminCommandRequest: " + adminCommandRequest);
         if (adminCommandRegistry != null) {
