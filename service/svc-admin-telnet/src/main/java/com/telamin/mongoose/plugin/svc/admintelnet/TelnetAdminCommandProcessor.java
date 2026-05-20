@@ -19,12 +19,10 @@ import org.jline.reader.EndOfFileException;
 import org.jline.reader.LineReader;
 import org.jline.reader.LineReaderBuilder;
 import org.jline.reader.UserInterruptException;
-import org.jline.terminal.Size;
 import org.jline.terminal.Terminal;
 import org.jline.terminal.TerminalBuilder;
 import org.jline.utils.AttributedString;
 
-import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -94,41 +92,27 @@ public class TelnetAdminCommandProcessor implements Lifecycle {
     }
 
     private void shell(Terminal connTerminal, Map<String, String> environment) {
-        // JLine's telnet builtin hands the shell a per-connection terminal
-        // with type "default" and size 0x0 — its TERMINAL-TYPE and NAWS
-        // negotiations rarely resolve in time, and on this pseudo-terminal
-        // `setSize` does not stick. Against that, LineReader's full-screen
-        // prompt renderer collapses to garbage (`>....` instead of
-        // `command > `) and line editing does not accept input. Wrap the
-        // connection's input / output streams in a Terminal we control —
-        // type `xterm`, fixed 120x40 — and give that to the LineReader.
-        // JLine telnet's TelnetIO layer still handles the IAC negotiation on
-        // the underlying socket; we are only swapping the front-end the line
-        // editor sees.
-        // `wireWriter` is the direct path to JLine telnet's TelnetIO — the
-        // PrintWriter on the per-connection terminal handed to us. Command
-        // output (admin handlers, the startup banner, the goodbye string)
-        // goes through this writer so the bytes flow straight through the
-        // socket; the wrapped line-editor terminal below is only for
-        // LineReader's prompt + editing display, and its writer was
-        // observed to swallow / buffer admin-handler writes invisibly when
-        // the handler runs on a different thread under MongooseServer's
-        // dispatcher. Explicit flush after every write keeps the line
-        // editor's display in sync with the command output.
+        // Use the per-connection terminal JLine telnet hands us directly. A
+        // real telnet client (BSD telnet, GNU inetutils, PuTTY) negotiates
+        // TERMINAL-TYPE + NAWS, so this PTY ends up with a sane type ("xterm"
+        // or whatever $TERM is on the client) and the client's actual window
+        // size — LineReader's prompt rendering + key bindings then work
+        // properly. Earlier this method wrapped the connection in an
+        // ExternalTerminal with .system(false) to force-set type/size, which
+        // recovered display geometry against a non-negotiating probe (raw
+        // socket) but silently disabled JLine's keymap layer: TAB and Ctrl-C
+        // fell through as literal bytes. The wrap is gone; the trade is that
+        // a non-negotiating client (`nc`) sees the original ">...." prompt
+        // glitch, but the real telnet UX (tab-complete, line editing) works.
+        //
+        // `wireWriter` is the per-connection writer (the one TelnetIO drives
+        // directly). Admin command output goes through it with an explicit
+        // flush so handlers that run on a dispatcher thread don't queue
+        // bytes behind LineReader's next display cycle.
         final PrintWriter wireWriter = connTerminal.writer();
-        Terminal lineTerminal = null;
         try {
-            lineTerminal = TerminalBuilder.builder()
-                    .type("xterm")
-                    .streams(connTerminal.input(), connTerminal.output())
-                    .system(false)
-                    .name("telnet-line")
-                    .size(new Size(120, 40))
-                    .build();
-            final Terminal t = lineTerminal;
-
             LineReader reader = LineReaderBuilder.builder()
-                    .terminal(t)
+                    .terminal(connTerminal)
                     .completer((reader1, line, candidates) -> {
                         for (String string : adminCommandRegistry.commandList()) {
                             candidates.add(new Candidate(AttributedString.stripAnsi(string), string, null, null, null, null, true));
@@ -164,13 +148,6 @@ public class TelnetAdminCommandProcessor implements Lifecycle {
             }
         } catch (Exception e) {
             log.error("problem executing shell", e);
-        } finally {
-            if (lineTerminal != null) {
-                try {
-                    lineTerminal.close();
-                } catch (IOException ignored) {
-                }
-            }
         }
     }
 
