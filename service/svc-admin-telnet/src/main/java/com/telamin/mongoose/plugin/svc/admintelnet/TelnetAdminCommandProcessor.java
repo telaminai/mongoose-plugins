@@ -14,12 +14,17 @@ import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.log4j.Log4j2;
 import org.jline.builtins.telnet.Telnet;
+import org.jline.reader.Candidate;
+import org.jline.reader.EndOfFileException;
+import org.jline.reader.LineReader;
+import org.jline.reader.LineReaderBuilder;
+import org.jline.reader.UserInterruptException;
+import org.jline.terminal.Size;
 import org.jline.terminal.Terminal;
 import org.jline.terminal.TerminalBuilder;
-import org.jline.utils.NonBlockingReader;
+import org.jline.utils.AttributedString;
 
 import java.io.IOException;
-import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -87,91 +92,73 @@ public class TelnetAdminCommandProcessor implements Lifecycle {
         }
     }
 
-    private void shell(Terminal terminal, Map<String, String> environment) {
-        // JLine's interactive LineReader is deliberately not used here. JLine's
-        // own telnet builtin (`org.jline.builtins.telnet.Telnet`) creates the
-        // per-connection terminal with type "default" and size 0x0 (the NAWS
-        // negotiation rarely resolves a real size in time, and on this PTY
-        // terminal `setSize` does not stick). Against that, the LineReader's
-        // full-screen prompt rendering collapses to garbage — the operator
-        // sees something like ">...." instead of "command > " and typed
-        // characters neither echo nor register. Direct writes to the terminal
-        // work fine, so a simple character-at-a-time line reader is the
-        // robust path. Tab-completion is lost (cheap trade); the same admin
-        // command surface is reachable through the web console for richer UX.
-        final PrintWriter writer = terminal.writer();
-        final NonBlockingReader in = terminal.reader();
+    private void shell(Terminal connTerminal, Map<String, String> environment) {
+        // JLine's telnet builtin hands the shell a per-connection terminal
+        // with type "default" and size 0x0 — its TERMINAL-TYPE and NAWS
+        // negotiations rarely resolve in time, and on this pseudo-terminal
+        // `setSize` does not stick. Against that, LineReader's full-screen
+        // prompt renderer collapses to garbage (`>....` instead of
+        // `command > `) and line editing does not accept input. Wrap the
+        // connection's input / output streams in a Terminal we control —
+        // type `xterm`, fixed 120x40 — and give that to the LineReader.
+        // JLine telnet's TelnetIO layer still handles the IAC negotiation on
+        // the underlying socket; we are only swapping the front-end the line
+        // editor sees.
+        Terminal lineTerminal = null;
         try {
-            writer.print("Mongoose admin console — type 'help' for commands, 'quit' to exit.\r\n");
-            writer.flush();
-            processCommand(terminal, new String[]{"commands"});
+            lineTerminal = TerminalBuilder.builder()
+                    .type("xterm")
+                    .streams(connTerminal.input(), connTerminal.output())
+                    .system(false)
+                    .name("telnet-line")
+                    .size(new Size(120, 40))
+                    .build();
+            final Terminal t = lineTerminal;
 
+            LineReader reader = LineReaderBuilder.builder()
+                    .terminal(t)
+                    .completer((reader1, line, candidates) -> {
+                        for (String string : adminCommandRegistry.commandList()) {
+                            candidates.add(new Candidate(AttributedString.stripAnsi(string), string, null, null, null, null, true));
+                        }
+                        candidates.add(new Candidate(AttributedString.stripAnsi("quit"), "quit", null, null, null, null, true));
+                    })
+                    .build();
+
+            processCommand(t, new String[]{"commands"});
             while (true) {
-                writer.print("command > ");
-                writer.flush();
-                String line = readLine(in, writer);
-                if (line == null) {
+                String line;
+                try {
+                    line = reader.readLine("command > ");
+                } catch (EndOfFileException eof) {
                     break;                              // client disconnected
+                } catch (UserInterruptException ui) {
+                    continue;                           // Ctrl-C — drop the line, keep the session
+                }
+                if (line == null) {
+                    break;
                 }
                 line = line.trim();
                 if (line.isEmpty()) {
                     continue;
                 }
                 if (line.equalsIgnoreCase("quit") || line.equalsIgnoreCase("exit")) {
-                    writer.print("bye\r\n");
-                    writer.flush();
+                    t.writer().print("bye\r\n");
+                    t.writer().flush();
                     break;
                 }
-                processCommand(terminal, line.split("\\s+"));
+                reader.getHistory().add(line);
+                processCommand(t, line.split("\\s+"));
             }
         } catch (Exception e) {
             log.error("problem executing shell", e);
-        }
-    }
-
-    /**
-     * Reads one line from a character-at-a-time telnet connection, echoing
-     * each printable character back to the client. Telnet was negotiated in
-     * server-echo mode (IAC WILL ECHO + SUPPRESS-GO-AHEAD), so without
-     * server-side echo the operator sees nothing as they type.
-     * <p>
-     * Telnet ends a line with CR LF or CR NUL; we treat CR as the line end
-     * and consume a single trailing LF/NUL via the NonBlockingReader peek.
-     * Backspace (BS / DEL) erases the last buffered character; other control
-     * bytes are ignored. Returns {@code null} when the stream closes.
-     */
-    private static String readLine(NonBlockingReader in, PrintWriter writer) throws IOException {
-        StringBuilder sb = new StringBuilder();
-        while (true) {
-            int c = in.read();
-            if (c == -1 || c == NonBlockingReader.READ_EXPIRED) {
-                return sb.length() == 0 ? null : sb.toString();
-            }
-            if (c == '\r' || c == '\n') {
-                if (c == '\r') {
-                    int next = in.peek(50L);
-                    if (next == '\n' || next == 0) {
-                        in.read();
-                    }
+        } finally {
+            if (lineTerminal != null) {
+                try {
+                    lineTerminal.close();
+                } catch (IOException ignored) {
                 }
-                writer.print("\r\n");
-                writer.flush();
-                return sb.toString();
             }
-            if (c == 0x7f || c == 0x08) {               // DEL / BS
-                if (sb.length() > 0) {
-                    sb.setLength(sb.length() - 1);
-                    writer.print("\b \b");
-                    writer.flush();
-                }
-                continue;
-            }
-            if (c < 0x20) {                              // other control bytes
-                continue;
-            }
-            sb.append((char) c);
-            writer.write(c);                             // server-side echo
-            writer.flush();
         }
     }
 

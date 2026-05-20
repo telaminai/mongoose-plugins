@@ -4,7 +4,7 @@
   <span class="plugin-tag service">service</span>
 </span>
 
-JLine-backed telnet admin endpoint for a running Mongoose server — one command per line, server-side echo with backspace editing. Reuses JLine's builtin telnet for the socket / IAC negotiation; the line editor itself is a plain char-echo loop (JLine's `LineReader` is unusable against JLine telnet's zero-size pseudo-terminal).
+JLine-backed telnet admin endpoint for a running Mongoose server. Tab-completion against the registered admin command list, in-session history.
 
 ```xml
 <dependency>
@@ -30,7 +30,7 @@ Connect:
 telnet 127.0.0.1 2024
 ```
 
-`commands` lists every registered admin command; `help` / `?` prints the built-in shortlist; `quit` (or `exit`) closes the session. Tab-completion is **not** available on this transport — use `svc-admin-web` for discoverable command panels.
+`commands` lists every registered admin command; `help` / `?` prints the built-in shortlist; `quit` (or `exit`) closes the session. Tab-complete is on against the live `AdminCommandRegistry`.
 
 ## Configuration reference
 

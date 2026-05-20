@@ -1,16 +1,17 @@
 # svc-admin-telnet
 
-JLine-backed telnet admin endpoint for a running Mongoose server. Exposes the registered admin commands (from `AdminCommandRegistry`) over a plain line protocol — one command per line, server-echoed, with backspace editing.
+JLine + telnet admin endpoint for a running Mongoose server. Exposes the registered admin commands (from `AdminCommandRegistry`) over a telnet line protocol with tab-completion, history, and a familiar shell-style UX.
 
-Pair it with `svc-loader-yaml` / `svc-loader-spring` to reload processor graphs from a shell, or with `svc-cache` to inspect cache state interactively. For a richer UX (command discovery, dashboards, log tail) use `svc-admin-web`; this transport is the always-available terminal fallback.
+Pair it with `svc-loader-yaml` / `svc-loader-spring` to reload processor graphs from a shell, or with `svc-cache` to inspect cache state interactively.
 
-Built against `org.jline:jline` (its builtin telnet server handles the socket and IAC negotiation); the line editor is a small in-house char-echo loop, deliberately not JLine's `LineReader` (see [Notes](#notes)).
+Built against `org.jline:jline` (terminal + line reader + builtin telnet server).
 
 ## Capabilities
 
 - Telnet listener on a configurable port (default `2019`).
-- One command per line; server-side echo and backspace editing.
-- `help` lists default commands; `commands` lists every registered admin command (services populate the registry at startup, so it is always current).
+- Tab-completion against the set of commands currently registered in the `AdminCommandRegistry`.
+- Line history per session.
+- `help` lists default commands; `commands` lists every registered admin command; quoted arguments and multi-word args are supported.
 
 ## Maven coordinates
 
@@ -44,8 +45,7 @@ telnet localhost 2024
 ## Notes
 
 - **No authentication.** Bind to `127.0.0.1` or firewall-scope the port; do not expose telnet to the open internet.
-- **JLine's `LineReader` is intentionally not used.** JLine's own telnet builtin creates the per-connection terminal with type `default` and size `0x0` — its NAWS (window-size) negotiation rarely resolves a real size in time, and `setSize` does not stick on that PTY. Against zero width, the `LineReader`'s full-screen prompt rendering collapses to garbage (`>....` instead of `command > `) and typed characters neither echo nor register. We keep JLine for the socket / IAC layer and run a small char-by-char read+echo loop on top — robust on macOS BSD telnet, GNU inetutils telnet, and `nc`.
-- **Tab-completion and history were removed** with the rewrite. They depended on the `LineReader` path. Use `svc-admin-web` for discoverable command panels.
+- **Per-connection LineReader, wrapped terminal.** Each new telnet connection gets its own JLine `LineReader`. JLine's telnet builtin hands the shell a per-connection terminal with type `default` and size `0x0` (its NAWS / TERMINAL-TYPE negotiations rarely resolve in time, and `setSize` doesn't stick on that PTY) — and against that, `LineReader`'s full-screen prompt rendering collapses to garbage and typed characters don't register. The shell rebuilds a `Terminal` in front of the same connection streams with type `xterm` and a fixed `Size(120, 40)`, then drives the `LineReader` against that wrapper; JLine's TelnetIO layer still handles IAC on the underlying socket.
 - **Commands populate themselves.** Other services (the loaders, svc-cache, svc-admin-rest's siblings) register commands via `AdminCommandRegistry` at startup; the telnet service discovers them dynamically.
 
 ## Related
