@@ -7,12 +7,17 @@ package com.telamin.mongoose.plugin.svc.adminweb;
 
 import com.telamin.fluxtion.runtime.annotations.runtime.ServiceRegistered;
 import com.telamin.fluxtion.runtime.lifecycle.Lifecycle;
+import com.telamin.fluxtion.runtime.output.MessageSink;
+import com.telamin.fluxtion.runtime.service.Service;
 import com.telamin.mongoose.dispatch.EventFlowManager;
 import com.telamin.mongoose.dispatch.EventToQueuePublisher;
+import com.telamin.mongoose.dutycycle.NamedEventProcessor;
 import com.telamin.mongoose.service.EventFlowService;
+import com.telamin.mongoose.service.EventSource;
 import com.telamin.mongoose.service.EventSubscriptionKey;
 import com.telamin.mongoose.service.admin.AdminCommandRegistry;
 import com.telamin.mongoose.service.admin.AdminCommandRequest;
+import com.telamin.mongoose.service.servercontrol.MongooseServerController;
 import io.javalin.Javalin;
 import io.javalin.http.Context;
 import io.javalin.http.Cookie;
@@ -35,8 +40,6 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -60,6 +63,7 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
     private Javalin javalin;
     private EventFlowManager eventFlowManager;
     private AdminCommandRegistry adminCommandRegistry;
+    private MongooseServerController serverController;
     private byte[] resolvedSessionSecret;
     private final SecureRandom random = new SecureRandom();
     private MonitoringSampler monitoringSampler;
@@ -98,6 +102,12 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
     public void adminRegistry(AdminCommandRegistry adminCommandRegistry, String name) {
         log.info("Admin registry: '{}' name: '{}'", adminCommandRegistry, name);
         this.adminCommandRegistry = adminCommandRegistry;
+    }
+
+    @ServiceRegistered
+    public void serverController(MongooseServerController serverController, String name) {
+        log.info("Server controller: '{}' name: '{}'", serverController, name);
+        this.serverController = serverController;
     }
 
     // EventFlowService → EventSource contract: this admin endpoint does not
@@ -175,11 +185,13 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         javalin.get("/api/server", this::handleServer);
         javalin.get("/api/jvm", this::handleJvm);
 
-        // Dispatcher introspection. Structured JSON for the UI, sourced by
-        // invoking + parsing the server.service.list / server.processors.list
-        // admin commands — no extra service wiring needed.
+        // Dispatcher introspection. Services/agents are structured JSON sourced
+        // by invoking + parsing the server.service.list / server.processors.list
+        // admin commands. Queues read the injected EventFlowManager directly —
+        // no dependency on the `eventSources` command being registered.
         javalin.get("/api/services", this::handleServices);
         javalin.get("/api/agents", this::handleAgents);
+        javalin.get("/api/queues", this::handleQueues);
 
         // Conditional file picker for loader forms. Always mounted, but returns
         // 404 when loaderBaseDir is unset so the UI hides the tab automatically.
@@ -433,108 +445,125 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
     }
 
     // -------- dispatcher introspection --------
-
-    private static final String CMD_SERVICE_LIST   = "server.service.list";
-    private static final String CMD_PROCESSOR_LIST = "server.processors.list";
-
-    // Service.toString() carries the implementation class as
-    // "serviceClass=class com.foo.Bar"; pull the FQN out of it.
-    private static final Pattern SERVICE_CLASS =
-            Pattern.compile("serviceClass=(?:class\\s+)?([^,)\\s]+)");
+    //
+    // /api/services and /api/agents read directly from the injected
+    // MongooseServerController — the same registry MongooseServerAdmin walks
+    // for its server.* commands, but via the structured object graph rather
+    // than parsing toString() text. That also lets us distinguish event feeds
+    // (EventSource) and sinks (MessageSink) from plain services, which the
+    // flat command output cannot.
 
     private void handleServices(Context ctx) {
-        String text = invokeForText(CMD_SERVICE_LIST);
-        if (text == null) {
+        if (serverController == null) {
             ctx.status(HttpStatus.NOT_FOUND);
-            ctx.json(Map.of("err", CMD_SERVICE_LIST + " is not registered"));
+            ctx.json(Map.of("err", "MongooseServerController not available"));
             return;
         }
-        ctx.json(Map.of("services", parseServiceList(text)));
+        List<Map<String, Object>> services = new ArrayList<>();
+        serverController.registeredServices().forEach((name, svc) -> {
+            Object instance = svc.instance();
+            Class<?> svcClass = svc.serviceClass();
+            Map<String, Object> entry = new LinkedHashMap<>();
+            entry.put("name", name);
+            entry.put("type", classifyService(instance));
+            entry.put("className", svcClass != null
+                    ? svcClass.getName()
+                    : (instance != null ? instance.getClass().getName() : ""));
+            services.add(entry);
+        });
+        ctx.json(Map.of("services", services));
     }
 
     private void handleAgents(Context ctx) {
-        String text = invokeForText(CMD_PROCESSOR_LIST);
-        if (text == null) {
+        if (serverController == null) {
             ctx.status(HttpStatus.NOT_FOUND);
-            ctx.json(Map.of("err", CMD_PROCESSOR_LIST + " is not registered"));
+            ctx.json(Map.of("err", "MongooseServerController not available"));
             return;
         }
-        ctx.json(Map.of("agents", parseProcessorList(text)));
+        List<Map<String, Object>> agents = new ArrayList<>();
+        serverController.registeredProcessors().forEach((groupName, procs) -> {
+            List<Map<String, Object>> members = new ArrayList<>();
+            for (NamedEventProcessor np : procs) {
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("name", np.name());
+                m.put("kind", "processor");
+                members.add(m);
+            }
+            Map<String, Object> group = new LinkedHashMap<>();
+            group.put("group", groupName);
+            group.put("type", "processor");
+            group.put("members", members);
+            agents.add(group);
+        });
+        ctx.json(Map.of("agents", agents));
     }
 
     /**
-     * Invoke a no-arg admin command and return its buffered stdout, or
-     * {@code null} when the command is not registered or its handler failed —
-     * the caller then answers 404 so the UI hides the corresponding tab.
+     * Categorise a service instance for the UI.
+     * <p>
+     * {@code registerEventFeed} and {@code registerEventSink} both delegate to
+     * {@code registerService} in {@code MongooseServer}, so feeds, sinks and
+     * services all live in the same {@code registeredServices()} map. We
+     * recover the distinction by inspecting the runtime type.
      */
-    private String invokeForText(String command) {
-        if (adminCommandRegistry == null) return null;
-        if (!adminCommandRegistry.commandList().contains(command)) return null;
-        List<String> out = Collections.synchronizedList(new ArrayList<>());
-        AdminCommandRequest req = new AdminCommandRequest();
-        req.setCommand(command);
-        req.setArguments(new ArrayList<>());
-        req.setOutput(o -> out.add(String.valueOf(o)));
-        req.setErrOutput(e -> { });
+    static String classifyService(Object instance) {
+        if (instance == null) return "service";
+        if (instance instanceof EventSource<?>) return "feed";
+        if (instance instanceof MessageSink<?>) return "sink";
+        return "service";
+    }
+
+    private void handleQueues(Context ctx) {
+        if (eventFlowManager == null) {
+            ctx.status(HttpStatus.NOT_FOUND);
+            ctx.json(Map.of("err", "EventFlowManager not available"));
+            return;
+        }
+        StringBuilder sb = new StringBuilder();
         try {
-            adminCommandRegistry.processAdminCommandRequest(req);
+            eventFlowManager.appendQueueInformation(sb);
         } catch (Exception e) {
-            log.warn("introspection command '{}' threw", command, e);
-            return null;
+            log.warn("queue introspection failed", e);
+            ctx.status(HttpStatus.INTERNAL_SERVER_ERROR);
+            ctx.json(Map.of("err", "queue introspection failed: " + e.getMessage()));
+            return;
         }
-        return String.join("\n", out);
+        ctx.json(Map.of("sources", parseEventSources(sb.toString())));
     }
 
     /**
-     * Parse {@code server.service.list} text — {@code services:} followed by
-     * {@code <name>: <Service.toString()>} lines — into structured entries.
+     * Parse {@code EventFlowManager.appendQueueInformation} text — {@code
+     * eventSource:<name>} blocks each followed by indented
+     * {@code <agentGroup>/<feed>/<callback> -> <queue>} read-queue lines — into
+     * structured per-source entries. The {@code eventSources} admin command
+     * emits the same text, but this endpoint reads the flow manager directly,
+     * so it works even when that command is not registered.
      */
-    static List<Map<String, Object>> parseServiceList(String text) {
-        List<Map<String, Object>> services = new ArrayList<>();
+    static List<Map<String, Object>> parseEventSources(String text) {
+        List<Map<String, Object>> sources = new ArrayList<>();
+        List<Map<String, Object>> queues = null;
         for (String raw : text.split("\n")) {
             String line = raw.trim();
-            if (line.isEmpty() || line.equals("services:")) continue;
-            int colon = line.indexOf(": ");
-            if (colon < 0) continue;
-            String value = line.substring(colon + 2).trim();
-            Matcher m = SERVICE_CLASS.matcher(value);
-            Map<String, Object> svc = new LinkedHashMap<>();
-            svc.put("name", line.substring(0, colon).trim());
-            svc.put("type", "service");
-            svc.put("className", m.find() ? m.group(1).trim() : value);
-            services.add(svc);
-        }
-        return services;
-    }
-
-    /**
-     * Parse {@code server.processors.list} text — {@code group:<name>} blocks
-     * each followed by {@code <group>/<processor> -> <DataFlow>} lines — into
-     * structured agent-group entries.
-     */
-    static List<Map<String, Object>> parseProcessorList(String text) {
-        List<Map<String, Object>> groups = new ArrayList<>();
-        List<Map<String, Object>> members = null;
-        for (String raw : text.split("\n")) {
-            String line = raw.trim();
-            if (line.isEmpty() || line.equals("processors:")) continue;
-            if (line.startsWith("group:")) {
-                members = new ArrayList<>();
-                Map<String, Object> group = new LinkedHashMap<>();
-                group.put("group", line.substring("group:".length()).trim());
-                group.put("type", "processor");
-                group.put("members", members);
-                groups.add(group);
-            } else if (members != null && line.contains("->")) {
-                String left = line.substring(0, line.indexOf("->")).trim();
-                int slash = left.indexOf('/');
-                Map<String, Object> member = new LinkedHashMap<>();
-                member.put("name", slash >= 0 ? left.substring(slash + 1) : left);
-                member.put("kind", "processor");
-                members.add(member);
+            if (line.isEmpty() || line.equals("readQueues:")) continue;
+            if (line.startsWith("eventSource:")) {
+                queues = new ArrayList<>();
+                Map<String, Object> source = new LinkedHashMap<>();
+                source.put("source", line.substring("eventSource:".length()).trim());
+                source.put("queues", queues);
+                sources.add(source);
+            } else if (queues != null && line.contains("->")) {
+                String path = line.substring(0, line.indexOf("->")).trim();
+                String[] parts = path.split("/");
+                String callback = parts[parts.length - 1];
+                Map<String, Object> queue = new LinkedHashMap<>();
+                queue.put("path", path);
+                queue.put("agentGroup", parts[0].isEmpty() ? path : parts[0]);
+                queue.put("callback", callback.contains(".")
+                        ? callback.substring(callback.lastIndexOf('.') + 1) : callback);
+                queues.add(queue);
             }
         }
-        return groups;
+        return sources;
     }
 
     private void handleListFiles(Context ctx) {

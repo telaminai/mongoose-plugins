@@ -377,14 +377,13 @@
                 </div>
                 <div class="card">
                     <table class="data-table" x-show="services.length">
-                        <thead><tr><th>Name</th><th>Type</th><th>Implementation</th><th>Agent group</th></tr></thead>
+                        <thead><tr><th>Name</th><th>Type</th><th>Implementation</th></tr></thead>
                         <tbody>
                             <template x-for="s in services" :key="s.name">
                                 <tr>
                                     <td class="mono strong" x-text="s.name"></td>
-                                    <td><span class="tag" x-text="s.type || 'service'"></span></td>
+                                    <td><span class="tag" :class="{ok: s.type==='feed', warn: s.type==='sink'}" x-text="s.type || 'service'"></span></td>
                                     <td class="mono muted" x-text="s.className"></td>
-                                    <td class="mono" x-text="s.agentGroup || '—'"></td>
                                 </tr>
                             </template>
                         </tbody>

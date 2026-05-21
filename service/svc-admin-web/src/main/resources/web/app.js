@@ -236,15 +236,14 @@ document.addEventListener('alpine:init', () => {
         },
 
         // ── introspection (Services / Agents / Queues) ──
-        // Queues come from the `eventSources` built-in command (available now).
-        // Services / agents need structured endpoints; until those land the
-        // fetches 404, the *Available flags stay false, and the nav items
-        // stay hidden — same pattern as the conditional Cache/Loader tabs.
+        // Each fetch sets its *Available flag from the response; a non-200
+        // leaves the flag false and the nav item hidden — same pattern as the
+        // conditional Cache/Loader tabs.
         //
-        // Expected JSON contracts for the pending endpoints:
+        // JSON contracts:
         //   GET /api/services → { services: [{name, type, className, agentGroup}] }
-        //   GET /api/agents   → { agents: [{group, type, thread, state,
-        //                                   idleStrategy, members:[{name,kind}]}] }
+        //   GET /api/agents   → { agents: [{group, type, members:[{name,kind}]}] }
+        //   GET /api/queues   → { sources: [{source, queues:[{path,agentGroup,callback}]}] }
 
         async loadIntrospection() {
             this.servicesAvailable = await this._loadInto('/api/services', 'services', 'services');
@@ -264,39 +263,20 @@ document.addEventListener('alpine:init', () => {
             }
         },
 
-        // The `eventSources` admin command prints the dispatch topology as
-        // text. Each block is:
-        //   eventSource:<name>
-        //       readQueues:
-        //           <agentGroup>/<feed>/<callback> -> <queue object>
+        // Queues come from GET /api/queues, which reads the server's
+        // EventFlowManager directly — the dispatch topology is available even
+        // when the `eventSources` admin command is not registered.
         async loadEventSources() {
-            this.queuesAvailable = this.commands.includes('eventSources');
-            if (!this.queuesAvailable) { this.eventSources = []; return; }
-            const res = await this.invokeRaw('eventSources', []);
-            this.eventSources = this.parseEventSources((res.output || []).join('\n'));
-        },
-
-        parseEventSources(text) {
-            const sources = [];
-            let current = null;
-            for (const raw of text.split('\n')) {
-                const line = raw.trim();
-                if (!line) continue;
-                if (line.startsWith('eventSource:')) {
-                    current = { source: line.slice('eventSource:'.length).trim(), queues: [] };
-                    sources.push(current);
-                } else if (current && line !== 'readQueues:' && line.includes('->')) {
-                    const path = line.split('->')[0].trim();
-                    const parts = path.split('/');
-                    const callback = parts[parts.length - 1];
-                    current.queues.push({
-                        path: path,
-                        agentGroup: parts[0] || path,
-                        callback: callback.includes('.') ? callback.slice(callback.lastIndexOf('.') + 1) : callback
-                    });
-                }
+            try {
+                const r = await fetch('/api/queues', { credentials: 'same-origin' });
+                if (!r.ok) { this.queuesAvailable = false; this.eventSources = []; return; }
+                const data = await r.json();
+                this.eventSources = data.sources || [];
+                this.queuesAvailable = true;
+            } catch (e) {
+                this.queuesAvailable = false;
+                this.eventSources = [];
             }
-            return sources;
         },
 
         threadTagClass(state) {

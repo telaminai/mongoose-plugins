@@ -4,6 +4,7 @@
  */
 package com.telamin.mongoose.plugin.svc.adminweb;
 
+import com.telamin.mongoose.dispatch.EventFlowManager;
 import com.telamin.mongoose.service.admin.AdminCommandRegistry;
 import com.telamin.mongoose.service.admin.AdminCommandRequest;
 import com.telamin.mongoose.service.admin.AdminFunction;
@@ -499,47 +500,50 @@ class WebAdminServiceTest {
         Assertions.assertEquals(401, r.statusCode());
     }
 
-    // ---------- M8 dispatcher introspection ----------
+    // ---------- M8 dispatcher introspection (controller-driven) ----------
 
     @Test
-    void services_endpoint_parses_service_list_command() throws Exception {
+    void services_endpoint_reads_controller_and_classifies_feed_sink() throws Exception {
         port = freePort();
-        FakeRegistry registry = new FakeRegistry();
-        registry.register("server.service.list", (args, out, err) -> out.accept(
-                "services:\n"
-                        + "\tadminWeb: Service(serviceClass=class com.telamin.AdminWeb, serviceName=adminWeb, instance=x)\n"
-                        + "\tobjectCache: Service(serviceClass=class com.telamin.Cache, serviceName=objectCache, instance=y)\n"));
+        FakeServerController controller = new FakeServerController();
+        controller.addService("adminWebService",
+                new com.telamin.fluxtion.runtime.service.Service<>(
+                        new Object(), Object.class, "adminWebService"));
+        controller.addService("prices",
+                new com.telamin.fluxtion.runtime.service.Service<>(
+                        new FakeEventSource(), com.telamin.mongoose.service.EventSource.class, "prices"));
+        controller.addService("pnl",
+                new com.telamin.fluxtion.runtime.service.Service<>(
+                        (com.telamin.fluxtion.runtime.output.MessageSink<Object>) o -> { },
+                        com.telamin.fluxtion.runtime.output.MessageSink.class, "pnl"));
 
         svc = new WebAdminService();
         svc.setListenPort(port);
         svc.setHost("127.0.0.1");
-        svc.adminRegistry(registry, "test");
+        svc.serverController(controller, "test");
         svc.init();
         svc.start();
 
         HttpResponse<String> r = get("/api/services", null, null);
         Assertions.assertEquals(200, r.statusCode(), r.body());
-        Assertions.assertTrue(r.body().contains("\"adminWeb\""), "lists adminWeb: " + r.body());
-        Assertions.assertTrue(r.body().contains("\"objectCache\""), "lists objectCache: " + r.body());
-        Assertions.assertTrue(r.body().contains("com.telamin.Cache"), "extracts className: " + r.body());
+        Assertions.assertTrue(r.body().contains("\"name\":\"prices\""), r.body());
+        Assertions.assertTrue(r.body().contains("\"type\":\"feed\""),    "feed classified:  " + r.body());
+        Assertions.assertTrue(r.body().contains("\"type\":\"sink\""),    "sink classified:  " + r.body());
+        Assertions.assertTrue(r.body().contains("\"type\":\"service\""), "plain classified: " + r.body());
     }
 
     @Test
-    void services_endpoint_404_when_command_not_registered() throws Exception {
+    void services_endpoint_404_when_no_controller() throws Exception {
         port = freePort();
-        FakeRegistry registry = new FakeRegistry();
-        registry.register("ping", (args, out, err) -> out.accept("pong"));
-
         svc = new WebAdminService();
         svc.setListenPort(port);
         svc.setHost("127.0.0.1");
-        svc.adminRegistry(registry, "test");
         svc.init();
         svc.start();
 
         HttpResponse<String> r = get("/api/services", null, null);
         Assertions.assertEquals(404, r.statusCode(),
-                "endpoint 404s when server.service.list is absent so the UI hides the tab");
+                "endpoint 404s without the controller so the UI hides the tab");
     }
 
     @Test
@@ -554,30 +558,34 @@ class WebAdminServiceTest {
     }
 
     @Test
-    void agents_endpoint_parses_processor_list_command() throws Exception {
+    void agents_endpoint_reads_controller_processors() throws Exception {
         port = freePort();
-        FakeRegistry registry = new FakeRegistry();
-        registry.register("server.processors.list", (args, out, err) -> out.accept(
-                "\ngroup:core\nprocessors:\n"
-                        + "\tcore/orderHandler -> DataFlow@1\n"
-                        + "\tcore/riskHandler -> DataFlow@2\n\n"));
+        FakeServerController controller = new FakeServerController();
+        controller.addProcessor("core",
+                new com.telamin.mongoose.dutycycle.NamedEventProcessor("orderHandler", null));
+        controller.addProcessor("core",
+                new com.telamin.mongoose.dutycycle.NamedEventProcessor("riskHandler", null));
+        controller.addProcessor("market",
+                new com.telamin.mongoose.dutycycle.NamedEventProcessor("priceHandler", null));
 
         svc = new WebAdminService();
         svc.setListenPort(port);
         svc.setHost("127.0.0.1");
-        svc.adminRegistry(registry, "test");
+        svc.serverController(controller, "test");
         svc.init();
         svc.start();
 
         HttpResponse<String> r = get("/api/agents", null, null);
         Assertions.assertEquals(200, r.statusCode(), r.body());
-        Assertions.assertTrue(r.body().contains("\"core\""), "lists group core: " + r.body());
-        Assertions.assertTrue(r.body().contains("\"orderHandler\""), "lists orderHandler: " + r.body());
-        Assertions.assertTrue(r.body().contains("\"riskHandler\""), "lists riskHandler: " + r.body());
+        Assertions.assertTrue(r.body().contains("\"group\":\"core\""),   r.body());
+        Assertions.assertTrue(r.body().contains("\"group\":\"market\""), r.body());
+        Assertions.assertTrue(r.body().contains("\"orderHandler\""),     r.body());
+        Assertions.assertTrue(r.body().contains("\"riskHandler\""),      r.body());
+        Assertions.assertTrue(r.body().contains("\"priceHandler\""),     r.body());
     }
 
     @Test
-    void agents_endpoint_404_when_command_not_registered() throws Exception {
+    void agents_endpoint_404_when_no_controller() throws Exception {
         port = freePort();
         svc = new WebAdminService();
         svc.setListenPort(port);
@@ -587,6 +595,69 @@ class WebAdminServiceTest {
 
         HttpResponse<String> r = get("/api/agents", null, null);
         Assertions.assertEquals(404, r.statusCode());
+    }
+
+    @Test
+    void classify_service_recognises_known_roles() {
+        Assertions.assertEquals("feed",    WebAdminService.classifyService(new FakeEventSource()));
+        Assertions.assertEquals("sink",    WebAdminService.classifyService(
+                (com.telamin.fluxtion.runtime.output.MessageSink<Object>) o -> { }));
+        Assertions.assertEquals("service", WebAdminService.classifyService(new Object()));
+        Assertions.assertEquals("service", WebAdminService.classifyService(null));
+    }
+
+    @Test
+    void queues_endpoint_reads_event_flow_manager() throws Exception {
+        port = freePort();
+        svc = new WebAdminService();
+        svc.setListenPort(port);
+        svc.setHost("127.0.0.1");
+        // EventFlowManager is injected via the EventFlowService contract.
+        svc.setEventFlowManager(new EventFlowManager(), "test");
+        svc.init();
+        svc.start();
+
+        HttpResponse<String> r = get("/api/queues", null, null);
+        Assertions.assertEquals(200, r.statusCode(), r.body());
+        Assertions.assertTrue(r.body().contains("\"sources\""), "body has sources array: " + r.body());
+    }
+
+    @Test
+    void queues_endpoint_404_when_no_flow_manager() throws Exception {
+        port = freePort();
+        svc = new WebAdminService();
+        svc.setListenPort(port);
+        svc.setHost("127.0.0.1");
+        svc.init();
+        svc.start();
+
+        HttpResponse<String> r = get("/api/queues", null, null);
+        Assertions.assertEquals(404, r.statusCode(),
+                "endpoint 404s without an EventFlowManager so the UI hides the tab");
+    }
+
+    @Test
+    void parse_event_sources_extracts_topology() {
+        var parsed = WebAdminService.parseEventSources(
+                "eventSource:prices\n"
+                        + "\treadQueues:\n"
+                        + "\t\tfeeds-agent/prices/onEventCallBack -> Queue@1\n"
+                        + "eventSource:trades\n"
+                        + "\treadQueues:\n"
+                        + "\t\tpnl-agent/trades/onEventCallBack -> Queue@2\n");
+        Assertions.assertEquals(2, parsed.size());
+        Assertions.assertEquals("prices", parsed.get(0).get("source"));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> q0 = (List<Map<String, Object>>) parsed.get(0).get("queues");
+        Assertions.assertEquals(1, q0.size());
+        Assertions.assertEquals("feeds-agent", q0.get(0).get("agentGroup"));
+        Assertions.assertEquals("onEventCallBack", q0.get(0).get("callback"));
+    }
+
+    @Test
+    void parse_event_sources_handles_no_readers() {
+        var parsed = WebAdminService.parseEventSources("No event readers registered");
+        Assertions.assertTrue(parsed.isEmpty());
     }
 
     // ---------- helpers ----------
@@ -608,6 +679,35 @@ class WebAdminServiceTest {
         int q1 = json.indexOf('"', colon + 1);
         int q2 = json.indexOf('"', q1 + 1);
         return json.substring(q1 + 1, q2);
+    }
+
+    /** Minimal {@code EventSource} stub for classifyService tests. */
+    static class FakeEventSource implements com.telamin.mongoose.service.EventSource<Object> {
+        @Override public void subscribe(com.telamin.mongoose.service.EventSubscriptionKey<Object> k) { }
+        @Override public void unSubscribe(com.telamin.mongoose.service.EventSubscriptionKey<Object> k) { }
+        @Override public void setEventToQueuePublisher(
+                com.telamin.mongoose.dispatch.EventToQueuePublisher<Object> q) { }
+    }
+
+    /** Minimal in-memory {@code MongooseServerController} for tests. */
+    static class FakeServerController implements com.telamin.mongoose.service.servercontrol.MongooseServerController {
+        private final Map<String, com.telamin.fluxtion.runtime.service.Service<?>> services = new java.util.LinkedHashMap<>();
+        private final Map<String, java.util.Collection<com.telamin.mongoose.dutycycle.NamedEventProcessor>> procs = new java.util.LinkedHashMap<>();
+
+        void addService(String name, com.telamin.fluxtion.runtime.service.Service<?> svc) {
+            services.put(name, svc);
+        }
+        void addProcessor(String group, com.telamin.mongoose.dutycycle.NamedEventProcessor p) {
+            procs.computeIfAbsent(group, g -> new ArrayList<>()).add(p);
+        }
+
+        @Override public Map<String, com.telamin.fluxtion.runtime.service.Service<?>> registeredServices() { return services; }
+        @Override public Map<String, java.util.Collection<com.telamin.mongoose.dutycycle.NamedEventProcessor>> registeredProcessors() { return procs; }
+        @Override public void addEventProcessor(String n, String g, org.agrona.concurrent.IdleStrategy i,
+                java.util.function.Supplier<com.telamin.fluxtion.runtime.DataFlow> f) { }
+        @Override public void stopService(String n)  { }
+        @Override public void startService(String n) { }
+        @Override public void stopProcessor(String g, String n) { }
     }
 
     /** Minimal in-memory AdminCommandRegistry for tests. */
