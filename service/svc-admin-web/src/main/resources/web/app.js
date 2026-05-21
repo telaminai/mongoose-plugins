@@ -68,10 +68,19 @@ document.addEventListener('alpine:init', () => {
         // endpoints (pending M8) — see loadIntrospection().
         services: [],
         servicesAvailable: false,
+        servicesFilter: '',
+        servicesSortCol: null,           // 'name' | 'type' | 'className' | null
+        servicesSortDir: 'asc',          // 'asc' | 'desc'
         agents: [],
         agentsAvailable: false,
         eventSources: [],
         queuesAvailable: false,
+
+        // ── console (terminal) ──
+        termInput: '',
+        termLines: [],                   // [{kind:'in'|'out'|'err', text}]
+        termHistory: [],                 // strings, most-recent-first
+        termHistIdx: -1,
 
         // ── cache panel ──
         cacheBusy: false,
@@ -277,6 +286,126 @@ document.addEventListener('alpine:init', () => {
                 this.queuesAvailable = false;
                 this.eventSources = [];
             }
+        },
+
+        // ── services view: filter + sort ──
+
+        sortedFilteredServices() {
+            const f = (this.servicesFilter || '').trim().toLowerCase();
+            let list = this.services;
+            if (f) {
+                list = list.filter(s =>
+                       (s.name || '').toLowerCase().includes(f)
+                    || (s.type || '').toLowerCase().includes(f)
+                    || (s.className || '').toLowerCase().includes(f));
+            }
+            if (this.servicesSortCol) {
+                const col = this.servicesSortCol;
+                const sign = this.servicesSortDir === 'asc' ? 1 : -1;
+                list = [...list].sort((a, b) => {
+                    const av = (a[col] || '').toLowerCase();
+                    const bv = (b[col] || '').toLowerCase();
+                    return av < bv ? -sign : av > bv ? sign : 0;
+                });
+            }
+            return list;
+        },
+
+        sortServices(col) {
+            if (this.servicesSortCol === col) {
+                // asc → desc → off
+                if (this.servicesSortDir === 'asc') {
+                    this.servicesSortDir = 'desc';
+                } else {
+                    this.servicesSortCol = null;
+                    this.servicesSortDir = 'asc';
+                }
+            } else {
+                this.servicesSortCol = col;
+                this.servicesSortDir = 'asc';
+            }
+        },
+
+        sortIndicator(col) {
+            if (this.servicesSortCol !== col) return '';
+            return this.servicesSortDir === 'asc' ? '↑' : '↓';
+        },
+
+        // ── console view ──
+        //
+        // Type-and-send command runner with prefix autocomplete from the known
+        // command list, Tab to complete, ↑/↓ to recall history. Same invocation
+        // path as the Commands view (POST /api/commands/{name}); the input
+        // string is split on whitespace — first token is the command, rest are
+        // positional args.
+
+        termSuggestions() {
+            // Only suggest while the user is typing the command name (no space yet).
+            if (!this.termInput || this.termInput.includes(' ')) return [];
+            const p = this.termInput.toLowerCase();
+            return this.commands.filter(c => c.toLowerCase().startsWith(p)).slice(0, 8);
+        },
+
+        termTab() {
+            const sugs = this.termSuggestions();
+            if (!sugs.length) return;
+            // Complete with the first match; append a space so args can follow.
+            this.termInput = sugs[0] + ' ';
+        },
+
+        termPickSuggestion(s) {
+            this.termInput = s + ' ';
+            this.$nextTick(() => {
+                const el = this.$refs.termInputEl;
+                if (el) el.focus();
+            });
+        },
+
+        termPrev() {
+            if (!this.termHistory.length) return;
+            this.termHistIdx = Math.min(this.termHistIdx + 1, this.termHistory.length - 1);
+            this.termInput = this.termHistory[this.termHistIdx];
+        },
+
+        termNext() {
+            if (this.termHistIdx <= 0) {
+                this.termHistIdx = -1;
+                this.termInput = '';
+            } else {
+                this.termHistIdx -= 1;
+                this.termInput = this.termHistory[this.termHistIdx];
+            }
+        },
+
+        async termSubmit() {
+            const raw = (this.termInput || '').trim();
+            if (!raw) return;
+            const parts = raw.split(/\s+/);
+            const cmd = parts[0];
+            const args = parts.slice(1);
+            this.termLines.push({ kind: 'in', text: raw });
+            this.termHistory.unshift(raw);
+            this.termHistory = this.termHistory.slice(0, 50);
+            this.termHistIdx = -1;
+            this.termInput = '';
+            const res = await this.invokeRaw(cmd, args);
+            for (const l of (res.output || [])) {
+                // Multi-line outputs (most server.* commands) arrive as one
+                // big string; split so the terminal renders line-by-line.
+                String(l).split('\n').forEach(s => this.termLines.push({ kind: 'out', text: s }));
+            }
+            for (const l of (res.err || [])) {
+                String(l).split('\n').forEach(s => this.termLines.push({ kind: 'err', text: s }));
+            }
+            this.$nextTick(() => {
+                const pane = this.$refs.termPane;
+                if (pane) pane.scrollTop = pane.scrollHeight;
+            });
+        },
+
+        termClear() {
+            this.termLines = [];
+            this.termHistIdx = -1;
         },
 
         threadTagClass(state) {
@@ -617,6 +746,12 @@ document.addEventListener('alpine:init', () => {
             this.jvm = null;
             this.servicesAvailable = this.agentsAvailable = this.queuesAvailable = false;
             this.eventSources = [];
+            this.servicesFilter = '';
+            this.servicesSortCol = null;
+            this.termLines = [];
+            this.termInput = '';
+            this.termHistory = [];
+            this.termHistIdx = -1;
             this.activeView = 'dashboard';
         },
 
