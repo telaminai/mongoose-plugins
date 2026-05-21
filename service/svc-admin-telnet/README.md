@@ -1,16 +1,23 @@
 # svc-admin-telnet
 
-JLine + telnet admin endpoint for a running Mongoose server. Exposes the registered admin commands (from `AdminCommandRegistry`) over a telnet line protocol with tab-completion, history, and a familiar shell-style UX.
+> **Last-resort interactive admin shell.** The primary interactive
+> command surface for Mongoose is the **Console panel in `svc-admin-web`**
+> — proper terminal rendering, tab completion, history, browser-native,
+> no client install. Use this telnet endpoint only when the web console
+> is unreachable (headless boxes, restricted networks, scripted ops).
 
-Pair it with `svc-loader-yaml` / `svc-loader-spring` to reload processor graphs from a shell, or with `svc-cache` to inspect cache state interactively.
+JLine + telnet admin endpoint for a running Mongoose server. Exposes the registered admin commands (from `AdminCommandRegistry`) over a plain telnet line protocol. Best with a real telnet client in char mode; behaviour against `nc` or BSD telnet in line mode is best-effort (the line editor's tab/control keys require the JLine line-editor stack on top of a proper PTY, which not every telnet client negotiates the same way).
+
+Pair it with `svc-loader-yaml` / `svc-loader-spring` to reload processor graphs from a shell, or with `svc-cache` to inspect cache state interactively. For day-to-day interactive admin, use **`svc-admin-web`** instead.
 
 Built against `org.jline:jline` (terminal + line reader + builtin telnet server).
 
 ## Capabilities
 
 - Telnet listener on a configurable port (default `2019`).
-- Tab-completion against the set of commands currently registered in the `AdminCommandRegistry`.
-- Line history per session.
+- Server-side echo + line editing via JLine's `LineReader`.
+- Tab-completion against the set of commands currently registered in the `AdminCommandRegistry` — **client-dependent**; works against char-mode telnet clients that negotiate a real terminal type, falls through as a literal `\t` against `nc` / BSD telnet in line mode.
+- Line history per session (same client-dependency caveat).
 - `help` lists default commands; `commands` lists every registered admin command; quoted arguments and multi-word args are supported.
 
 ## Maven coordinates
