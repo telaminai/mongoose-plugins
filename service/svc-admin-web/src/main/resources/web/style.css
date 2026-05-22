@@ -382,6 +382,10 @@ code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
 .tag.ok  { background: color-mix(in srgb, var(--ok) 18%, transparent);  color: var(--ok); }
 .tag.warn{ background: var(--warn-bg); color: var(--warn); }
 .tag.err { background: var(--err-bg);  color: var(--err); }
+/* Per-row rate badge — tabular-nums so values line up. */
+.tag-rate { font-variant-numeric: tabular-nums; }
+/* Lit "live" tone when rate > 0 in the latest sample window. */
+.rate-live { color: var(--ok); font-weight: 600; }
 
 /* ─── buttons ────────────────────────────────────────────────────────── */
 .btn {

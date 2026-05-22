@@ -659,6 +659,35 @@ document.addEventListener('alpine:init', () => {
 
         // Cytoscape style sheet — colours match the legend swatches in the
         // view header so users can map shapes to roles at a glance.
+        // Add a transient `pulse` class to feed/group nodes whose rate > 0
+        // in the current sample window. Node IDs are 'feed:{name}' and
+        // 'group:{name}' — same convention as _buildOuterElements. The
+        // class auto-clears ~800 ms later so the pulse re-fires on the
+        // next sample tick rather than staying lit forever.
+        topologyApplyPulse(throughput) {
+            if (!this.topologyCy || !throughput) return;
+            const cy = this.topologyCy;
+            const hot = [];
+            for (const f of (throughput.feeds || [])) {
+                if (f.rate > 0) hot.push('feed:' + f.name);
+            }
+            for (const g of (throughput.groups || [])) {
+                if (g.rate > 0) hot.push('group:' + g.name);
+            }
+            if (!hot.length) return;
+            const collection = cy.collection();
+            for (const id of hot) {
+                const n = cy.getElementById(id);
+                if (n && n.length) collection.merge(n);
+            }
+            if (!collection.length) return;
+            collection.addClass('pulse');
+            // Drop the class on the next animation frame after a short
+            // hold — uses a per-pulse timer so concurrent waves don't
+            // step on each other.
+            setTimeout(() => collection.removeClass('pulse'), 800);
+        },
+
         _topologyStyles() {
             return [
                 { selector: 'node',
@@ -719,6 +748,19 @@ document.addEventListener('alpine:init', () => {
                 { selector: 'edge[label]', style: { 'label': 'data(label)' } },
                 { selector: 'edge[kind="inner"]',
                   style: { 'line-color': '#cbd5e1', 'target-arrow-color': '#cbd5e1' } },
+                // Live-pulse style for feed / group nodes whose rate > 0 in
+                // the current sample window. Applied transiently from
+                // topologyApplyPulse on each /ws/monitor frame.
+                { selector: 'node.pulse',
+                  style: {
+                      'border-width': 4,
+                      'border-color': '#22c55e',
+                      'shadow-blur': 18,
+                      'shadow-color': '#22c55e',
+                      'shadow-opacity': 0.6,
+                      'transition-property': 'border-width, shadow-blur, shadow-opacity',
+                      'transition-duration': '600ms',
+                  } },
             ];
         },
 
@@ -1163,7 +1205,15 @@ document.addEventListener('alpine:init', () => {
                     // Keep last-known on null frames (e.g. /api/jvm replay
                     // doesn't carry throughput) so the UI doesn't flicker
                     // back to empty between WS frames.
-                    if (frame.throughput) this.throughput = frame.throughput;
+                    if (frame.throughput) {
+                        this.throughput = frame.throughput;
+                        // Topology pulse — only when the topology view is the
+                        // active surface (skip allocations / class flips when
+                        // the user is looking at the dashboard or logs).
+                        if (this.activeView === 'topology') {
+                            this.topologyApplyPulse(frame.throughput);
+                        }
+                    }
                 } catch (e) {
                     console.warn('bad monitor frame', e);
                 }
@@ -1413,6 +1463,31 @@ document.addEventListener('alpine:init', () => {
             if (r >= 1_000)     return (r / 1_000).toFixed(r < 10_000 ? 1 : 0) + 'k/s';
             if (r >= 10)        return r.toFixed(0) + '/s';
             return r.toFixed(2) + '/s';
+        },
+
+        // Lookup helpers for the per-row badges on Services + Agents views.
+        // Empty string when the service name doesn't match a known feed /
+        // group — the cell renders blank rather than "—" so non-feed rows
+        // (sinks, plain services) don't get a confusing dash.
+        feedRateLabel(name) {
+            if (!this.throughput) return '';
+            const f = (this.throughput.feeds || []).find(x => x.name === name);
+            return f ? this.formatRate(f.rate) : '';
+        },
+        feedRateClass(name) {
+            if (!this.throughput) return '';
+            const f = (this.throughput.feeds || []).find(x => x.name === name);
+            return (f && f.rate > 0) ? 'rate-live' : '';
+        },
+        groupRateLabel(group) {
+            if (!this.throughput) return '';
+            const g = (this.throughput.groups || []).find(x => x.name === group);
+            return g ? this.formatRate(g.rate) : '';
+        },
+        groupRateClass(group) {
+            if (!this.throughput) return '';
+            const g = (this.throughput.groups || []).find(x => x.name === group);
+            return (g && g.rate > 0) ? 'rate-live' : '';
         },
 
         formatCount(n) {

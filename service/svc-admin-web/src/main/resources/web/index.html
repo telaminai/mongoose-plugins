@@ -561,6 +561,7 @@
                                     <tr>
                                         <th><button type="button" class="th-sort" :class="{active: servicesSortCol==='name'}" @click="sortServices('name')">Name <span class="sort-ind" x-text="sortIndicator('name')"></span></button></th>
                                         <th><button type="button" class="th-sort" :class="{active: servicesSortCol==='type'}" @click="sortServices('type')">Type <span class="sort-ind" x-text="sortIndicator('type')"></span></button></th>
+                                        <th class="num" x-show="throughput">Rate</th>
                                         <th><button type="button" class="th-sort" :class="{active: servicesSortCol==='className'}" @click="sortServices('className')">Implementation <span class="sort-ind" x-text="sortIndicator('className')"></span></button></th>
                                     </tr>
                                 </thead>
@@ -569,11 +570,12 @@
                                         <tr class="clickable" @click="openService(s.name)" :title="'Open ' + s.name">
                                             <td class="mono strong" x-text="s.name"></td>
                                             <td><span class="tag" :class="{ok: s.type==='feed', warn: s.type==='sink'}" x-text="s.type || 'service'"></span></td>
+                                            <td class="num" x-show="throughput" x-text="feedRateLabel(s.name)" :class="feedRateClass(s.name)"></td>
                                             <td class="mono muted" x-text="s.className"></td>
                                         </tr>
                                     </template>
                                     <template x-if="services.length>0 && sortedFilteredServices().length===0">
-                                        <tr><td colspan="3" class="empty empty-sm"><svg class="ico"><use href="#i-search"/></svg><span>No match for “<span x-text="servicesFilter"></span>”</span></td></tr>
+                                        <tr><td colspan="4" class="empty empty-sm"><svg class="ico"><use href="#i-search"/></svg><span>No match for “<span x-text="servicesFilter"></span>”</span></td></tr>
                                     </template>
                                 </tbody>
                             </table>
@@ -700,6 +702,7 @@
                                             <div class="agent-name mono" x-text="a.group"></div>
                                             <div class="agent-type" x-text="(a.type || 'agent') + ' group'"></div>
                                         </div>
+                                        <span class="tag tag-rate" x-show="throughput && groupRateLabel(a.group)" :class="groupRateClass(a.group)" x-text="groupRateLabel(a.group)"></span>
                                         <span class="tag" :class="threadTagClass(a.state)" x-show="a.state" x-text="a.state"></span>
                                         <span class="nav-count" x-show="!a.state" x-text="(a.members ?? []).length"></span>
                                     </div>
