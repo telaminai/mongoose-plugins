@@ -490,6 +490,47 @@ document.addEventListener('alpine:init', () => {
             return (this.agents || []).some(a => a.group === group);
         },
 
+        // Resolve which agent group hosts a processor of the given name, so
+        // Throughput card processor links can navigate to the right
+        // openProcessor(group, name) target without the user picking. Returns
+        // null when the processor isn't reported by /api/agents (yet).
+        groupForProcessor(processorName) {
+            for (const a of (this.agents || [])) {
+                for (const m of (a.members ?? [])) {
+                    if (m.name === processorName) return a.group;
+                }
+            }
+            return null;
+        },
+
+        // Throughput-card click target: jump to the processor's detail page
+        // if we can resolve the group, otherwise no-op (button stays
+        // visually inert via the :disabled binding in the template).
+        openProcessorByName(processorName) {
+            const group = this.groupForProcessor(processorName);
+            if (group) this.openProcessor(group, processorName);
+        },
+
+        // Throughput lookup by name — returns the per-entity record or null.
+        // Used by the detail-page Performance cards to pull rate/total/etc.
+        // for the open service / agent / processor.
+        feedThroughput(name) {
+            if (!this.throughput) return null;
+            return (this.throughput.feeds || []).find(x => x.name === name) || null;
+        },
+        groupThroughput(group) {
+            if (!this.throughput) return null;
+            return (this.throughput.groups || []).find(x => x.name === group) || null;
+        },
+        processorThroughput(name) {
+            if (!this.throughput) return null;
+            return (this.throughput.processors || []).find(x => x.name === name) || null;
+        },
+        nodesForProcessor(processor) {
+            if (!this.throughput) return [];
+            return (this.throughput.nodes || []).filter(n => n.processor === processor);
+        },
+
         // ── topology: lazy lib loader + outer DAG + inline graphml expansion ──
         //
         // Cytoscape is a heavyweight dependency (~425KB) — load it only the

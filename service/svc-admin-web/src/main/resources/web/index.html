@@ -280,7 +280,12 @@
                                 <tbody>
                                     <template x-for="f in (throughput?.feeds ?? [])" :key="f.name">
                                         <tr>
-                                            <td class="mono" x-text="f.name"></td>
+                                            <td>
+                                                <button type="button" class="btn-link mono strong"
+                                                        :disabled="!hasService(f.name)"
+                                                        @click="openService(f.name)"
+                                                        x-text="f.name"></button>
+                                            </td>
                                             <td class="num" x-text="formatRate(f.rate)"></td>
                                             <td class="num muted" x-text="formatCount(f.total)"></td>
                                         </tr>
@@ -298,7 +303,12 @@
                                 <tbody>
                                     <template x-for="g in (throughput?.groups ?? [])" :key="g.name">
                                         <tr>
-                                            <td class="mono" x-text="g.name"></td>
+                                            <td>
+                                                <button type="button" class="btn-link mono strong"
+                                                        :disabled="!hasAgent(g.name)"
+                                                        @click="openAgent(g.name)"
+                                                        x-text="g.name"></button>
+                                            </td>
                                             <td class="num" x-text="formatRate(g.rate)"></td>
                                             <td class="num muted" x-text="formatCount(g.total)"></td>
                                             <td class="num muted" x-text="formatCount(g.idleCycles)"></td>
@@ -319,7 +329,12 @@
                                 <tbody>
                                     <template x-for="p in (throughput?.processors ?? [])" :key="p.name">
                                         <tr>
-                                            <td class="mono" x-text="p.name"></td>
+                                            <td>
+                                                <button type="button" class="btn-link mono strong"
+                                                        :disabled="!groupForProcessor(p.name)"
+                                                        @click="openProcessorByName(p.name)"
+                                                        x-text="p.name"></button>
+                                            </td>
                                             <td class="num" x-text="formatRate(p.rate)"></td>
                                             <td class="num muted" x-text="formatCount(p.total)"></td>
                                         </tr>
@@ -606,6 +621,28 @@
                             </div>
                         </div>
 
+                        <!-- Performance — visible only for feeds when counters
+                             service is operational AND the feed has a matching
+                             entry in throughput.feeds (i.e. has published at
+                             least once since this admin session started). -->
+                        <div class="card detail-card" x-show="serviceDetail.type === 'feed' && feedThroughput(serviceDetail.name)">
+                            <div class="card-head">
+                                <h3>Performance</h3>
+                                <span class="card-meta">live from MongooseCountersService</span>
+                            </div>
+                            <div class="kv-grid">
+                                <div class="kv">
+                                    <span class="kv-k">Rate</span>
+                                    <span class="kv-v mono" :class="feedRateClass(serviceDetail.name)"
+                                          x-text="formatRate(feedThroughput(serviceDetail.name)?.rate)"></span>
+                                </div>
+                                <div class="kv">
+                                    <span class="kv-k">Total published</span>
+                                    <span class="kv-v mono" x-text="formatCount(feedThroughput(serviceDetail.name)?.total)"></span>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- Configuration (reflective key/value summary) -->
                         <div class="card detail-card">
                             <div class="card-head">
@@ -762,6 +799,30 @@
                             </div>
                         </div>
 
+                        <!-- Performance — visible when counters service is on
+                             AND the group has a matching throughput entry. -->
+                        <div class="card detail-card" x-show="!processorDetail && groupThroughput(agentDetail.group)">
+                            <div class="card-head">
+                                <h3>Performance</h3>
+                                <span class="card-meta">live from MongooseCountersService</span>
+                            </div>
+                            <div class="kv-grid">
+                                <div class="kv">
+                                    <span class="kv-k">Rate</span>
+                                    <span class="kv-v mono" :class="groupRateClass(agentDetail.group)"
+                                          x-text="formatRate(groupThroughput(agentDetail.group)?.rate)"></span>
+                                </div>
+                                <div class="kv">
+                                    <span class="kv-k">Events processed</span>
+                                    <span class="kv-v mono" x-text="formatCount(groupThroughput(agentDetail.group)?.total)"></span>
+                                </div>
+                                <div class="kv">
+                                    <span class="kv-k">Idle cycles</span>
+                                    <span class="kv-v mono muted" x-text="formatCount(groupThroughput(agentDetail.group)?.idleCycles)"></span>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- Processors in this group -->
                         <div class="card detail-card">
                             <div class="card-head">
@@ -815,6 +876,41 @@
                                     <div class="kv"><span class="kv-k">Class</span><span class="kv-v mono" x-text="processorDetail.className || '—'"></span></div>
                                     <div class="kv"><span class="kv-k">Agent group</span><span class="kv-v"><button type="button" class="btn-link mono" @click="clearProcessorDetail()" x-text="processorDetail.group"></button></span></div>
                                 </div>
+                                <!-- Performance — visible when counters service is on AND
+                                     a PerformanceMonitorAudit is bound to this processor
+                                     (i.e. processor.{name}.events shows up). The per-node
+                                     fire-count table is the moat-exhibit data — only
+                                     populated when the auditor's auditInvocations() fires. -->
+                                <template x-if="processorThroughput(processorDetail.name)">
+                                    <div>
+                                        <p class="view-sub small">Performance — live from MongooseCountersService.</p>
+                                        <div class="kv-grid">
+                                            <div class="kv"><span class="kv-k">Rate</span>
+                                                <span class="kv-v mono"
+                                                      :class="(processorThroughput(processorDetail.name)?.rate ?? 0) > 0 ? 'rate-live' : ''"
+                                                      x-text="formatRate(processorThroughput(processorDetail.name)?.rate)"></span></div>
+                                            <div class="kv"><span class="kv-k">Total</span>
+                                                <span class="kv-v mono" x-text="formatCount(processorThroughput(processorDetail.name)?.total)"></span></div>
+                                        </div>
+                                        <template x-if="nodesForProcessor(processorDetail.name).length">
+                                            <div>
+                                                <p class="view-sub small" style="margin-top:0.75rem">Per-node invocations (PerformanceMonitorAudit).</p>
+                                                <table class="data-table">
+                                                    <thead><tr><th>Node</th><th class="num">Rate</th><th class="num">Total</th></tr></thead>
+                                                    <tbody>
+                                                        <template x-for="n in nodesForProcessor(processorDetail.name)" :key="n.node">
+                                                            <tr>
+                                                                <td class="mono strong" x-text="n.node"></td>
+                                                                <td class="num" :class="n.rate > 0 ? 'rate-live' : ''" x-text="formatRate(n.rate)"></td>
+                                                                <td class="num muted" x-text="formatCount(n.total)"></td>
+                                                            </tr>
+                                                        </template>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </template>
                                 <!-- Precise per-processor subscriptions (introspection service) -->
                                 <template x-if="processorDetail.subscriptions">
                                     <div>
