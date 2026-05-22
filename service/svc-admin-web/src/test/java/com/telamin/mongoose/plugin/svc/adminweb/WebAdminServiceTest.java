@@ -660,6 +660,482 @@ class WebAdminServiceTest {
         Assertions.assertTrue(parsed.isEmpty());
     }
 
+    @Test
+    void consumers_by_feed_inverts_topology() {
+        var parsed = WebAdminService.parseEventSources(
+                "eventSource:prices\n"
+                        + "\treadQueues:\n"
+                        + "\t\tpnl-agent/prices/onEventCallBack -> Queue@1\n"
+                        + "\t\trisk-agent/prices/onEventCallBack -> Queue@2\n"
+                        + "eventSource:trades\n"
+                        + "\treadQueues:\n"
+                        + "\t\tpnl-agent/trades/onEventCallBack -> Queue@3\n");
+        var byFeed = WebAdminService.consumersByFeed(parsed);
+
+        Assertions.assertEquals(2, byFeed.size());
+        var pricesConsumers = byFeed.get("prices");
+        Assertions.assertNotNull(pricesConsumers);
+        Assertions.assertEquals(2, pricesConsumers.size(),
+                "prices feed has 2 consuming groups (pnl-agent, risk-agent)");
+        Assertions.assertEquals("pnl-agent",  pricesConsumers.get(0).get("agentGroup"));
+        Assertions.assertEquals("risk-agent", pricesConsumers.get(1).get("agentGroup"));
+        Assertions.assertEquals("onEventCallBack", pricesConsumers.get(0).get("callback"));
+    }
+
+    @Test
+    void feeds_by_agent_group_collates_per_group_feeds() {
+        var parsed = WebAdminService.parseEventSources(
+                "eventSource:prices\n"
+                        + "\treadQueues:\n"
+                        + "\t\tpnl-agent/prices/onEventCallBack -> Queue@1\n"
+                        + "eventSource:trades\n"
+                        + "\treadQueues:\n"
+                        + "\t\tpnl-agent/trades/onEventCallBack -> Queue@2\n");
+        var byGroup = WebAdminService.feedsByAgentGroup(parsed);
+
+        Assertions.assertEquals(1, byGroup.size());
+        var pnlFeeds = byGroup.get("pnl-agent");
+        Assertions.assertNotNull(pnlFeeds);
+        Assertions.assertEquals(2, pnlFeeds.size(),
+                "pnl-agent consumes both prices and trades feeds");
+        Assertions.assertEquals("prices", pnlFeeds.get(0).get("feed"));
+        Assertions.assertEquals("trades", pnlFeeds.get(1).get("feed"));
+    }
+
+    @Test
+    void expand_consumers_fans_out_processors_per_group() {
+        var parsed = WebAdminService.parseEventSources(
+                "eventSource:prices\n"
+                        + "\treadQueues:\n"
+                        + "\t\tpnl-agent/prices/onEventCallBack -> Queue@1\n");
+        var byFeed = WebAdminService.consumersByFeed(parsed);
+
+        Map<String, java.util.Collection<com.telamin.mongoose.dutycycle.NamedEventProcessor>> procs =
+                new java.util.LinkedHashMap<>();
+        procs.put("pnl-agent", List.of(
+                new com.telamin.mongoose.dutycycle.NamedEventProcessor("pnlProcessor",  null),
+                new com.telamin.mongoose.dutycycle.NamedEventProcessor("riskProcessor", null)));
+
+        var expanded = WebAdminService.expandConsumers(byFeed.get("prices"),
+                g -> procs.getOrDefault(g, List.of()));
+        Assertions.assertEquals(1, expanded.size());
+        @SuppressWarnings("unchecked")
+        List<String> names = (List<String>) expanded.get(0).get("processors");
+        Assertions.assertEquals(List.of("pnlProcessor", "riskProcessor"), names,
+                "every processor in the group is reported as a fanout consumer");
+    }
+
+    @Test
+    void services_endpoint_includes_consumers_for_feeds() throws Exception {
+        port = freePort();
+        // Subclass injects fake topology — no real EventFlowManager needed.
+        FakeServerController controller = new FakeServerController();
+        controller.addService("prices",
+                new com.telamin.fluxtion.runtime.service.Service<>(
+                        new FakeEventSource(), com.telamin.mongoose.service.EventSource.class, "prices"));
+        controller.addProcessor("pnl-agent",
+                new com.telamin.mongoose.dutycycle.NamedEventProcessor("pnlProcessor", null));
+
+        svc = new TopologyStubWebAdminService(
+                "eventSource:prices\n"
+                        + "\treadQueues:\n"
+                        + "\t\tpnl-agent/prices/onEventCallBack -> Queue@1\n");
+        svc.setListenPort(port);
+        svc.setHost("127.0.0.1");
+        svc.serverController(controller, "test");
+        svc.init();
+        svc.start();
+
+        HttpResponse<String> r = get("/api/services", null, null);
+        Assertions.assertEquals(200, r.statusCode(), r.body());
+        Assertions.assertTrue(r.body().contains("\"consumers\""), "feed entry exposes consumers: " + r.body());
+        Assertions.assertTrue(r.body().contains("\"agentGroup\":\"pnl-agent\""), r.body());
+        Assertions.assertTrue(r.body().contains("\"pnlProcessor\""),
+                "consumer entry fans out to processors in the group: " + r.body());
+    }
+
+    @Test
+    void agents_endpoint_includes_feeds_for_groups() throws Exception {
+        port = freePort();
+        FakeServerController controller = new FakeServerController();
+        controller.addProcessor("pnl-agent",
+                new com.telamin.mongoose.dutycycle.NamedEventProcessor("pnlProcessor", null));
+
+        svc = new TopologyStubWebAdminService(
+                "eventSource:trades\n"
+                        + "\treadQueues:\n"
+                        + "\t\tpnl-agent/trades/onEventCallBack -> Queue@1\n");
+        svc.setListenPort(port);
+        svc.setHost("127.0.0.1");
+        svc.serverController(controller, "test");
+        svc.init();
+        svc.start();
+
+        HttpResponse<String> r = get("/api/agents", null, null);
+        Assertions.assertEquals(200, r.statusCode(), r.body());
+        Assertions.assertTrue(r.body().contains("\"group\":\"pnl-agent\""), r.body());
+        Assertions.assertTrue(r.body().contains("\"feeds\""), "agent entry exposes feeds list: " + r.body());
+        Assertions.assertTrue(r.body().contains("\"feed\":\"trades\""), r.body());
+        Assertions.assertTrue(r.body().contains("\"callback\":\"onEventCallBack\""), r.body());
+    }
+
+    // ────── Reflective config summariser ──────────────────────────────────
+
+    /** Sample with a mix of typical bean shapes to exercise the summariser. */
+    public static class SampleConfig {
+        public String getBootstrapServers() { return "localhost:9092"; }
+        public int    getPollIntervalMs()   { return 100; }
+        public boolean isAutoCommit()       { return true; }
+        public String getPassword()         { return "hunter2"; }
+        public String getApiKey()           { return "abc-def"; }
+        public java.util.List<String> getTopics() { return java.util.List.of("a", "b", "c"); }
+        public String getNotes()            { return "x".repeat(300); }
+        public String getBroken()           { throw new RuntimeException("never returns"); }
+        // duplicated getter pair → should de-dupe by property name
+        public boolean isReady()            { return true; }
+        public boolean getReady()           { return true; }
+    }
+
+    @Test
+    void config_summary_extracts_bean_getters_and_skips_object_methods() {
+        var props = WebAdminService.summarizeConfig(new SampleConfig());
+        java.util.Map<String, Map<String, Object>> byName = new java.util.HashMap<>();
+        for (var p : props) byName.put(String.valueOf(p.get("name")), p);
+
+        Assertions.assertTrue(byName.containsKey("bootstrapServers"));
+        Assertions.assertTrue(byName.containsKey("pollIntervalMs"));
+        Assertions.assertTrue(byName.containsKey("autoCommit"));
+        Assertions.assertFalse(byName.containsKey("class"), "getClass() must be skipped");
+    }
+
+    @Test
+    void config_summary_masks_sensitive_values() {
+        var props = WebAdminService.summarizeConfig(new SampleConfig());
+        var pw = props.stream().filter(p -> "password".equals(p.get("name"))).findFirst().orElseThrow();
+        Assertions.assertEquals("***", pw.get("value"));
+        Assertions.assertEquals(Boolean.TRUE, pw.get("sensitive"));
+
+        var ak = props.stream().filter(p -> "apiKey".equals(p.get("name"))).findFirst().orElseThrow();
+        Assertions.assertEquals("***", ak.get("value"));
+    }
+
+    @Test
+    void config_summary_summarises_collections_and_truncates_long_strings() {
+        var props = WebAdminService.summarizeConfig(new SampleConfig());
+        var topics = props.stream().filter(p -> "topics".equals(p.get("name"))).findFirst().orElseThrow();
+        Assertions.assertTrue(String.valueOf(topics.get("value")).contains("size=3"),
+                "collections summarised as Type size=N: " + topics.get("value"));
+
+        var notes = props.stream().filter(p -> "notes".equals(p.get("name"))).findFirst().orElseThrow();
+        String v = String.valueOf(notes.get("value"));
+        Assertions.assertTrue(v.endsWith("…") && v.length() == 201,
+                "long strings truncated to 200 chars plus ellipsis: len=" + v.length());
+    }
+
+    @Test
+    void config_summary_swallows_getter_exceptions() {
+        var props = WebAdminService.summarizeConfig(new SampleConfig());
+        Assertions.assertTrue(props.stream().noneMatch(p -> "broken".equals(p.get("name"))),
+                "a throwing getter is silently skipped rather than failing the whole summary");
+    }
+
+    @Test
+    void config_summary_dedupes_get_is_pair() {
+        var props = WebAdminService.summarizeConfig(new SampleConfig());
+        long readyCount = props.stream().filter(p -> "ready".equals(p.get("name"))).count();
+        Assertions.assertEquals(1, readyCount,
+                "duplicate get/is pair collapses to a single 'ready' property");
+    }
+
+    @Test
+    void sensitive_name_heuristic_catches_compound_names() {
+        Assertions.assertTrue(WebAdminService.isSensitiveName("password"));
+        Assertions.assertTrue(WebAdminService.isSensitiveName("dbPassword"));
+        Assertions.assertTrue(WebAdminService.isSensitiveName("apiKey"));
+        Assertions.assertTrue(WebAdminService.isSensitiveName("privateKey"));
+        Assertions.assertTrue(WebAdminService.isSensitiveName("accessToken"));
+        Assertions.assertFalse(WebAdminService.isSensitiveName("partitionKey"),
+                "narrow 'key' alone is too broad — partitionKey shouldn't mask");
+        Assertions.assertFalse(WebAdminService.isSensitiveName("bootstrapServers"));
+    }
+
+    @Test
+    void services_config_endpoint_returns_reflected_properties() throws Exception {
+        port = freePort();
+        FakeServerController controller = new FakeServerController();
+        controller.addService("kafkaFeed",
+                new com.telamin.fluxtion.runtime.service.Service<>(
+                        new SampleConfig(), Object.class, "kafkaFeed"));
+
+        svc = new WebAdminService();
+        svc.setListenPort(port);
+        svc.setHost("127.0.0.1");
+        svc.serverController(controller, "test");
+        svc.init();
+        svc.start();
+
+        HttpResponse<String> r = get("/api/services/kafkaFeed/config", null, null);
+        Assertions.assertEquals(200, r.statusCode(), r.body());
+        Assertions.assertTrue(r.body().contains("\"bootstrapServers\""), r.body());
+        Assertions.assertTrue(r.body().contains("\"pollIntervalMs\""), r.body());
+        Assertions.assertTrue(r.body().contains("\"value\":\"***\""), "password masked: " + r.body());
+    }
+
+    @Test
+    void services_config_endpoint_404_unknown_service() throws Exception {
+        port = freePort();
+        FakeServerController controller = new FakeServerController();
+        controller.addService("known",
+                new com.telamin.fluxtion.runtime.service.Service<>(new Object(), Object.class, "known"));
+
+        svc = new WebAdminService();
+        svc.setListenPort(port);
+        svc.setHost("127.0.0.1");
+        svc.serverController(controller, "test");
+        svc.init();
+        svc.start();
+
+        HttpResponse<String> r = get("/api/services/unknown/config", null, null);
+        Assertions.assertEquals(404, r.statusCode());
+    }
+
+    @Test
+    void services_config_endpoint_404_when_no_controller() throws Exception {
+        port = freePort();
+        svc = new WebAdminService();
+        svc.setListenPort(port);
+        svc.setHost("127.0.0.1");
+        svc.init();
+        svc.start();
+
+        HttpResponse<String> r = get("/api/services/anything/config", null, null);
+        Assertions.assertEquals(404, r.statusCode());
+    }
+
+    // ────── Introspection-service driven /api/agents ──────────────────────
+
+    @Test
+    void agents_endpoint_uses_introspection_for_thread_and_subscriptions() throws Exception {
+        port = freePort();
+        FakeServerController controller = new FakeServerController();
+        controller.addProcessor("pnl-agent",
+                new com.telamin.mongoose.dutycycle.NamedEventProcessor("pnlProcessor", null));
+
+        // Hand-rolled introspection stub with a single agent group + processor +
+        // one subscription. No real EventFlowManager needed for this code path.
+        com.telamin.mongoose.service.introspection.MongooseIntrospectionService stub =
+                new com.telamin.mongoose.service.introspection.MongooseIntrospectionService() {
+            @Override
+            public java.util.Map<String, com.telamin.mongoose.service.introspection.AgentGroupSnapshot> agentGroups() {
+                var sub = new com.telamin.mongoose.service.introspection.SubscriptionInfo("trades", "onEventCallBack");
+                var proc = new com.telamin.mongoose.service.introspection.ProcessorInfo(
+                        "pnlProcessor", "com.example.Pnl", java.util.List.of(sub));
+                var snap = new com.telamin.mongoose.service.introspection.AgentGroupSnapshot(
+                        "pnl-agent", "processor",
+                        "org.agrona.concurrent.BusySpinIdleStrategy",
+                        "agent/pnl-agent", "RUNNABLE",
+                        false, 5, java.util.List.of(proc));
+                return java.util.Map.of("pnl-agent", snap);
+            }
+            @Override
+            public java.util.Map<String, com.telamin.mongoose.service.introspection.FeedTopology> feedTopology() {
+                return java.util.Map.of();
+            }
+        };
+
+        svc = new WebAdminService();
+        svc.setListenPort(port);
+        svc.setHost("127.0.0.1");
+        svc.serverController(controller, "test");
+        svc.introspection(stub, "test");
+        svc.init();
+        svc.start();
+
+        HttpResponse<String> r = get("/api/agents", null, null);
+        Assertions.assertEquals(200, r.statusCode(), r.body());
+        Assertions.assertTrue(r.body().contains("\"idleStrategyClass\":\"org.agrona.concurrent.BusySpinIdleStrategy\""), r.body());
+        Assertions.assertTrue(r.body().contains("\"thread\":\"agent/pnl-agent\""), r.body());
+        Assertions.assertTrue(r.body().contains("\"threadState\":\"RUNNABLE\""), r.body());
+        Assertions.assertTrue(r.body().contains("\"subscriptions\""), r.body());
+        Assertions.assertTrue(r.body().contains("\"feed\":\"trades\""),
+                "per-processor subscription surfaces in members payload: " + r.body());
+    }
+
+    // ────── MonitoringSampler dynamic rate ────────────────────────────────
+
+    @Test
+    void monitoring_sampler_clamps_below_configured_minimum() {
+        MonitoringSampler sampler = new MonitoringSampler(1000);
+        sampler.setIntervalMs(250);
+        Assertions.assertEquals(1000, sampler.currentIntervalMs(),
+                "operator-configured minimum is the floor; UI cannot drive the sampler below it");
+    }
+
+    @Test
+    void monitoring_sampler_honours_higher_rate() {
+        MonitoringSampler sampler = new MonitoringSampler(1000);
+        sampler.setIntervalMs(5000);
+        Assertions.assertEquals(5000, sampler.currentIntervalMs());
+        Assertions.assertFalse(sampler.isPaused());
+    }
+
+    @Test
+    void monitoring_sampler_can_pause_and_resume() {
+        MonitoringSampler sampler = new MonitoringSampler(1000);
+        sampler.setPaused(true);
+        Assertions.assertTrue(sampler.isPaused());
+        // Calling setIntervalMs while paused implicitly resumes — matches the
+        // WS protocol where any non-zero ms unpauses the client.
+        sampler.setIntervalMs(2000);
+        Assertions.assertFalse(sampler.isPaused());
+        Assertions.assertEquals(2000, sampler.currentIntervalMs());
+    }
+
+    @Test
+    void monitoring_sampler_no_tick_when_paused_and_started() throws Exception {
+        // Use a very short floor so the test runs quickly. Subscribe a
+        // counter, pause before start, wait three intervals — no ticks.
+        MonitoringSampler sampler = new MonitoringSampler(50);
+        java.util.concurrent.atomic.AtomicInteger count = new java.util.concurrent.atomic.AtomicInteger();
+        sampler.subscribe(s -> count.incrementAndGet());
+        sampler.setPaused(true);
+        sampler.start();
+        Thread.sleep(220);
+        sampler.stop();
+        Assertions.assertEquals(0, count.get(),
+                "paused sampler must not generate snapshots — that's the whole point of Off");
+    }
+
+    // ────── /api/processors/{group}/{name}/graphml ────────────────────────
+
+    @Test
+    void graphml_endpoint_returns_xml_when_resource_on_classpath() throws Exception {
+        port = freePort();
+        FakeServerController controller = new FakeServerController();
+        controller.addProcessor("core",
+                new com.telamin.mongoose.dutycycle.NamedEventProcessor("stub", new GraphmlDataFlowStub()));
+
+        svc = new WebAdminService();
+        svc.setListenPort(port);
+        svc.setHost("127.0.0.1");
+        svc.serverController(controller, "test");
+        svc.init();
+        svc.start();
+
+        HttpResponse<String> r = get("/api/processors/core/stub/graphml", null, null);
+        Assertions.assertEquals(200, r.statusCode(), r.body());
+        Assertions.assertTrue(r.body().contains("<graphml"), "served graphml content: " + r.body());
+        Assertions.assertTrue(r.body().contains("alpha"), r.body());
+        Assertions.assertTrue(r.headers().firstValue("content-type").orElse("").startsWith("application/xml"),
+                "served as application/xml");
+    }
+
+    @Test
+    void graphml_endpoint_404_with_hint_when_resource_missing() throws Exception {
+        port = freePort();
+        // Use the SampleConfig class (defined for the config tests) as the
+        // DataFlow stand-in — its package has no .graphml resource, so the
+        // endpoint must 404 with a structured body.
+        FakeServerController controller = new FakeServerController();
+        // SampleConfig isn't a DataFlow; build a different stub whose graphml
+        // we deliberately don't ship.
+        controller.addProcessor("core",
+                new com.telamin.mongoose.dutycycle.NamedEventProcessor("missing",
+                        new com.telamin.fluxtion.runtime.DataFlow() {
+                            @Override public void onEvent(Object e) { }
+                        }));
+
+        svc = new WebAdminService();
+        svc.setListenPort(port);
+        svc.setHost("127.0.0.1");
+        svc.serverController(controller, "test");
+        svc.init();
+        svc.start();
+
+        HttpResponse<String> r = get("/api/processors/core/missing/graphml", null, null);
+        Assertions.assertEquals(404, r.statusCode());
+        Assertions.assertTrue(r.body().contains("\"expectedResource\""),
+                "404 carries the resource path so the UI can render a friendly hint: " + r.body());
+        Assertions.assertTrue(r.body().contains("\"hint\""), r.body());
+    }
+
+    @Test
+    void graphml_endpoint_404_unknown_group() throws Exception {
+        port = freePort();
+        FakeServerController controller = new FakeServerController();
+        svc = new WebAdminService();
+        svc.setListenPort(port);
+        svc.setHost("127.0.0.1");
+        svc.serverController(controller, "test");
+        svc.init();
+        svc.start();
+
+        HttpResponse<String> r = get("/api/processors/no-such-group/anything/graphml", null, null);
+        Assertions.assertEquals(404, r.statusCode());
+    }
+
+    @Test
+    void graphml_endpoint_404_unknown_processor_in_known_group() throws Exception {
+        port = freePort();
+        FakeServerController controller = new FakeServerController();
+        controller.addProcessor("core",
+                new com.telamin.mongoose.dutycycle.NamedEventProcessor("known", new GraphmlDataFlowStub()));
+        svc = new WebAdminService();
+        svc.setListenPort(port);
+        svc.setHost("127.0.0.1");
+        svc.serverController(controller, "test");
+        svc.init();
+        svc.start();
+
+        HttpResponse<String> r = get("/api/processors/core/unknown/graphml", null, null);
+        Assertions.assertEquals(404, r.statusCode());
+    }
+
+    @Test
+    void graphml_endpoint_404_when_no_controller() throws Exception {
+        port = freePort();
+        svc = new WebAdminService();
+        svc.setListenPort(port);
+        svc.setHost("127.0.0.1");
+        svc.init();
+        svc.start();
+
+        HttpResponse<String> r = get("/api/processors/core/stub/graphml", null, null);
+        Assertions.assertEquals(404, r.statusCode());
+    }
+
+    @Test
+    void consumers_from_introspection_maps_feed_topology_to_consumer_shape() {
+        com.telamin.mongoose.service.introspection.MongooseIntrospectionService stub =
+                new com.telamin.mongoose.service.introspection.MongooseIntrospectionService() {
+            @Override
+            public java.util.Map<String, com.telamin.mongoose.service.introspection.AgentGroupSnapshot> agentGroups() {
+                return java.util.Map.of();
+            }
+            @Override
+            public java.util.Map<String, com.telamin.mongoose.service.introspection.FeedTopology> feedTopology() {
+                var cons = new com.telamin.mongoose.service.introspection.FeedConsumer(
+                        "pnl-agent", "onEventCallBack",
+                        "pnl-agent/trades/onEventCallBack",
+                        java.util.List.of("pnlProcessor"));
+                return java.util.Map.of("trades",
+                        new com.telamin.mongoose.service.introspection.FeedTopology("trades", java.util.List.of(cons)));
+            }
+        };
+        var out = WebAdminService.consumersFromIntrospection(stub);
+        Assertions.assertEquals(1, out.size());
+        var trades = out.get("trades");
+        Assertions.assertNotNull(trades);
+        Assertions.assertEquals(1, trades.size());
+        var c = trades.get(0);
+        Assertions.assertEquals("pnl-agent", c.get("agentGroup"));
+        Assertions.assertEquals("onEventCallBack", c.get("callback"));
+        Assertions.assertEquals("pnl-agent/trades/onEventCallBack", c.get("path"));
+        @SuppressWarnings("unchecked")
+        var procs = (List<String>) c.get("processors");
+        Assertions.assertEquals(List.of("pnlProcessor"), procs);
+    }
+
     // ---------- helpers ----------
 
     private static WebAdminService newBasicAuthService(int port) {
@@ -708,6 +1184,20 @@ class WebAdminServiceTest {
         @Override public void stopService(String n)  { }
         @Override public void startService(String n) { }
         @Override public void stopProcessor(String g, String n) { }
+    }
+
+    /**
+     * Test-only subclass that injects a canned topology dump instead of reading
+     * a live {@link EventFlowManager}. Lets us exercise the cross-link
+     * enrichment without standing up real event sources.
+     */
+    static class TopologyStubWebAdminService extends WebAdminService {
+        private final String topologyDump;
+        TopologyStubWebAdminService(String topologyDump) { this.topologyDump = topologyDump; }
+        @Override
+        List<Map<String, Object>> currentTopologySources() {
+            return WebAdminService.parseEventSources(topologyDump);
+        }
     }
 
     /** Minimal in-memory AdminCommandRegistry for tests. */

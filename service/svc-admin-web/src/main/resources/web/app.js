@@ -14,6 +14,8 @@
  */
 
 const THEME_KEY = 'mongoose-admin-theme';
+const MONITOR_RATE_KEY = 'mongoose-admin-monitor-rate-ms';
+const DEFAULT_MONITOR_RATE_MS = 1000;
 
 document.addEventListener('alpine:init', () => {
     Alpine.data('adminApp', () => ({
@@ -50,6 +52,16 @@ document.addEventListener('alpine:init', () => {
         jvm: null,
         ws: null,
         wsStatus: '',
+        // JVM sample rate the dashboard requests over /ws/monitor. 0 = Off
+        // (server pauses sampling for this client; if every connected client
+        // is Off the sampler stops allocating snapshots entirely). Persisted
+        // across reloads so the user's preference survives a refresh.
+        monitorRateMs: (function () {
+            try {
+                const v = parseInt(localStorage.getItem(MONITOR_RATE_KEY) ?? '', 10);
+                return Number.isFinite(v) && v >= 0 ? v : DEFAULT_MONITOR_RATE_MS;
+            } catch (e) { return DEFAULT_MONITOR_RATE_MS; }
+        })(),
         heapHistory: [],
         heapCap: 90,
 
@@ -69,12 +81,44 @@ document.addEventListener('alpine:init', () => {
         services: [],
         servicesAvailable: false,
         servicesFilter: '',
+        servicesTab: 'all',              // 'all' | 'service' | 'feed' | 'sink'
         servicesSortCol: null,           // 'name' | 'type' | 'className' | null
         servicesSortDir: 'asc',          // 'asc' | 'desc'
+        serviceDetail: null,             // currently-open service row in detail mode
+        serviceConfig: null,             // reflective config for the open service (lazy)
+        serviceConfigErr: '',
         agents: [],
         agentsAvailable: false,
+        agentDetail: null,               // currently-open agent group in detail mode
+        processorDetail: null,           // { group, name, className } open under an agent detail
         eventSources: [],
         queuesAvailable: false,
+
+        // ── topology view (cytoscape, lazy-loaded) ──
+        topologyCy: null,              // cytoscape instance; created on first activation
+        topologyLibLoading: false,
+        topologyError: '',
+        topologyHint: null,            // {processor, expectedResource, hint} when graphml fetch 404s
+        topologyTip: null,             // {x, y, title, lines} for the hover tooltip; null hides it
+
+        // ── processor-graph view (dedicated graphml renderer) ──
+        processorGraphTarget: null,    // {group, name} of the processor currently being viewed
+        processorGraphRenderer: null,  // cytoscape renderer instance from /visualiser/cytoscape-renderer.js
+        processorGraphRaw: '',         // raw graphml text for the current target
+        processorGraphParsed: null,    // last parseGraphMl(...) result
+        processorGraphError: '',
+        processorGraphHint: null,      // structured 404 body (className, expectedResource, hint)
+        processorGraphLayout: 'dagre-lr',
+        processorGraphTextScale: 1,
+        processorGraphSpacing: 1,
+        processorGraphHideScaffolding: true,
+        processorGraphScaffoldHidden: 0,
+        processorGraphNodeCount: 0,
+        processorGraphEdgeCount: 0,
+        processorGraphFilterApplied: false,
+        processorGraphCycleStage: 0,   // 0 cleared, 1 focus, 2 neighbours, 3 path, 4 whole graph
+        processorGraphCycleFocus: null,
+        processorGraphHoverTip: null,  // {x, y, lines} hover panel content
 
         // ── console (terminal) ──
         termInput: '',
@@ -150,7 +194,18 @@ document.addEventListener('alpine:init', () => {
 
         // ── view + theme ──
 
-        go(view) { this.activeView = view; },
+        go(view) {
+            this.activeView = view;
+            // Topology + Processor-graph are lazy-mounted — their canvas
+            // <div>s only exist when the view is shown, and cytoscape needs a
+            // real layout pass after the first paint to size correctly.
+            // Defer one animation frame so $refs has the resolved element.
+            if (view === 'topology') {
+                requestAnimationFrame(() => this.topologyEnter());
+            } else if (view === 'processor-graph') {
+                requestAnimationFrame(() => this.processorGraphEnter());
+            }
+        },
 
         toggleTheme() {
             this.theme = this.theme === 'dark' ? 'light' : 'dark';
@@ -293,6 +348,9 @@ document.addEventListener('alpine:init', () => {
         sortedFilteredServices() {
             const f = (this.servicesFilter || '').trim().toLowerCase();
             let list = this.services;
+            if (this.servicesTab && this.servicesTab !== 'all') {
+                list = list.filter(s => (s.type || 'service') === this.servicesTab);
+            }
             if (f) {
                 list = list.filter(s =>
                        (s.name || '').toLowerCase().includes(f)
@@ -329,6 +387,657 @@ document.addEventListener('alpine:init', () => {
         sortIndicator(col) {
             if (this.servicesSortCol !== col) return '';
             return this.servicesSortDir === 'asc' ? '↑' : '↓';
+        },
+
+        serviceTypeCount(t) {
+            if (t === 'all') return this.services.length;
+            return this.services.filter(s => (s.type || 'service') === t).length;
+        },
+
+        // ── detail navigation (services / agents / processors) ──
+        //
+        // Three single-slot detail states drive in-place expansion of the
+        // services and agents views. Cross-links flip activeView so a link
+        // from a service-detail to an agent-group jumps cleanly into the
+        // Agents view. Group-fanout is the most we can infer without per-
+        // processor subscription metadata — UI labels reflect that.
+
+        openService(name) {
+            const s = (this.services || []).find(x => x.name === name);
+            if (!s) return;
+            this.serviceDetail = s;
+            this.activeView = 'services';
+            this.loadServiceConfig(name);
+        },
+        clearServiceDetail() {
+            this.serviceDetail = null;
+            this.serviceConfig = null;
+            this.serviceConfigErr = '';
+        },
+
+        // Lazy-fetch the reflective config for the currently open service.
+        // Stashed under serviceConfig so the detail view can render without
+        // bloating the /api/services list payload with every property of every
+        // service.
+        async loadServiceConfig(name) {
+            this.serviceConfig = null;
+            this.serviceConfigErr = '';
+            try {
+                const r = await fetch('/api/services/' + encodeURIComponent(name) + '/config',
+                                       { credentials: 'same-origin' });
+                if (!r.ok) {
+                    this.serviceConfigErr = 'config not available (HTTP ' + r.status + ')';
+                    return;
+                }
+                const data = await r.json();
+                this.serviceConfig = data.config || [];
+            } catch (e) {
+                this.serviceConfigErr = String(e.message || e);
+            }
+        },
+
+        openAgent(group) {
+            const a = (this.agents || []).find(x => x.group === group);
+            if (!a) return;
+            this.agentDetail = a;
+            this.processorDetail = null;
+            this.activeView = 'agents';
+        },
+        clearAgentDetail() {
+            this.agentDetail = null;
+            this.processorDetail = null;
+        },
+
+        openProcessor(group, name) {
+            const a = (this.agents || []).find(x => x.group === group);
+            if (!a) return;
+            const m = (a.members || []).find(x => x.name === name);
+            if (!m) return;
+            this.agentDetail = a;
+            // subscriptions is populated by the introspection service when
+            // present; falls back to undefined which makes the processor-detail
+            // template surface the "via group" fanout view.
+            this.processorDetail = {
+                group,
+                name,
+                className: m.className || '',
+                subscriptions: m.subscriptions || null,
+            };
+            this.activeView = 'agents';
+        },
+        clearProcessorDetail() { this.processorDetail = null; },
+
+        // Lookup helper — feeds the named agent group consumes.
+        feedsForGroup(group) {
+            const a = (this.agents || []).find(x => x.group === group);
+            return (a && a.feeds) || [];
+        },
+        // Whether a service of the given name is a registered feed (used to
+        // decide if a cross-link should activate). Falls back to lookup-by-name
+        // so we don't navigate to a service that isn't actually in /api/services.
+        hasService(name) {
+            return (this.services || []).some(s => s.name === name);
+        },
+        hasAgent(group) {
+            return (this.agents || []).some(a => a.group === group);
+        },
+
+        // ── topology: lazy lib loader + outer DAG + inline graphml expansion ──
+        //
+        // Cytoscape is a heavyweight dependency (~425KB) — load it only the
+        // first time the user opens the Topology view. Dagre is needed for
+        // layered layout. cytoscape-dagre wires the two together.
+        async _loadTopologyLibs() {
+            if (window.cytoscape && window.dagre && window.cytoscape.__dagreRegistered) return;
+            if (this.topologyLibLoading) {
+                // Wait for the in-flight load.
+                while (this.topologyLibLoading) {
+                    await new Promise(r => setTimeout(r, 30));
+                }
+                return;
+            }
+            this.topologyLibLoading = true;
+            try {
+                await this._loadScript('/vendor/dagre-0.8.5.min.js');
+                await this._loadScript('/vendor/cytoscape-3.33.3.min.js');
+                await this._loadScript('/vendor/cytoscape-dagre-2.5.0.js');
+                if (window.cytoscape && window.cytoscapeDagre) {
+                    window.cytoscape.use(window.cytoscapeDagre);
+                    window.cytoscape.__dagreRegistered = true;
+                }
+            } finally {
+                this.topologyLibLoading = false;
+            }
+        },
+        _loadScript(src) {
+            return new Promise((resolve, reject) => {
+                const existing = document.querySelector('script[data-src="' + src + '"]');
+                if (existing) { resolve(); return; }
+                const s = document.createElement('script');
+                s.src = src;
+                s.dataset.src = src;
+                s.onload = () => resolve();
+                s.onerror = () => reject(new Error('failed to load ' + src));
+                document.head.appendChild(s);
+            });
+        },
+
+        async topologyEnter() {
+            this.topologyError = '';
+            try {
+                await this._loadTopologyLibs();
+            } catch (e) {
+                this.topologyError = 'failed to load graph libs: ' + e.message;
+                return;
+            }
+            const container = this.$refs.topologyCanvas;
+            if (!container) { this.topologyError = 'canvas not ready'; return; }
+            if (!this.topologyCy) {
+                this.topologyCy = window.cytoscape({
+                    container,
+                    elements: this._buildOuterElements(),
+                    style: this._topologyStyles(),
+                    wheelSensitivity: 0.25,
+                    minZoom: 0.2,
+                    maxZoom: 2.5,
+                });
+                this._wireTopologyClicks();
+                this._wireTopologyHover();
+                this._runTopologyLayout();
+            } else {
+                // View was reopened — refresh elements in case services/agents
+                // changed, then re-fit.
+                this.topologyCy.elements().remove();
+                this.topologyCy.add(this._buildOuterElements());
+                this._runTopologyLayout();
+            }
+        },
+
+        // Build outer cytoscape elements from the services + agents arrays.
+        // Each node carries a `tipLines` field — the structured payload the
+        // hover tooltip renders. Computing it once at build time keeps the
+        // mouseover handler trivial.
+        _buildOuterElements() {
+            const els = [];
+            // Feeds: any service classified as type=feed.
+            const feeds = (this.services || []).filter(s => s.type === 'feed');
+            const feedsByName = new Map();
+            for (const f of feeds) {
+                const id = 'feed:' + f.name;
+                feedsByName.set(f.name, id);
+                els.push({ data: {
+                    id, label: f.name, kind: 'feed', feedName: f.name,
+                    tipLines: [
+                        { k: 'Feed',           v: f.name },
+                        { k: 'Implementation', v: f.className || '—' },
+                        { k: 'Consumers',      v: String((f.consumers || []).length) + ' agent group(s)' },
+                    ],
+                } });
+            }
+            // Agent groups.
+            const groupsByName = new Map();
+            for (const a of (this.agents || [])) {
+                const id = 'group:' + a.group;
+                groupsByName.set(a.group, id);
+                const groupTip = [
+                    { k: 'Agent group', v: a.group },
+                    { k: 'Type',        v: (a.kind || a.type || 'agent') + ' group' },
+                    { k: 'Processors',  v: String((a.members ?? []).length) },
+                ];
+                if (a.thread)            groupTip.push({ k: 'Thread',        v: a.thread });
+                if (a.threadState)       groupTip.push({ k: 'State',         v: a.threadState });
+                if (a.idleStrategyClass) groupTip.push({ k: 'Idle strategy', v: a.idleStrategyClass });
+                if (a.feeds && a.feeds.length) {
+                    groupTip.push({ k: 'Feeds consumed', v: a.feeds.map(x => x.feed).join(', ') });
+                }
+                els.push({ data: { id, label: a.group, kind: 'group', groupName: a.group, tipLines: groupTip } });
+                // Processors in this group — compound parents so expansion can
+                // attach inner graphml children later.
+                for (const m of (a.members ?? [])) {
+                    const pid = 'proc:' + a.group + '/' + m.name;
+                    const procTip = [
+                        { k: 'Processor', v: m.name },
+                        { k: 'Group',     v: a.group },
+                        { k: 'Class',     v: m.className || '—' },
+                    ];
+                    if (m.subscriptions && m.subscriptions.length) {
+                        procTip.push({ k: 'Subscriptions',
+                                       v: m.subscriptions.map(s => s.feed + ' (' + s.callback + ')').join(', ') });
+                    }
+                    procTip.push({ k: '', v: 'Click to open processor graph · shift-click for detail' });
+                    els.push({
+                        data: {
+                            id: pid,
+                            label: m.name,
+                            kind: 'processor',
+                            groupName: a.group,
+                            procName: m.name,
+                            className: m.className || '',
+                            tipLines: procTip,
+                        }
+                    });
+                    // group → processor edge.
+                    els.push({ data: { id: 'e:' + id + '>' + pid, source: id, target: pid, kind: 'gp' } });
+                }
+            }
+            // Feed → group edges, derived from each feed's consumers.
+            for (const f of feeds) {
+                for (const c of (f.consumers || [])) {
+                    const groupId = groupsByName.get(c.agentGroup);
+                    if (!groupId) continue;
+                    const feedId = feedsByName.get(f.name);
+                    els.push({
+                        data: {
+                            id: 'e:' + feedId + '>' + groupId + ':' + c.callback,
+                            source: feedId,
+                            target: groupId,
+                            label: c.callback,
+                            kind: 'fg',
+                            tipLines: [
+                                { k: 'Subscription', v: f.name + ' → ' + c.agentGroup },
+                                { k: 'Callback',     v: c.callback },
+                                { k: 'Queue path',   v: c.path || '—' },
+                                { k: 'Processors',
+                                  v: (c.processors && c.processors.length)
+                                          ? c.processors.join(', ')
+                                          : '(none)' },
+                            ],
+                        }
+                    });
+                }
+            }
+            return els;
+        },
+
+        // Cytoscape style sheet — colours match the legend swatches in the
+        // view header so users can map shapes to roles at a glance.
+        _topologyStyles() {
+            return [
+                { selector: 'node',
+                  style: {
+                      'background-color': '#94a3b8',
+                      'label': 'data(label)',
+                      'color': '#0f172a',
+                      'font-size': 11,
+                      'text-valign': 'center',
+                      'text-halign': 'center',
+                      'text-wrap': 'wrap',
+                      'text-max-width': 140,
+                      'shape': 'round-rectangle',
+                      'width': 'label',
+                      'padding': '8px',
+                      'border-width': 1,
+                      'border-color': '#64748b',
+                  } },
+                // Compound parents (an expanded processor) need padding for kids.
+                { selector: 'node:parent',
+                  style: {
+                      'background-opacity': 0.08,
+                      'border-color': '#10b981',
+                      'border-width': 2,
+                      'padding': '20px',
+                      'text-valign': 'top',
+                      'text-halign': 'center',
+                      'font-weight': 'bold',
+                  } },
+                { selector: 'node[kind="feed"]',
+                  style: { 'background-color': '#4a90e2', 'color': '#fff', 'border-color': '#2f6fb8' } },
+                { selector: 'node[kind="group"]',
+                  style: { 'background-color': '#f59e0b', 'color': '#1f1300', 'border-color': '#b8740a' } },
+                { selector: 'node[kind="processor"]',
+                  style: { 'background-color': '#10b981', 'color': '#003323', 'border-color': '#086a4f', 'font-weight': 'bold' } },
+                // Inner graphml styles by jGraph Style property.
+                { selector: 'node[kind="EVENTHANDLER"]',
+                  style: { 'background-color': '#ef4444', 'color': '#fff', 'shape': 'round-rectangle', 'font-size': 9 } },
+                { selector: 'node[kind="EVENT"]',
+                  style: { 'background-color': '#a855f7', 'color': '#fff', 'shape': 'diamond', 'font-size': 9 } },
+                { selector: 'node[kind="EXPORTSERVICE"]',
+                  style: { 'background-color': '#06b6d4', 'color': '#003640', 'shape': 'hexagon', 'font-size': 9 } },
+                { selector: 'node[kind="NODE"]',
+                  style: { 'background-color': '#f1f5f9', 'color': '#0f172a', 'shape': 'round-rectangle', 'font-size': 9, 'border-color': '#94a3b8' } },
+                { selector: 'edge',
+                  style: {
+                      'width': 1.5,
+                      'line-color': '#94a3b8',
+                      'curve-style': 'bezier',
+                      'target-arrow-shape': 'triangle',
+                      'target-arrow-color': '#94a3b8',
+                      'font-size': 9,
+                      'color': '#64748b',
+                      'text-background-color': '#fff',
+                      'text-background-opacity': 0.9,
+                      'text-background-padding': 1,
+                  } },
+                { selector: 'edge[label]', style: { 'label': 'data(label)' } },
+                { selector: 'edge[kind="inner"]',
+                  style: { 'line-color': '#cbd5e1', 'target-arrow-color': '#cbd5e1' } },
+            ];
+        },
+
+        _runTopologyLayout() {
+            if (!this.topologyCy) return;
+            this.topologyCy.layout({
+                name: 'dagre',
+                rankDir: 'LR',
+                nodeSep: 35,
+                rankSep: 75,
+                edgeSep: 12,
+                fit: true,
+                padding: 30,
+            }).run();
+        },
+
+        _wireTopologyClicks() {
+            const cy = this.topologyCy;
+            const self = this;
+            // Single click is the primary action: feeds/groups jump to their
+            // detail; processors navigate to the dedicated Processor graph
+            // view (with full filter / scaffold / selection-cycle toolbox).
+            // Shift-click on a processor still goes to its detail card —
+            // matches the cross-link convention used elsewhere.
+            cy.on('tap', 'node', function (evt) {
+                const node = evt.target;
+                const data = node.data();
+                const e = evt.originalEvent;
+                const detailModifier = e && (e.shiftKey || e.metaKey || e.ctrlKey);
+                if (data.kind === 'feed' && data.feedName) {
+                    self.openService(data.feedName);
+                } else if (data.kind === 'group' && data.groupName) {
+                    self.openAgent(data.groupName);
+                } else if (data.kind === 'processor' && data.groupName && data.procName) {
+                    if (detailModifier) {
+                        self.openProcessor(data.groupName, data.procName);
+                    } else {
+                        self.openProcessorGraph(data.groupName, data.procName);
+                    }
+                }
+            });
+        },
+
+
+        // Hover wiring — mouseover/move surface a floating panel showing the
+        // node or edge's pre-computed tipLines. Position is taken from the
+        // pointer event so the panel follows the cursor.
+        _wireTopologyHover() {
+            const cy = this.topologyCy;
+            const self = this;
+            cy.on('mouseover', 'node, edge', function (evt) {
+                const data = evt.target.data();
+                if (!data.tipLines || !data.tipLines.length) return;
+                const oe = evt.originalEvent;
+                self.topologyTip = {
+                    x: oe ? oe.offsetX : 0,
+                    y: oe ? oe.offsetY : 0,
+                    title: self._tipTitle(data),
+                    lines: data.tipLines,
+                };
+            });
+            cy.on('mousemove', 'node, edge', function (evt) {
+                if (!self.topologyTip) return;
+                const oe = evt.originalEvent;
+                if (!oe) return;
+                self.topologyTip = { ...self.topologyTip, x: oe.offsetX, y: oe.offsetY };
+            });
+            cy.on('mouseout', 'node, edge', function () {
+                self.topologyTip = null;
+            });
+            // Dragging or background tap hides the tip too.
+            cy.on('tap', function (evt) { if (evt.target === cy) self.topologyTip = null; });
+        },
+
+        _tipTitle(data) {
+            if (data.kind === 'feed')      return 'Feed';
+            if (data.kind === 'group')     return 'Agent group';
+            if (data.kind === 'processor') return 'Processor';
+            if (data.kind === 'fg' || data.kind === 'gp' || data.kind === 'inner') return 'Edge';
+            if (data.kind === 'EVENTHANDLER') return 'Event handler';
+            if (data.kind === 'EVENT')        return 'Event';
+            if (data.kind === 'EXPORTSERVICE') return 'Exported service';
+            if (data.kind === 'NODE')         return 'Node';
+            return '';
+        },
+
+        topologyRefit() { this._runTopologyLayout(); },
+
+        // ── processor-graph view (full fluxtion-web rendering) ─────────────
+        //
+        // Navigation: clicking a processor in Topology hands off here. We
+        // lazy-load the visualiser modules (graph-parser, scaffold-filter,
+        // cytoscape-renderer) the first time the view opens, then build the
+        // cytoscape instance and wire the selection cycle / hover / F-key.
+        //
+        // The renderer abstraction is lifted verbatim from fluxtion-web's
+        // /lib/visualiser/ — see /web/visualiser/cytoscape-renderer.js for the
+        // (adapted) source. Reusing it keeps the visual + interaction
+        // contract identical across the two tools.
+
+        async openProcessorGraph(group, name) {
+            this.processorGraphTarget = { group, name };
+            this.processorGraphParsed = null;
+            this.processorGraphRaw = '';
+            this.processorGraphError = '';
+            this.processorGraphHint = null;
+            this.processorGraphFilterApplied = false;
+            this.processorGraphCycleStage = 0;
+            this.processorGraphCycleFocus = null;
+            this.processorGraphHoverTip = null;
+            this.go('processor-graph');
+        },
+
+        closeProcessorGraph() {
+            this.processorGraphHoverTip = null;
+            this.go('topology');
+        },
+
+        async _loadProcessorGraphModules() {
+            // Ensure cytoscape + dagre + cytoscape-dagre are present (same
+            // bundle as the Topology view).
+            await this._loadTopologyLibs();
+            if (this._procModules) return this._procModules;
+            // Module specifiers are absolute so the import works regardless
+            // of where the SPA is mounted.
+            const [parser, scaffold, renderer] = await Promise.all([
+                import('/visualiser/graph-parser.js'),
+                import('/visualiser/scaffold-filter.js'),
+                import('/visualiser/cytoscape-renderer.js'),
+            ]);
+            this._procModules = { parser, scaffold, renderer };
+            return this._procModules;
+        },
+
+        async processorGraphEnter() {
+            if (!this.processorGraphTarget) return;
+            this.processorGraphError = '';
+            const { group, name } = this.processorGraphTarget;
+            try {
+                const r = await fetch('/api/processors/' + encodeURIComponent(group) + '/' + encodeURIComponent(name) + '/graphml',
+                                       { credentials: 'same-origin' });
+                if (r.status === 404) {
+                    const body = await r.json().catch(() => ({}));
+                    this.processorGraphHint = {
+                        className: body.className || '',
+                        expectedResource: body.expectedResource || '',
+                        hint: body.hint || body.err || 'graphml not available on the processor classpath.',
+                    };
+                    return;
+                }
+                if (!r.ok) {
+                    this.processorGraphError = 'graphml fetch failed (HTTP ' + r.status + ').';
+                    return;
+                }
+                this.processorGraphRaw = await r.text();
+            } catch (e) {
+                this.processorGraphError = String(e.message || e);
+                return;
+            }
+            try {
+                const mods = await this._loadProcessorGraphModules();
+                this.processorGraphParsed = mods.parser.parseGraphMl(this.processorGraphRaw);
+                if (!this.processorGraphRenderer) {
+                    const container = this.$refs.processorCanvas;
+                    if (!container) { this.processorGraphError = 'canvas not ready'; return; }
+                    this.processorGraphRenderer = mods.renderer.createCytoscapeRenderer(container, { theme: this.theme });
+                    this._wireProcessorGraph();
+                }
+                this.processorGraphRender();
+            } catch (e) {
+                this.processorGraphError = 'render failed: ' + (e.message || e);
+                console.warn('processor graph render', e);
+            }
+        },
+
+        _wireProcessorGraph() {
+            const r = this.processorGraphRenderer;
+            const self = this;
+            r.on('tap', 'node', (evt) => self._onProcessorGraphNodeTap(evt.target));
+            // Background tap on the core (no element target) clears selection.
+            r.cy.on('tap', (evt) => {
+                if (evt.target === r.cy) {
+                    self.processorGraphHoverTip = null;
+                    self.processorGraphFullGraph();
+                }
+            });
+            r.on('mouseover', 'node', (evt) => self._showProcessorGraphTip(evt));
+            r.on('mouseout',  'node', () => { self.processorGraphHoverTip = null; });
+            // F key applies the filter — only when this view is active and
+            // the user isn't typing into an input.
+            this._procGraphKeyHandler = (e) => {
+                if (this.activeView !== 'processor-graph') return;
+                if (e.key !== 'f' && e.key !== 'F') return;
+                if (e.metaKey || e.ctrlKey || e.altKey) return;
+                const t = e.target;
+                if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+                e.preventDefault();
+                self.processorGraphApplyFilter();
+            };
+            window.addEventListener('keydown', this._procGraphKeyHandler);
+        },
+
+        _onProcessorGraphNodeTap(node) {
+            const id = node.id();
+            if (this.processorGraphCycleFocus !== id) {
+                // New focus — reset to stage 1.
+                this.processorGraphCycleFocus = id;
+                this.processorGraphCycleStage = 1;
+            } else {
+                // Same node — advance cycle 1 → 2 → 3 → 4 → 1.
+                this.processorGraphCycleStage = this.processorGraphCycleStage === 1 ? 2
+                    : this.processorGraphCycleStage === 2 ? 3
+                    : this.processorGraphCycleStage === 3 ? 4
+                    : 1;
+            }
+            this._applyProcessorGraphHighlight();
+        },
+
+        _selectionIds() {
+            const r = this.processorGraphRenderer;
+            const stage = this.processorGraphCycleStage;
+            const focus = this.processorGraphCycleFocus;
+            if (!r || stage === 0 || !focus) return null;
+            if (stage === 1) return new Set([focus]);
+            if (stage === 2) return r.getImmediateNeighbourIds(focus);
+            if (stage === 3) return r.getExecutionPathIds(focus);
+            if (stage === 4) return r.getAllNodeIds();
+            return null;
+        },
+
+        _applyProcessorGraphHighlight() {
+            const r = this.processorGraphRenderer;
+            if (!r) return;
+            const ids = this._selectionIds();
+            if (!ids || ids.size === 0) {
+                r.clearHighlighting();
+                return;
+            }
+            r.highlightNodeSet(Array.from(ids));
+        },
+
+        processorGraphRender() {
+            const r = this.processorGraphRenderer;
+            const parsed = this.processorGraphParsed;
+            if (!r || !parsed) return;
+            const mods = this._procModules;
+            const filtered = this.processorGraphHideScaffolding
+                ? mods.scaffold.filterScaffolding(parsed)
+                : parsed;
+            const graph = filtered ?? parsed;
+            this.processorGraphScaffoldHidden = filtered?.scaffoldHidden ?? 0;
+
+            let visibleIds = null;
+            if (this.processorGraphFilterApplied) {
+                const sel = this._selectionIds();
+                if (sel && sel.size) visibleIds = Array.from(sel);
+                else this.processorGraphFilterApplied = false;
+            }
+            r.setGraph(graph, visibleIds ? { visibleNodeIds: visibleIds } : {});
+            r.runLayout(this.processorGraphLayout, { spacing: this.processorGraphSpacing });
+            r.fit();
+            r.setScale(this.processorGraphTextScale);
+
+            // Stats (visible counts; reflects filter).
+            const visible = visibleIds ? new Set(visibleIds) : null;
+            this.processorGraphNodeCount = visible ? visible.size : (graph.nodes?.length ?? 0);
+            this.processorGraphEdgeCount = (graph.edges ?? []).filter(e =>
+                !visible || (visible.has(e.source) && visible.has(e.target))).length;
+
+            // setGraph wipes element classes — re-apply highlight if cycle still active.
+            this._applyProcessorGraphHighlight();
+        },
+
+        processorGraphApplyLayout() {
+            const r = this.processorGraphRenderer;
+            if (!r) return;
+            r.runLayout(this.processorGraphLayout, { spacing: this.processorGraphSpacing });
+            r.fit();
+        },
+
+        processorGraphApplyScale() {
+            const r = this.processorGraphRenderer;
+            if (r) r.setScale(this.processorGraphTextScale);
+        },
+
+        processorGraphApplyFilter() {
+            const sel = this._selectionIds();
+            if (!sel || sel.size === 0) {
+                if (this.processorGraphFilterApplied) {
+                    this.processorGraphFilterApplied = false;
+                    this.processorGraphRender();
+                }
+                return;
+            }
+            this.processorGraphFilterApplied = true;
+            this.processorGraphRender();
+        },
+
+        processorGraphFullGraph() {
+            this.processorGraphCycleStage = 0;
+            this.processorGraphCycleFocus = null;
+            this.processorGraphFilterApplied = false;
+            this.processorGraphRender();
+        },
+
+        processorGraphSelectionLabel() {
+            const stage = this.processorGraphCycleStage;
+            const focus = this.processorGraphCycleFocus;
+            if (!focus || stage === 0) return '';
+            const mode = stage === 1 ? 'node'
+                       : stage === 2 ? 'immediates'
+                       : stage === 3 ? 'execution path'
+                       : 'whole graph';
+            const prefix = this.processorGraphFilterApplied ? 'filter:' : 'select:';
+            return `${prefix} ${mode} of ${focus}`;
+        },
+
+        _showProcessorGraphTip(evt) {
+            const node = evt.target;
+            const data = node.data() || {};
+            const lines = [
+                { k: 'id',    v: data.id || node.id() || '—' },
+            ];
+            if (data.nodeKind) lines.push({ k: 'kind',  v: data.nodeKind });
+            if (data.className) lines.push({ k: 'class', v: data.className });
+            const pos = evt.renderedPosition || node.renderedPosition?.() || { x: 0, y: 0 };
+            this.processorGraphHoverTip = { x: pos.x, y: pos.y, lines };
         },
 
         // ── console view ──
@@ -430,7 +1139,13 @@ document.addEventListener('alpine:init', () => {
                 this.wsStatus = 'unavailable';
                 return;
             }
-            this.ws.onopen = () => { this.wsStatus = 'live'; };
+            this.ws.onopen = () => {
+                this.wsStatus = 'live';
+                // Push the persisted refresh rate immediately so the server
+                // honours the user's previous choice instead of running at
+                // the default cadence until they touch the dropdown.
+                this._sendMonitorRate(this.monitorRateMs);
+            };
             this.ws.onmessage = (evt) => {
                 try {
                     this.jvm = JSON.parse(evt.data);
@@ -441,6 +1156,27 @@ document.addEventListener('alpine:init', () => {
             };
             this.ws.onclose = () => { this.wsStatus = 'closed'; };
             this.ws.onerror = () => { this.wsStatus = 'error'; };
+        },
+
+        /**
+         * Push the current refresh rate to the server. Called on WS open and
+         * whenever the user picks a new rate. `ms === 0` is the "Off"
+         * sentinel — server marks this client paused and stops delivering.
+         */
+        _sendMonitorRate(ms) {
+            if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+            try {
+                this.ws.send(JSON.stringify({ op: 'rate', ms }));
+            } catch (e) {
+                console.warn('monitor rate send failed', e);
+            }
+        },
+
+        setMonitorRate(ms) {
+            const v = Number.isFinite(+ms) ? +ms : DEFAULT_MONITOR_RATE_MS;
+            this.monitorRateMs = v;
+            try { localStorage.setItem(MONITOR_RATE_KEY, String(v)); } catch (e) {}
+            this._sendMonitorRate(v);
         },
 
         openLogsWs() {
@@ -747,7 +1483,34 @@ document.addEventListener('alpine:init', () => {
             this.servicesAvailable = this.agentsAvailable = this.queuesAvailable = false;
             this.eventSources = [];
             this.servicesFilter = '';
+            this.servicesTab = 'all';
             this.servicesSortCol = null;
+            this.serviceDetail = null;
+            this.serviceConfig = null;
+            this.serviceConfigErr = '';
+            this.agentDetail = null;
+            this.processorDetail = null;
+            if (this.topologyCy) { try { this.topologyCy.destroy(); } catch (e) {} this.topologyCy = null; }
+            this.topologyHint = null;
+            this.topologyError = '';
+            this.topologyTip = null;
+            if (this.processorGraphRenderer) {
+                try { this.processorGraphRenderer.destroy(); } catch (e) {}
+                this.processorGraphRenderer = null;
+            }
+            if (this._procGraphKeyHandler) {
+                try { window.removeEventListener('keydown', this._procGraphKeyHandler); } catch (e) {}
+                this._procGraphKeyHandler = null;
+            }
+            this.processorGraphTarget = null;
+            this.processorGraphParsed = null;
+            this.processorGraphRaw = '';
+            this.processorGraphHint = null;
+            this.processorGraphError = '';
+            this.processorGraphFilterApplied = false;
+            this.processorGraphCycleStage = 0;
+            this.processorGraphCycleFocus = null;
+            this.processorGraphHoverTip = null;
             this.termLines = [];
             this.termInput = '';
             this.termHistory = [];

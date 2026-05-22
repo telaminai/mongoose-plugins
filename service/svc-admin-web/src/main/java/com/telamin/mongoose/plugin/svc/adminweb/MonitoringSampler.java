@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
@@ -33,14 +34,53 @@ import java.util.function.Consumer;
 @Log4j2
 final class MonitoringSampler {
 
-    private final long intervalMs;
+    /**
+     * Default interval — applied when no client has expressed a preference
+     * yet, and used as the floor for {@link #setIntervalMs(long)} (we never
+     * undercut whatever the operator configured in YAML).
+     */
+    private final long defaultIntervalMs;
+    private volatile long intervalMs;
+    /** {@code true} while no client is requesting samples — the sampler stays
+     *  idle to avoid the allocations from {@link #snapshot()}. */
+    private volatile boolean paused = false;
     private final List<Consumer<JvmSnapshot>> subscribers = new CopyOnWriteArrayList<>();
     private ScheduledExecutorService executor;
     private final AtomicInteger threadIdx = new AtomicInteger();
+    private ScheduledFuture<?> nextTick;
 
     MonitoringSampler(long intervalMs) {
+        this.defaultIntervalMs = intervalMs;
         this.intervalMs = intervalMs;
     }
+
+    /**
+     * Reconfigure the sampling interval at runtime. Callers should clamp the
+     * value at the configured default ({@link #defaultIntervalMs}) so the
+     * UI cannot drive the server below the operator's policy floor. Pass any
+     * non-positive value to {@link #setPaused(boolean)} instead.
+     */
+    synchronized void setIntervalMs(long ms) {
+        long requested = Math.max(ms, defaultIntervalMs);
+        if (requested == intervalMs && !paused) return;
+        intervalMs = requested;
+        paused = false;
+        rescheduleLocked();
+    }
+
+    /**
+     * Suspend or resume sampling. When paused the executor stays alive but no
+     * tick fires — when every connected client picks {@code Off} we drop
+     * allocations to zero.
+     */
+    synchronized void setPaused(boolean p) {
+        if (paused == p) return;
+        paused = p;
+        rescheduleLocked();
+    }
+
+    long currentIntervalMs() { return intervalMs; }
+    boolean isPaused()       { return paused; }
 
     void start() {
         if (executor != null) return;
@@ -49,13 +89,43 @@ final class MonitoringSampler {
             t.setDaemon(true);
             return t;
         });
-        executor.scheduleAtFixedRate(this::tick, intervalMs, intervalMs, TimeUnit.MILLISECONDS);
+        rescheduleLocked();
     }
 
     void stop() {
         if (executor == null) return;
         executor.shutdownNow();
         executor = null;
+        nextTick = null;
+    }
+
+    /**
+     * Cancel any in-flight scheduled tick and book the next one based on
+     * the current paused/interval state. Holds the monitor while it
+     * mutates the future reference; the tick itself reschedules from
+     * inside its run, so the executor never ends up with two pending
+     * ticks at once.
+     */
+    private void rescheduleLocked() {
+        if (executor == null) return;
+        if (nextTick != null) {
+            nextTick.cancel(false);
+            nextTick = null;
+        }
+        if (paused) return;
+        nextTick = executor.schedule(this::tickAndReschedule, intervalMs, TimeUnit.MILLISECONDS);
+    }
+
+    private void tickAndReschedule() {
+        try {
+            tick();
+        } finally {
+            synchronized (this) {
+                if (executor != null && !paused) {
+                    nextTick = executor.schedule(this::tickAndReschedule, intervalMs, TimeUnit.MILLISECONDS);
+                }
+            }
+        }
     }
 
     void subscribe(Consumer<JvmSnapshot> c) {
@@ -71,7 +141,7 @@ final class MonitoringSampler {
     }
 
     private void tick() {
-        if (subscribers.isEmpty()) return;
+        if (subscribers.isEmpty() || paused) return;
         JvmSnapshot snapshot = snapshot();
         for (Consumer<JvmSnapshot> sub : subscribers) {
             try {

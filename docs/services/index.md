@@ -39,7 +39,7 @@ Cross-cutting capabilities that processors inject via `@ServiceRegistered`. One 
 
 -   :material-monitor-dashboard:{ .lg .middle } __[svc-admin-web](admin-web.md)__
 
-    Browser admin & monitoring SPA. Dashboard, live JVM/log over WebSocket, conditional cache + loader panels.
+    Browser admin + monitoring SPA. Dashboard with throttleable JVM stream, command terminal, log tail, dispatcher topology DAG, per-processor graphml viewer (filter / scaffold / selection cycle), reflective service config, conditional cache + loader panels.
 
     <span class="plugin-tags">
       <span class="plugin-tag service">service</span>
