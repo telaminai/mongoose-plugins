@@ -10,16 +10,29 @@ Built against `io.javalin:javalin:6.3.0`. Frontend is plain HTML/CSS/JS with [ht
 
 A nav-rail console with a light/dark theme toggle — one view at a time, live WebSocket streams running in the background.
 
-- **Dashboard** — server identity (pid, runtime, uptime) and live JVM stats (heap usage meter, heap sparkline, non-heap, threads, GC table) pushed over WebSocket. Includes a **Refresh** dropdown (1 / 2 / 5 / 10 / 30 s + Off) that throttles the server-side `MonitoringSampler` — pick Off and the sampler stops allocating snapshots entirely.
+- **Dashboard** — server identity (pid, runtime, uptime) and live JVM stats (heap usage meter, heap sparkline, non-heap, threads, GC table) pushed over WebSocket. Includes a **Refresh** dropdown (1 / 2 / 5 / 10 / 30 s + Off) that throttles the server-side `MonitoringSampler` — pick Off and the sampler stops allocating snapshots entirely. When the mongoose server has `performanceMonitoring.enabled: true` set in its YAML, a **Throughput card** appears showing live per-feed / per-agent-group / per-processor rates plus a per-queue depth table — every name is a clickable link into the matching detail page. With `performanceMonitoring` off, the card is replaced with an honest "monitoring is off" hint and the YAML key to flip.
 - **Commands** — filterable list of every command registered with `AdminCommandRegistry`, with an args form, captured stdout/stderr, and a replay-able history.
 - **Console** — interactive terminal: type commands directly, Tab to autocomplete from the registered command list, ↑/↓ to recall history.
 
   ![Mongoose Admin — console view](docs/screenshots/console.png)
 
 - **Logs** — bounded ring buffer of recent `java.util.logging` records (debug bridges from SLF4J/Log4j2 to j.u.l flow in too), streamed live over WebSocket; level filter, substring filter, auto-scroll.
-- **Services / Agents / Queues** — dispatcher introspection driven by `MongooseServerController` and (when present) the `MongooseIntrospectionService`. **Services** classifies entries as `feed` / `sink` / `service`, cross-links to consumers, and exposes a **Configuration** card (reflective public-getter view of the live instance, sensitive-named values masked). **Agents** surfaces thread name + state, idle strategy, and per-processor feed subscriptions. **Queues** renders the live `EventFlowManager` topology.
-- **Topology** — lazy-loaded cytoscape DAG of `feed → agent group → processor`. Click a feed or group to open its detail; click a processor to drill into its compiled graphml.
-- **Processor graph** — full Fluxtion-style graphml viewer for a single processor: layout switcher, font + spacing sliders, **Hide scaffolding** toggle, click-to-cycle selection (focus → 1-hop neighbours → execution path → whole graph), **Filter (F)** to redraw on the current selection, **Full graph** to clear. The graphml is loaded from `<class-FQN-with-/>.graphml` on the processor's classloader; a structured "expected `<path>` — copy it into `src/main/resources/...`" panel guides plugin authors when the resource is missing.
+- **Services / Agents / Queues** — dispatcher introspection driven by `MongooseServerController` and (when present) the `MongooseIntrospectionService`. **Services** classifies entries as `feed` / `sink` / `service`, cross-links to consumers, exposes a **Configuration** card (reflective public-getter view of the live instance, sensitive-named values masked), and — when `performanceMonitoring` is on — a new **Rate** column on each feed row plus a **Performance card** on the detail page showing live rate + total published.
+
+  ![Services list — Rate column visible when performance monitoring is on](docs/screenshots/services-list.png)
+
+  **Agents** surfaces thread name + state, idle strategy, per-processor feed subscriptions, an inline rate tag on each card head, and a **Performance card** on the detail page (rate + events processed + idle cycles).
+
+  ![Agent detail — Performance card sourced from MongooseCountersService](docs/screenshots/agent-detail-performance.png)
+
+  **Queues** renders the live `EventFlowManager` topology with a **Consumer column** linking each queue back to its consuming agent group.
+- **Topology** — lazy-loaded cytoscape DAG of `feed → agent group → processor`. Click a feed or group to open its detail; click a processor to drill into its compiled graphml. When `performanceMonitoring` is on, feed and group nodes **pulse green** for ~800 ms each time their rate ticks above zero in the latest sample window — visible heartbeat of the running pipeline.
+
+  ![Topology — feed → agent group → processor DAG](docs/screenshots/topology.png)
+
+- **Processor graph** — full Fluxtion-style graphml viewer for a single processor: layout switcher, font + spacing sliders, **Hide scaffolding** toggle, click-to-cycle selection (focus → 1-hop neighbours → execution path → whole graph), **Filter (F)** to redraw on the current selection, **Full graph** to clear. When a `PerformanceMonitorAudit` is bound to the processor at build time, the sub-detail panel shows a **Per-node invocations** table — every node in the generated SEP with its live invocation count. The graphml is loaded from `<class-FQN-with-/>.graphml` on the processor's classloader; a structured "expected `<path>` — copy it into `src/main/resources/...`" panel guides plugin authors when the resource is missing.
+
+  ![Processor graph — compiled graphml viewer with scaffolding hidden](docs/screenshots/processor-graph.png)
 - **Cache panel** (conditional) — when `cache.*` commands are present, surfaces `cache.list`, `cache.{name}.keys`, `cache.{name}.get` as inline forms.
 - **Loader panel** (conditional) — when `yamlLoader.*` or `springLoader.*` commands are present, surfaces `compileProcessor` forms with an optional file picker scoped to `loaderBaseDir`.
 
@@ -31,7 +44,7 @@ Panels are pure discovery — Topology appears when both Services and Agents are
 <dependency>
     <groupId>com.telamin</groupId>
     <artifactId>svc-admin-web</artifactId>
-    <version>0.2.13-SNAPSHOT</version>
+    <version>0.2.16-SNAPSHOT</version>
 </dependency>
 ```
 
@@ -74,7 +87,7 @@ Then point a browser at `http://127.0.0.1:8181/`.
 | `GET`  | `/api/files`                                      | yes         | File-picker entries under `loaderBaseDir`; `404` when feature unconfigured |
 | `POST` | `/api/session/login`                              | _per mode_  | Exchanges credentials for an HMAC-signed cookie + CSRF token |
 | `POST` | `/api/session/logout`                             | yes + CSRF  | Invalidates the session cookie                  |
-| `WS`   | `/ws/monitor`                                     | yes + CSRF  | Pushes JVM snapshots; client controls rate via `{"op":"rate","ms":<n>}` (0 = Off). Server-effective period = `min(client-rates)`, sampler stops when every client is Off. |
+| `WS`   | `/ws/monitor`                                     | yes + CSRF  | Pushes JVM snapshots; client controls rate via `{"op":"rate","ms":<n>}` (0 = Off). Server-effective period = `min(client-rates)`, sampler stops when every client is Off. When the mongoose server's `MongooseCountersService` is operational, each frame also carries a `throughput` block: `{feeds, groups, processors, nodes, queues}` with per-counter `{name, rate, total}` (rate = delta / windowMs × 1000). `throughput` is `null` when performance monitoring is disabled. |
 | `WS`   | `/ws/logs`                                        | yes + CSRF  | Replays buffered log records on connect, then pushes per-record live |
 
 CSRF on WebSocket upgrades is carried as `?csrf=...` query param (browsers cannot add headers to the WS handshake).
@@ -141,11 +154,20 @@ Asset load order matters: `app.js` loads **eagerly** (no `defer`) so the `alpine
 - Default `host` is `127.0.0.1` (loopback). For multi-host access, change explicitly and front with TLS.
 - Javalin uses SLF4J; without a binding you'll see "no logger" notices. Add `org.apache.logging.log4j:log4j-slf4j2-impl` in production.
 
+## Performance monitoring
+
+When the mongoose server is booted with `performanceMonitoring.enabled: true`, svc-admin-web's `MonitoringSampler` walks `MongooseCountersService.forEachCounter` on every tick, computes per-counter rates against the previous snapshot, and bundles the result into the `/ws/monitor` payload's `throughput` field. The Dashboard renders the bundle as the Throughput card; the Services / Agents / Topology / Processor views light up with the per-entity slices.
+
+Counters service is opt-in YAML on the mongoose-core side. See the [mongoose how-to: enabling performance monitoring](https://github.com/telaminai/mongoose/blob/main/docs/example/how-to/how-to-performance-monitoring.md). With monitoring off (the default) the Throughput card is hidden and the WS payload carries `throughput: null` — pure additive behaviour, no impact on existing deployments.
+
+Pre-requisite: mongoose-core ≥ 1.0.13 (counters service introduced in that release).
+
 ## Tests
 
-74 tests across three suites:
+79 tests across three suites:
 
 - `WebAdminServiceTest` (63) — auth fail-fast + BASIC/BEARER, session + CSRF, command list / invoke, `/api/server`, `/api/jvm`, `/api/services` (controller-driven + introspection-driven), `/api/services/{name}/config` (reflection helper + endpoint), `/api/agents` (with introspection-stub thread/idle/subscription enrichment), `/api/queues`, `/api/processors/{group}/{name}/graphml` (hit on classpath, structured 404, unknown group, unknown processor, no controller), `/api/files` (404, list, traversal, absolute, unauth), WS auth gate, `MonitoringSampler` (dynamic interval, paused = zero allocations), log-tail lifecycle.
+- `MonitoringSamplerThroughputTest` (5) — no-op service leaves throughput null; label routing into feeds/groups/processors/nodes/queues; rate computes against previous tick delta; counters added mid-life appear on the next tick; legacy `(intervalMs)`-only constructor.
 - `LogTailTest` (5) — ring-buffer cap, subscriber fan-out, capacity validation, root-logger capture, package self-filter.
 - `SessionTokenTest` (6) — round-trip, tampered signature, wrong secret, expired, malformed, pipe-in-input.
 

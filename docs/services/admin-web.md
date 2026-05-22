@@ -20,13 +20,26 @@ Frontend is plain HTML/CSS/JS with [htmx 2.0.4](https://htmx.org) + [Alpine.js 3
 
 ## What you get
 
-- **Dashboard** — server identity (pid, runtime, uptime) and live JVM stats (heap, non-heap, threads, GC) pushed over WebSocket. Includes a **Refresh** dropdown (1 / 2 / 5 / 10 / 30 s, plus Off) that throttles the server-side sampler — pick a slower rate or Off to drop allocation pressure when no one is watching.
+- **Dashboard** — server identity (pid, runtime, uptime) and live JVM stats (heap, non-heap, threads, GC) pushed over WebSocket. Includes a **Refresh** dropdown (1 / 2 / 5 / 10 / 30 s, plus Off) that throttles the server-side sampler. When mongoose `performanceMonitoring.enabled: true` is set, a **Throughput card** shows live per-feed / per-group / per-processor rates plus a per-queue depth table — every name links into the matching detail page. With monitoring off, the card is replaced with an honest "monitoring is off" hint and the YAML key to flip.
 - **Commands** — filterable list of every command registered with `AdminCommandRegistry`, args form, captured stdout/stderr, replay-able history.
 - **Console** — interactive terminal: type commands directly, Tab to autocomplete from the registered list, ↑/↓ to recall history.
 - **Logs** — bounded ring buffer of recent `java.util.logging` records streamed live; level filter, substring filter, auto-scroll.
-- **Services / Agents / Queues** (conditional) — dispatcher introspection. **Services** classifies each entry as `feed` / `sink` / `service`, cross-links to its consumers, and exposes a **Configuration** card (reflective public-getter view of the live instance, masking sensitive-named properties). **Agents** surfaces thread name, state, idle strategy, and per-processor feed subscriptions. **Queues** renders the `EventFlowManager` topology.
-- **Topology** (conditional) — lazy-loaded cytoscape DAG of `feed → agent group → processor`. Click a feed/group to open its detail; click a processor to open its compiled graphml in a dedicated viewer.
-- **Processor graph** — full Fluxtion-style graphml viewer for a single processor: layout switcher, font + spacing sliders, **Hide scaffolding** toggle, click-to-cycle selection (focus → 1-hop neighbours → execution path → whole graph), **Filter (F)** to redraw on the current selection, **Full graph** to clear. The graphml is loaded from `<class-FQN-with-/>.graphml` on the processor's classloader; missing-resource state surfaces a guided "copy this file into `src/main/resources/...`" panel.
+- **Services / Agents / Queues** (conditional) — dispatcher introspection. **Services** classifies each entry as `feed` / `sink` / `service`, cross-links to its consumers, exposes a **Configuration** card (reflective public-getter view, sensitive values masked), and — when performance monitoring is on — a per-row **Rate** column on the list plus a **Performance card** on the detail page (rate + total published for feeds).
+
+  ![services list](screenshots/admin-web-services-list.png)
+
+  **Agents** surfaces thread name, state, idle strategy, per-processor feed subscriptions, an inline rate tag on each card head, and a **Performance card** on the detail page (rate + events processed + idle cycles).
+
+  ![agent detail](screenshots/admin-web-agent-detail.png)
+
+  **Queues** renders the `EventFlowManager` topology with a **Consumer column** linking each queue back to its consuming agent group.
+- **Topology** (conditional) — lazy-loaded cytoscape DAG of `feed → agent group → processor`. Click a feed/group to open its detail; click a processor to open its compiled graphml in a dedicated viewer. When performance monitoring is on, feed and group nodes **pulse green** for ~800 ms each time their rate ticks above zero — visible heartbeat of the running pipeline.
+
+  ![topology](screenshots/admin-web-topology.png)
+
+- **Processor graph** — full Fluxtion-style graphml viewer for a single processor: layout switcher, font + spacing sliders, **Hide scaffolding** toggle, click-to-cycle selection (focus → 1-hop neighbours → execution path → whole graph), **Filter (F)** to redraw on the current selection, **Full graph** to clear. When a `PerformanceMonitorAudit` is bound to the processor at build time, the sub-detail panel shows a **Per-node invocations** table — every node in the generated SEP with its live invocation count. The graphml is loaded from `<class-FQN-with-/>.graphml` on the processor's classloader; missing-resource state surfaces a guided "copy this file into `src/main/resources/...`" panel.
+
+  ![processor graph](screenshots/admin-web-processor-graph.png)
 - **Cache panel** (conditional) — when `cache.*` commands are present, surfaces `cache.list`, `cache.{name}.keys`, `cache.{name}.get` as inline forms.
 - **Loader panel** (conditional) — when `yamlLoader.*` or `springLoader.*` commands are present, surfaces `compileProcessor` forms with a file picker scoped to `loaderBaseDir`.
 
@@ -138,6 +151,14 @@ Then point a browser at `http://127.0.0.1:8181/`.
 - Implements `EventFlowService<Object>` but is not an event source — `subscribe`/`unSubscribe`/`setEventToQueuePublisher` are no-ops.
 - Default `host` is `127.0.0.1`. For multi-host access, change explicitly and front with TLS.
 - Javalin uses SLF4J; add a binding (e.g. `log4j-slf4j2-impl`) to silence "no logger" notices in production.
+
+## Performance monitoring
+
+When the mongoose server is booted with `performanceMonitoring.enabled: true` in its YAML, svc-admin-web's sampler reads `MongooseCountersService.forEachCounter` on every tick, computes per-counter rates against the previous snapshot, and bundles the result into the `/ws/monitor` payload's `throughput` field. The Dashboard renders it as the Throughput card; Services / Agents / Topology / Processor views light up with the per-entity slices, and feed / group nodes on the Topology pulse green on each non-zero rate tick.
+
+See the [mongoose how-to: enabling performance monitoring](https://github.com/telaminai/mongoose/blob/main/docs/example/how-to/how-to-performance-monitoring.md) for the YAML toggle, the built-in counter sites, and the `PerformanceMonitorAudit` builder helper that adds per-processor + per-node counts.
+
+Pre-requisite: mongoose-core ≥ 1.0.13 (counters service introduced in that release).
 
 ## Examples
 
