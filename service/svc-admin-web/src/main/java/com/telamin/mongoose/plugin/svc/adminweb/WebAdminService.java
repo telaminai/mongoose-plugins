@@ -66,6 +66,7 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
     private AdminCommandRegistry adminCommandRegistry;
     private MongooseServerController serverController;
     private MongooseIntrospectionService introspection;
+    private com.telamin.mongoose.service.counters.MongooseCountersService countersService;
     private byte[] resolvedSessionSecret;
     private final SecureRandom random = new SecureRandom();
     private MonitoringSampler monitoringSampler;
@@ -123,6 +124,12 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
     public void introspection(MongooseIntrospectionService introspection, String name) {
         log.info("Introspection service: '{}' name: '{}'", introspection, name);
         this.introspection = introspection;
+    }
+
+    @ServiceRegistered
+    public void countersService(com.telamin.mongoose.service.counters.MongooseCountersService svc, String name) {
+        log.info("Counters service: '{}' name: '{}' operational={}", svc, name, svc.isOperational());
+        this.countersService = svc;
     }
 
     // EventFlowService → EventSource contract: this admin endpoint does not
@@ -221,8 +228,22 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         javalin.ws("/ws/monitor", this::configureMonitorWs);
         javalin.ws("/ws/logs",    this::configureLogsWs);
 
-        // Periodic sampler — broadcasts to all live monitor clients.
-        monitoringSampler = new MonitoringSampler(metricsIntervalMs);
+        // Periodic sampler — broadcasts to all live monitor clients. When the
+        // counters service is operational the sampler reads forEachCounter
+        // each tick and bundles per-feed / per-group / per-processor /
+        // per-node rates into the JvmSnapshot's `throughput` block. The
+        // pre-tick hook asks EFM to refresh `queue.{path}.depth` gauges so
+        // they reflect current state when the sampler reads them.
+        com.telamin.mongoose.service.counters.MongooseCountersService countersForSampler =
+                (countersService != null)
+                        ? countersService
+                        : com.telamin.mongoose.internal.NoOpCountersService.INSTANCE;
+        Runnable queueDepthHook = () -> {
+            if (eventFlowManager != null && countersService != null && countersService.isOperational()) {
+                eventFlowManager.sampleQueueDepths(countersService);
+            }
+        };
+        monitoringSampler = new MonitoringSampler(metricsIntervalMs, countersForSampler, queueDepthHook);
         monitoringSampler.subscribe(this::broadcastMonitorSnapshot);
         monitoringSampler.start();
 

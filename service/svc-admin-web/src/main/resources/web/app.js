@@ -50,6 +50,14 @@ document.addEventListener('alpine:init', () => {
         // ── dashboard ──
         server: null,
         jvm: null,
+        // Throughput payload from /ws/monitor — null when counters service
+        // is the no-op (e.g. performanceMonitoring not enabled in YAML).
+        // Shape: { feeds:[{name,total,rate}],
+        //          groups:[{name,total,rate,idleCycles}],
+        //          processors:[{name,total,rate}],
+        //          nodes:[{processor,node,total,rate}],
+        //          queues:[{path,depth}] }
+        throughput: null,
         ws: null,
         wsStatus: '',
         // JVM sample rate the dashboard requests over /ws/monitor. 0 = Off
@@ -1148,8 +1156,14 @@ document.addEventListener('alpine:init', () => {
             };
             this.ws.onmessage = (evt) => {
                 try {
-                    this.jvm = JSON.parse(evt.data);
-                    this.recordHeap(this.jvm);
+                    const frame = JSON.parse(evt.data);
+                    this.jvm = frame;
+                    this.recordHeap(frame);
+                    // throughput is null when counters service is the no-op.
+                    // Keep last-known on null frames (e.g. /api/jvm replay
+                    // doesn't carry throughput) so the UI doesn't flicker
+                    // back to empty between WS frames.
+                    if (frame.throughput) this.throughput = frame.throughput;
                 } catch (e) {
                     console.warn('bad monitor frame', e);
                 }
@@ -1390,6 +1404,22 @@ document.addEventListener('alpine:init', () => {
             let i = 0, v = b;
             while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
             return v.toFixed(v < 10 && i > 0 ? 1 : 0) + ' ' + units[i];
+        },
+
+        formatRate(r) {
+            if (r == null) return '—';
+            if (r === 0) return '0/s';
+            if (r >= 1_000_000) return (r / 1_000_000).toFixed(r < 10_000_000 ? 1 : 0) + 'M/s';
+            if (r >= 1_000)     return (r / 1_000).toFixed(r < 10_000 ? 1 : 0) + 'k/s';
+            if (r >= 10)        return r.toFixed(0) + '/s';
+            return r.toFixed(2) + '/s';
+        },
+
+        formatCount(n) {
+            if (n == null) return '—';
+            if (n >= 1_000_000) return (n / 1_000_000).toFixed(n < 10_000_000 ? 1 : 0) + 'M';
+            if (n >= 1_000)     return (n / 1_000).toFixed(n < 10_000 ? 1 : 0) + 'k';
+            return String(n);
         },
 
         formatUptime(nowTs, startTs) {

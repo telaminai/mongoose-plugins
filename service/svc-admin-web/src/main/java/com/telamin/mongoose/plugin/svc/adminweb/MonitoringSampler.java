@@ -4,6 +4,7 @@
  */
 package com.telamin.mongoose.plugin.svc.adminweb;
 
+import com.telamin.mongoose.service.counters.MongooseCountersService;
 import lombok.extern.log4j.Log4j2;
 
 import java.lang.management.GarbageCollectorMXBean;
@@ -14,7 +15,9 @@ import java.lang.management.RuntimeMXBean;
 import java.lang.management.ThreadMXBean;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -24,12 +27,19 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 /**
- * Samples JVM (and, in later iterations, dispatcher) metrics at a fixed
- * interval and fans the snapshot out to subscribers — typically the
+ * Samples JVM and dispatcher-counters metrics at a fixed interval and
+ * fans the snapshot out to subscribers — typically the
  * {@code /ws/monitor} WebSocket connections.
  *
  * <p>Single daemon thread. Subscribers are invoked from that thread; an
  * exception in one subscriber does not block the others.
+ *
+ * <p>When wired with a {@link MongooseCountersService}, each tick also
+ * walks {@code forEachCounter}, computes per-counter rates against the
+ * previous snapshot, and bundles the result into {@link JvmSnapshot}'s
+ * {@code throughput} field. With the no-op counters service installed,
+ * the throughput block is {@code null} and the front-end falls back to
+ * JVM-only behaviour.
  */
 @Log4j2
 final class MonitoringSampler {
@@ -49,9 +59,28 @@ final class MonitoringSampler {
     private final AtomicInteger threadIdx = new AtomicInteger();
     private ScheduledFuture<?> nextTick;
 
+    /** Counters service for throughput sampling. May be the no-op. */
+    private final MongooseCountersService counters;
+    /** Optional per-tick callback for queue-depth sampling — gives EFM a
+     *  chance to write {@code queue.{path}.depth} gauges before we walk the
+     *  counters. {@code null} when not wired. */
+    private final Runnable beforeTickHook;
+    /** Previous tick's counter values, keyed by label, used to compute rates. */
+    private Map<String, Long> previousCounterValues = Collections.emptyMap();
+    /** Timestamp of the previous tick — for rate = delta / windowMs. */
+    private long previousTickTs = 0L;
+
     MonitoringSampler(long intervalMs) {
+        this(intervalMs, com.telamin.mongoose.internal.NoOpCountersService.INSTANCE, null);
+    }
+
+    MonitoringSampler(long intervalMs,
+                      MongooseCountersService counters,
+                      Runnable beforeTickHook) {
         this.defaultIntervalMs = intervalMs;
         this.intervalMs = intervalMs;
+        this.counters = counters;
+        this.beforeTickHook = beforeTickHook;
     }
 
     /**
@@ -142,7 +171,14 @@ final class MonitoringSampler {
 
     private void tick() {
         if (subscribers.isEmpty() || paused) return;
-        JvmSnapshot snapshot = snapshot();
+        if (beforeTickHook != null) {
+            try {
+                beforeTickHook.run();
+            } catch (Exception e) {
+                log.warn("monitor pre-tick hook threw", e);
+            }
+        }
+        JvmSnapshot snapshot = tickSnapshot();
         for (Consumer<JvmSnapshot> sub : subscribers) {
             try {
                 sub.accept(snapshot);
@@ -152,7 +188,82 @@ final class MonitoringSampler {
         }
     }
 
-    /** One-shot snapshot for the REST endpoint or for the next sampled push. */
+    /**
+     * Per-tick snapshot — JVM + throughput. Holds previous-counter state for
+     * rate computation, so it's instance-bound (not static).
+     */
+    JvmSnapshot tickSnapshot() {
+        JvmSnapshot base = snapshot();
+        Throughput throughput = counters.isOperational()
+                ? buildThroughput(base.ts())
+                : null;
+        return new JvmSnapshot(base.ts(), base.jvm(), base.queues(), throughput);
+    }
+
+    private Throughput buildThroughput(long nowTs) {
+        // Walk all registered counters once into a transient map.
+        Map<String, Long> current = new HashMap<>();
+        counters.forEachCounter((id, label, value) -> current.put(label, value));
+
+        long windowMs = previousTickTs == 0 ? intervalMs : Math.max(1, nowTs - previousTickTs);
+
+        List<NamedRate> feeds = new ArrayList<>();
+        List<GroupRate> groups = new ArrayList<>();
+        List<NamedRate> processors = new ArrayList<>();
+        List<NodeRate> nodes = new ArrayList<>();
+        List<QueueDepth> queues = new ArrayList<>();
+
+        for (Map.Entry<String, Long> e : current.entrySet()) {
+            String label = e.getKey();
+            long value = e.getValue();
+            Long prev = previousCounterValues.get(label);
+            long delta = (prev == null) ? 0 : Math.max(0, value - prev);
+            double ratePerSec = (delta * 1000.0) / windowMs;
+
+            // Label format:
+            //   feed.{name}.published
+            //   group.{name}.processed   /  group.{name}.idleCycles
+            //   processor.{name}.events
+            //   node.{processor}.{node}.invocations
+            //   queue.{path}.depth
+            if (label.startsWith("feed.") && label.endsWith(".published")) {
+                String name = stripPrefixSuffix(label, "feed.", ".published");
+                feeds.add(new NamedRate(name, value, ratePerSec));
+            } else if (label.startsWith("group.") && label.endsWith(".processed")) {
+                String name = stripPrefixSuffix(label, "group.", ".processed");
+                Long idleVal = current.get("group." + name + ".idleCycles");
+                long idle = (idleVal == null) ? 0L : idleVal;
+                groups.add(new GroupRate(name, value, ratePerSec, idle));
+            } else if (label.startsWith("processor.") && label.endsWith(".events")) {
+                String name = stripPrefixSuffix(label, "processor.", ".events");
+                processors.add(new NamedRate(name, value, ratePerSec));
+            } else if (label.startsWith("node.") && label.endsWith(".invocations")) {
+                // label = "node.{processor}.{node}.invocations" — split off the
+                // trailing ".invocations", then split the first segment after
+                // "node." as processor; everything between is the node name.
+                String inner = stripPrefixSuffix(label, "node.", ".invocations");
+                int firstDot = inner.indexOf('.');
+                if (firstDot > 0) {
+                    String processor = inner.substring(0, firstDot);
+                    String node = inner.substring(firstDot + 1);
+                    nodes.add(new NodeRate(processor, node, value, ratePerSec));
+                }
+            } else if (label.startsWith("queue.") && label.endsWith(".depth")) {
+                String path = stripPrefixSuffix(label, "queue.", ".depth");
+                queues.add(new QueueDepth(path, value));
+            }
+        }
+
+        previousCounterValues = current;
+        previousTickTs = nowTs;
+        return new Throughput(feeds, groups, processors, nodes, queues);
+    }
+
+    private static String stripPrefixSuffix(String s, String prefix, String suffix) {
+        return s.substring(prefix.length(), s.length() - suffix.length());
+    }
+
+    /** JVM-only snapshot — REST endpoint + initial WS send. No counter access. */
     static JvmSnapshot snapshot() {
         long ts = System.currentTimeMillis();
         MemoryMXBean mem = ManagementFactory.getMemoryMXBean();
@@ -170,7 +281,7 @@ final class MonitoringSampler {
                 nonHeap.getUsed(),
                 threads.getThreadCount(),
                 gcs);
-        return new JvmSnapshot(ts, jvm, Collections.emptyList());
+        return new JvmSnapshot(ts, jvm, Collections.emptyList(), null);
     }
 
     /** Server identity snapshot — populated once on demand. */
@@ -187,7 +298,7 @@ final class MonitoringSampler {
 
     public record ServerInfo(String pid, String runtime, long startTime, long uptimeMs) { }
 
-    public record JvmSnapshot(long ts, JvmInfo jvm, List<QueueInfo> queues) { }
+    public record JvmSnapshot(long ts, JvmInfo jvm, List<QueueInfo> queues, Throughput throughput) { }
 
     public record JvmInfo(
             long heapUsed,
@@ -201,4 +312,23 @@ final class MonitoringSampler {
 
     /** Queue introspection lands in a follow-up; v1 always emits []. See spec §10.2. */
     public record QueueInfo(String name, int depth, int capacity) { }
+
+    /**
+     * Throughput block emitted on every tick when a real counters service
+     * is wired. Rates are events per second over the sampling window
+     * ({@code delta / (nowTs - previousTickTs)} × 1000). On the first tick
+     * after subscriber connect, the rate is zero — no previous snapshot to
+     * diff against.
+     */
+    public record Throughput(
+            List<NamedRate> feeds,
+            List<GroupRate> groups,
+            List<NamedRate> processors,
+            List<NodeRate> nodes,
+            List<QueueDepth> queues) { }
+
+    public record NamedRate(String name, long total, double rate) { }
+    public record GroupRate(String name, long total, double rate, long idleCycles) { }
+    public record NodeRate(String processor, String node, long total, double rate) { }
+    public record QueueDepth(String path, long depth) { }
 }

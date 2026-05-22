@@ -261,6 +261,106 @@
                         <div class="kv"><span class="kv-k">Endpoint</span><span class="kv-v mono" x-text="hostLabel()"></span></div>
                     </div>
                 </div>
+
+                <!-- ─── Throughput ─────────────────────────────────────────
+                     Visible only when MongooseCountersService is operational
+                     (i.e. mongoose.performanceMonitoring.enabled: true). The
+                     throughput field arrives on every /ws/monitor tick when
+                     the Agrona-backed counters service is wired. -->
+                <div class="card" x-show="throughput">
+                    <div class="card-head">
+                        <h2>Throughput</h2>
+                        <span class="card-meta">events per second across the dispatch pipeline</span>
+                    </div>
+                    <div class="dash-row">
+                        <div class="card">
+                            <div class="card-head"><h2>Feeds</h2><span class="card-meta" x-text="(throughput?.feeds?.length ?? 0) + ' source(s)'"></span></div>
+                            <table class="data-table" x-show="(throughput?.feeds ?? []).length">
+                                <thead><tr><th>Feed</th><th class="num">Rate</th><th class="num">Total</th></tr></thead>
+                                <tbody>
+                                    <template x-for="f in (throughput?.feeds ?? [])" :key="f.name">
+                                        <tr>
+                                            <td class="mono" x-text="f.name"></td>
+                                            <td class="num" x-text="formatRate(f.rate)"></td>
+                                            <td class="num muted" x-text="formatCount(f.total)"></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                            <div class="empty empty-sm" x-show="!(throughput?.feeds ?? []).length">
+                                <svg class="ico"><use href="#i-empty"/></svg><span>No feeds registered.</span>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-head"><h2>Agent groups</h2><span class="card-meta" x-text="(throughput?.groups?.length ?? 0) + ' group(s)'"></span></div>
+                            <table class="data-table" x-show="(throughput?.groups ?? []).length">
+                                <thead><tr><th>Group</th><th class="num">Rate</th><th class="num">Total</th><th class="num">Idle</th></tr></thead>
+                                <tbody>
+                                    <template x-for="g in (throughput?.groups ?? [])" :key="g.name">
+                                        <tr>
+                                            <td class="mono" x-text="g.name"></td>
+                                            <td class="num" x-text="formatRate(g.rate)"></td>
+                                            <td class="num muted" x-text="formatCount(g.total)"></td>
+                                            <td class="num muted" x-text="formatCount(g.idleCycles)"></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                            <div class="empty empty-sm" x-show="!(throughput?.groups ?? []).length">
+                                <svg class="ico"><use href="#i-empty"/></svg><span>No agent groups registered.</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="dash-row" x-show="(throughput?.processors ?? []).length || (throughput?.queues ?? []).length">
+                        <div class="card" x-show="(throughput?.processors ?? []).length">
+                            <div class="card-head"><h2>Processors</h2><span class="card-meta" x-text="(throughput?.processors?.length ?? 0) + ' processor(s)'"></span></div>
+                            <table class="data-table">
+                                <thead><tr><th>Processor</th><th class="num">Rate</th><th class="num">Total</th></tr></thead>
+                                <tbody>
+                                    <template x-for="p in (throughput?.processors ?? [])" :key="p.name">
+                                        <tr>
+                                            <td class="mono" x-text="p.name"></td>
+                                            <td class="num" x-text="formatRate(p.rate)"></td>
+                                            <td class="num muted" x-text="formatCount(p.total)"></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="card" x-show="(throughput?.queues ?? []).length">
+                            <div class="card-head"><h2>Queue depth</h2><span class="card-meta" x-text="(throughput?.queues?.length ?? 0) + ' queue(s)'"></span></div>
+                            <table class="data-table">
+                                <thead><tr><th>Path</th><th class="num">Depth</th></tr></thead>
+                                <tbody>
+                                    <template x-for="q in (throughput?.queues ?? [])" :key="q.path">
+                                        <tr>
+                                            <td class="mono muted" x-text="q.path" :title="q.path"></td>
+                                            <td class="num" x-text="formatCount(q.depth)"></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <p class="view-sub small" x-show="(throughput?.nodes ?? []).length">
+                        Per-node fire counts:
+                        <span x-text="(throughput?.nodes?.length ?? 0) + ' node(s) reporting'"></span>
+                        — visible on processor graphml panel (Topology view) when PerformanceMonitorAudit is bound.
+                    </p>
+                </div>
+
+                <!-- Soft hint when counters service isn't operational (no-op
+                     impl installed because mongoose.performanceMonitoring.enabled
+                     is false). Keeps the Dashboard honest about why the
+                     Throughput card is missing instead of silently hiding it. -->
+                <div class="card" x-show="!throughput">
+                    <div class="card-head"><h2>Throughput</h2><span class="card-meta">disabled</span></div>
+                    <p class="view-sub small" style="padding:0.75rem 1rem">
+                        Performance monitoring is off. Set
+                        <code>mongoose.performanceMonitoring.enabled: true</code> in the server YAML
+                        to enable per-feed / per-group / per-processor counter sampling here.
+                    </p>
+                </div>
             </section>
 
             <!-- ─── Commands ───────────────────────────────────────────── -->
