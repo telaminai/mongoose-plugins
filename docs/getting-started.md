@@ -54,7 +54,7 @@ Three idiomatic styles:
     services:
       - name: state-cache
         serviceClass: com.telamin.mongoose.plugin.svc.cache.Cache
-        instance: !!com.telamin.mongoose.plugin.svc.cache.JsonFileCache
+        service: !!com.telamin.mongoose.plugin.svc.cache.JsonFileCache
           fileName: ./data-out/state.json
           maxSize: 10000
     ```

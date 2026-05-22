@@ -38,6 +38,7 @@
     </defs>
     <symbol id="i-dashboard" viewBox="0 0 24 24"><g stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></g></symbol>
     <symbol id="i-commands" viewBox="0 0 24 24"><g stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><polyline points="7 9 10 12 7 15"/><line x1="13" y1="15" x2="17" y2="15"/></g></symbol>
+    <symbol id="i-console" viewBox="0 0 24 24"><g stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4" width="19" height="16" rx="2"/><polyline points="6 9 9 12 6 15"/><polyline points="11 9 14 12 11 15"/><line x1="16" y1="16" x2="19" y2="16"/></g></symbol>
     <symbol id="i-logs" viewBox="0 0 24 24"><g stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="14" y2="18"/></g></symbol>
     <symbol id="i-services" viewBox="0 0 24 24"><g stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l9 5v10l-9 5-9-5V7z"/><path d="M3 7l9 5 9-5"/><line x1="12" y1="12" x2="12" y2="22"/></g></symbol>
     <symbol id="i-agents" viewBox="0 0 24 24"><g stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="1.5"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><line x1="9" y1="2.5" x2="9" y2="6"/><line x1="15" y1="2.5" x2="15" y2="6"/><line x1="9" y1="18" x2="9" y2="21.5"/><line x1="15" y1="18" x2="15" y2="21.5"/><line x1="2.5" y1="9" x2="6" y2="9"/><line x1="2.5" y1="15" x2="6" y2="15"/><line x1="18" y1="9" x2="21.5" y2="9"/><line x1="18" y1="15" x2="21.5" y2="15"/></g></symbol>
@@ -58,6 +59,9 @@
     <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="i-logout" viewBox="0 0 24 24"><g stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><polyline points="9 8 5 12 9 16"/><line x1="5" y1="12" x2="15" y2="12"/></g></symbol>
     <symbol id="i-empty" viewBox="0 0 24 24"><g stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4"/><line x1="12" y1="11" x2="12" y2="21"/></g></symbol>
+    <symbol id="i-topology" viewBox="0 0 24 24"><g stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="4" cy="12" r="2"/><circle cx="12" cy="6" r="2"/><circle cx="12" cy="18" r="2"/><circle cx="20" cy="12" r="2"/><line x1="6" y1="12" x2="10" y2="7"/><line x1="6" y1="12" x2="10" y2="17"/><line x1="14" y1="7" x2="18" y2="12"/><line x1="14" y1="17" x2="18" y2="12"/></g></symbol>
+    <symbol id="i-chevron-down" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-chevron-right" viewBox="0 0 24 24"><polyline points="9 6 15 12 9 18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></symbol>
 </svg>
 
 <div class="app">
@@ -104,6 +108,9 @@
                     <svg class="ico"><use href="#i-commands"/></svg><span>Commands</span>
                     <span class="nav-count" x-show="commands.length" x-text="commands.length"></span>
                 </button>
+                <button class="nav-item" :class="{active: activeView==='console'}" @click="go('console')">
+                    <svg class="ico"><use href="#i-console"/></svg><span>Console</span>
+                </button>
                 <button class="nav-item" :class="{active: activeView==='logs'}" @click="go('logs')">
                     <svg class="ico"><use href="#i-logs"/></svg><span>Logs</span>
                     <span class="nav-dot" :class="logsStatus==='live' ? 'on' : ''"></span>
@@ -119,6 +126,9 @@
                 <button class="nav-item" :class="{active: activeView==='agents'}" @click="go('agents')" x-show="agentsAvailable">
                     <svg class="ico"><use href="#i-agents"/></svg><span>Agents</span>
                     <span class="nav-count" x-show="agents.length" x-text="agents.length"></span>
+                </button>
+                <button class="nav-item" :class="{active: activeView==='topology'}" @click="go('topology')" x-show="servicesAvailable && agentsAvailable">
+                    <svg class="ico"><use href="#i-topology"/></svg><span>Topology</span>
                 </button>
                 <button class="nav-item" :class="{active: activeView==='queues'}" @click="go('queues')" x-show="queuesAvailable">
                     <svg class="ico"><use href="#i-queues"/></svg><span>Queues</span>
@@ -157,9 +167,22 @@
                         <h1>Dashboard</h1>
                         <p class="view-sub">Live server identity and JVM health.</p>
                     </div>
-                    <span class="pill" :class="wsPill().cls">
-                        <span class="pill-dot"></span><span x-text="wsPill().label"></span>
-                    </span>
+                    <div class="dashboard-controls">
+                        <label class="refresh-control" title="JVM-snapshot push rate. Lower = less server-side allocation; Off pauses sampling entirely.">
+                            <span class="refresh-label">Refresh</span>
+                            <select x-model.number="monitorRateMs" @change="setMonitorRate(monitorRateMs)">
+                                <option :value="1000">1 s</option>
+                                <option :value="2000">2 s</option>
+                                <option :value="5000">5 s</option>
+                                <option :value="10000">10 s</option>
+                                <option :value="30000">30 s</option>
+                                <option :value="0">Off</option>
+                            </select>
+                        </label>
+                        <span class="pill" :class="wsPill().cls">
+                            <span class="pill-dot"></span><span x-text="wsPill().label"></span>
+                        </span>
+                    </div>
                 </div>
 
                 <div class="stat-grid">
@@ -237,6 +260,132 @@
                         <div class="kv"><span class="kv-k">Started</span><span class="kv-v mono" x-text="formatClock(server?.startTime)"></span></div>
                         <div class="kv"><span class="kv-k">Endpoint</span><span class="kv-v mono" x-text="hostLabel()"></span></div>
                     </div>
+                </div>
+
+                <!-- ─── Throughput ─────────────────────────────────────────
+                     Visible only when MongooseCountersService is operational
+                     (i.e. mongoose.performanceMonitoring.enabled: true). The
+                     throughput field arrives on every /ws/monitor tick when
+                     the Agrona-backed counters service is wired. -->
+                <div class="card" x-show="throughput">
+                    <div class="card-head">
+                        <h2>Throughput</h2>
+                        <span class="card-meta">events per second across the dispatch pipeline</span>
+                    </div>
+                    <div class="dash-row">
+                        <div class="card">
+                            <div class="card-head"><h2>Feeds</h2><span class="card-meta" x-text="(throughput?.feeds?.length ?? 0) + ' source(s)'"></span></div>
+                            <table class="data-table" x-show="(throughput?.feeds ?? []).length">
+                                <thead><tr><th>Feed</th><th class="num">Rate</th><th class="num">Total</th></tr></thead>
+                                <tbody>
+                                    <template x-for="f in (throughput?.feeds ?? [])" :key="f.name">
+                                        <tr>
+                                            <td>
+                                                <button type="button" class="btn-link mono strong"
+                                                        :disabled="!hasService(f.name)"
+                                                        @click="openService(f.name)"
+                                                        x-text="f.name"></button>
+                                            </td>
+                                            <td class="num" x-text="formatRate(f.rate)"></td>
+                                            <td class="num muted" x-text="formatCount(f.total)"></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                            <div class="empty empty-sm" x-show="!(throughput?.feeds ?? []).length">
+                                <svg class="ico"><use href="#i-empty"/></svg><span>No feeds registered.</span>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-head"><h2>Agent groups</h2><span class="card-meta" x-text="(throughput?.groups?.length ?? 0) + ' group(s)'"></span></div>
+                            <table class="data-table" x-show="(throughput?.groups ?? []).length">
+                                <thead><tr><th>Group</th><th class="num">Rate</th><th class="num">Total</th><th class="num">Idle</th></tr></thead>
+                                <tbody>
+                                    <template x-for="g in (throughput?.groups ?? [])" :key="g.name">
+                                        <tr>
+                                            <td>
+                                                <button type="button" class="btn-link mono strong"
+                                                        :disabled="!hasAgent(g.name)"
+                                                        @click="openAgent(g.name)"
+                                                        x-text="g.name"></button>
+                                            </td>
+                                            <td class="num" x-text="formatRate(g.rate)"></td>
+                                            <td class="num muted" x-text="formatCount(g.total)"></td>
+                                            <td class="num muted" x-text="formatCount(g.idleCycles)"></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                            <div class="empty empty-sm" x-show="!(throughput?.groups ?? []).length">
+                                <svg class="ico"><use href="#i-empty"/></svg><span>No agent groups registered.</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="dash-row" x-show="(throughput?.processors ?? []).length || (throughput?.queues ?? []).length">
+                        <div class="card" x-show="(throughput?.processors ?? []).length">
+                            <div class="card-head"><h2>Processors</h2><span class="card-meta" x-text="(throughput?.processors?.length ?? 0) + ' processor(s)'"></span></div>
+                            <table class="data-table">
+                                <thead><tr><th>Processor</th><th class="num">Rate</th><th class="num">Total</th></tr></thead>
+                                <tbody>
+                                    <template x-for="p in (throughput?.processors ?? [])" :key="p.name">
+                                        <tr>
+                                            <td>
+                                                <button type="button" class="btn-link mono strong"
+                                                        :disabled="!groupForProcessor(p.name)"
+                                                        @click="openProcessorByName(p.name)"
+                                                        x-text="p.name"></button>
+                                            </td>
+                                            <td class="num" x-text="formatRate(p.rate)"></td>
+                                            <td class="num muted" x-text="formatCount(p.total)"></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="card" x-show="(throughput?.queues ?? []).length">
+                            <div class="card-head"><h2>Queue depth</h2><span class="card-meta" x-text="(throughput?.queues?.length ?? 0) + ' queue(s)'"></span></div>
+                            <table class="data-table">
+                                <thead><tr><th>Feed</th><th>Consumer</th><th class="num">Depth</th></tr></thead>
+                                <tbody>
+                                    <template x-for="q in (throughput?.queues ?? [])" :key="q.path">
+                                        <tr :title="q.path">
+                                            <td>
+                                                <button type="button" class="btn-link mono strong"
+                                                        :disabled="!hasService(parseQueuePath(q.path).feed)"
+                                                        @click="openService(parseQueuePath(q.path).feed)"
+                                                        x-text="parseQueuePath(q.path).feed || '—'"></button>
+                                            </td>
+                                            <td>
+                                                <button type="button" class="btn-link mono"
+                                                        :disabled="!hasAgent(parseQueuePath(q.path).group)"
+                                                        @click="openAgent(parseQueuePath(q.path).group)"
+                                                        x-text="parseQueuePath(q.path).group || '—'"></button>
+                                            </td>
+                                            <td class="num" x-text="formatCount(q.depth)"></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <p class="view-sub small" x-show="(throughput?.nodes ?? []).length">
+                        Per-node fire counts:
+                        <span x-text="(throughput?.nodes?.length ?? 0) + ' node(s) reporting'"></span>
+                        — visible on processor graphml panel (Topology view) when PerformanceMonitorAudit is bound.
+                    </p>
+                </div>
+
+                <!-- Soft hint when counters service isn't operational (no-op
+                     impl installed because mongoose.performanceMonitoring.enabled
+                     is false). Keeps the Dashboard honest about why the
+                     Throughput card is missing instead of silently hiding it. -->
+                <div class="card" x-show="!throughput">
+                    <div class="card-head"><h2>Throughput</h2><span class="card-meta">disabled</span></div>
+                    <p class="view-sub small" style="padding:0.75rem 1rem">
+                        Performance monitoring is off. Set
+                        <code>mongoose.performanceMonitoring.enabled: true</code> in the server YAML
+                        to enable per-feed / per-group / per-processor counter sampling here.
+                    </p>
                 </div>
             </section>
 
@@ -322,6 +471,50 @@
                 </div>
             </section>
 
+            <!-- ─── Console (interactive terminal) ─────────────────────── -->
+            <section class="view view-fill" x-show="activeView==='console'">
+                <div class="view-head">
+                    <div>
+                        <h1>Console</h1>
+                        <p class="view-sub">Type commands and send them straight to the registry. Tab to autocomplete, ↑/↓ to recall history.</p>
+                    </div>
+                    <button class="btn btn-ghost btn-sm" @click="termClear()">Clear</button>
+                </div>
+                <div class="card card-fill term-card">
+                    <div class="term-pane" x-ref="termPane">
+                        <template x-for="(l, i) in termLines" :key="i">
+                            <div :class="'term-line term-' + l.kind">
+                                <span class="term-prompt" x-show="l.kind==='in'">&gt;</span>
+                                <span class="term-text" x-text="l.text"></span>
+                            </div>
+                        </template>
+                        <div class="term-hint" x-show="!termLines.length">
+                            Try <code>commands</code> to list, <code>server.service.list</code>, or any command from the left.
+                            Press <kbd>Tab</kbd> to complete, <kbd>↑</kbd>/<kbd>↓</kbd> for history.
+                        </div>
+                    </div>
+                    <div class="term-input-row">
+                        <span class="term-prompt">&gt;</span>
+                        <input type="text"
+                               x-ref="termInputEl"
+                               x-model="termInput"
+                               @keydown.enter.prevent="termSubmit()"
+                               @keydown.tab.prevent="termTab()"
+                               @keydown.arrow-up.prevent="termPrev()"
+                               @keydown.arrow-down.prevent="termNext()"
+                               autocomplete="off"
+                               autocapitalize="off"
+                               spellcheck="false"
+                               placeholder="enter a command — try ‘help’ or any from the list">
+                        <div class="term-suggest" x-show="termSuggestions().length">
+                            <template x-for="s in termSuggestions()" :key="s">
+                                <button type="button" class="term-sug" @click="termPickSuggestion(s)" x-text="s"></button>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             <!-- ─── Logs ───────────────────────────────────────────────── -->
             <section class="view view-fill" x-show="activeView==='logs'">
                 <div class="view-head">
@@ -369,73 +562,547 @@
 
             <!-- ─── Services ───────────────────────────────────────────── -->
             <section class="view" x-show="activeView==='services'">
-                <div class="view-head">
+                <!-- List mode -->
+                <template x-if="!serviceDetail">
                     <div>
-                        <h1>Services</h1>
-                        <p class="view-sub">Services registered with the Mongoose runtime.</p>
+                        <div class="view-head">
+                            <div>
+                                <h1>Services</h1>
+                                <p class="view-sub">Services registered with the Mongoose runtime. Click a row for detail.</p>
+                            </div>
+                            <div class="input-icon" style="width:18rem">
+                                <svg class="ico"><use href="#i-search"/></svg>
+                                <input type="search" placeholder="Filter services…" x-model="servicesFilter">
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="seg seg-tabs" x-show="services.length">
+                                <button type="button" class="seg-btn" :class="{active: servicesTab==='all'}"     @click="servicesTab='all'">All <span class="seg-count" x-text="serviceTypeCount('all')"></span></button>
+                                <button type="button" class="seg-btn" :class="{active: servicesTab==='service'}" @click="servicesTab='service'">Services <span class="seg-count" x-text="serviceTypeCount('service')"></span></button>
+                                <button type="button" class="seg-btn" :class="{active: servicesTab==='feed'}"    @click="servicesTab='feed'">Feed <span class="seg-count" x-text="serviceTypeCount('feed')"></span></button>
+                                <button type="button" class="seg-btn" :class="{active: servicesTab==='sink'}"    @click="servicesTab='sink'">Sink <span class="seg-count" x-text="serviceTypeCount('sink')"></span></button>
+                            </div>
+                            <table class="data-table sortable clickable-rows" x-show="services.length">
+                                <thead>
+                                    <tr>
+                                        <th><button type="button" class="th-sort" :class="{active: servicesSortCol==='name'}" @click="sortServices('name')">Name <span class="sort-ind" x-text="sortIndicator('name')"></span></button></th>
+                                        <th><button type="button" class="th-sort" :class="{active: servicesSortCol==='type'}" @click="sortServices('type')">Type <span class="sort-ind" x-text="sortIndicator('type')"></span></button></th>
+                                        <th class="num" x-show="throughput">Rate</th>
+                                        <th><button type="button" class="th-sort" :class="{active: servicesSortCol==='className'}" @click="sortServices('className')">Implementation <span class="sort-ind" x-text="sortIndicator('className')"></span></button></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template x-for="s in sortedFilteredServices()" :key="s.name">
+                                        <tr class="clickable" @click="openService(s.name)" :title="'Open ' + s.name">
+                                            <td class="mono strong" x-text="s.name"></td>
+                                            <td><span class="tag" :class="{ok: s.type==='feed', warn: s.type==='sink'}" x-text="s.type || 'service'"></span></td>
+                                            <td class="num" x-show="throughput" x-text="feedRateLabel(s.name)" :class="feedRateClass(s.name)"></td>
+                                            <td class="mono muted" x-text="s.className"></td>
+                                        </tr>
+                                    </template>
+                                    <template x-if="services.length>0 && sortedFilteredServices().length===0">
+                                        <tr><td colspan="4" class="empty empty-sm"><svg class="ico"><use href="#i-search"/></svg><span>No match for “<span x-text="servicesFilter"></span>”</span></td></tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                            <div class="empty" x-show="!services.length">
+                                <svg class="ico ico-lg"><use href="#i-services"/></svg>
+                                <p>No services reported.</p>
+                            </div>
+                        </div>
                     </div>
-                </div>
-                <div class="card">
-                    <table class="data-table" x-show="services.length">
-                        <thead><tr><th>Name</th><th>Type</th><th>Implementation</th><th>Agent group</th></tr></thead>
-                        <tbody>
-                            <template x-for="s in services" :key="s.name">
-                                <tr>
-                                    <td class="mono strong" x-text="s.name"></td>
-                                    <td><span class="tag" x-text="s.type || 'service'"></span></td>
-                                    <td class="mono muted" x-text="s.className"></td>
-                                    <td class="mono" x-text="s.agentGroup || '—'"></td>
-                                </tr>
-                            </template>
-                        </tbody>
-                    </table>
-                    <div class="empty" x-show="!services.length">
-                        <svg class="ico ico-lg"><use href="#i-services"/></svg>
-                        <p>No services reported.</p>
+                </template>
+
+                <!-- Detail mode -->
+                <template x-if="serviceDetail">
+                    <div>
+                        <div class="view-head">
+                            <div class="crumbs">
+                                <button type="button" class="btn-link" @click="clearServiceDetail()">← Services</button>
+                                <span class="crumb-sep">/</span>
+                                <span class="crumb mono" x-text="serviceDetail.name"></span>
+                            </div>
+                            <span class="tag" :class="{ok: serviceDetail.type==='feed', warn: serviceDetail.type==='sink'}" x-text="serviceDetail.type || 'service'"></span>
+                        </div>
+                        <div class="card detail-card">
+                            <h2 class="mono detail-title" x-text="serviceDetail.name"></h2>
+                            <div class="kv-grid kv-grid-1">
+                                <div class="kv"><span class="kv-k">Type</span><span class="kv-v" x-text="serviceDetail.type || 'service'"></span></div>
+                                <div class="kv"><span class="kv-k">Implementation</span><span class="kv-v mono" x-text="serviceDetail.className || '—'"></span></div>
+                            </div>
+                        </div>
+
+                        <!-- Performance — visible only for feeds when counters
+                             service is operational AND the feed has a matching
+                             entry in throughput.feeds (i.e. has published at
+                             least once since this admin session started). -->
+                        <div class="card detail-card" x-show="serviceDetail.type === 'feed' && feedThroughput(serviceDetail.name)">
+                            <div class="card-head">
+                                <h3>Performance</h3>
+                                <span class="card-meta">live from MongooseCountersService</span>
+                            </div>
+                            <div class="kv-grid">
+                                <div class="kv">
+                                    <span class="kv-k">Rate</span>
+                                    <span class="kv-v mono" :class="feedRateClass(serviceDetail.name)"
+                                          x-text="formatRate(feedThroughput(serviceDetail.name)?.rate)"></span>
+                                </div>
+                                <div class="kv">
+                                    <span class="kv-k">Total published</span>
+                                    <span class="kv-v mono" x-text="formatCount(feedThroughput(serviceDetail.name)?.total)"></span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Configuration (reflective key/value summary) -->
+                        <div class="card detail-card">
+                            <div class="card-head">
+                                <h3>Configuration</h3>
+                                <span class="card-meta" x-show="serviceConfig" x-text="(serviceConfig || []).length + ' propert' + ((serviceConfig || []).length === 1 ? 'y' : 'ies')"></span>
+                            </div>
+                            <p class="view-sub small">Public bean-style getters on the running instance. Values for sensitive-named properties (password, secret, token, credential, apikey) are masked.</p>
+                            <table class="data-table config-table" x-show="serviceConfig && serviceConfig.length">
+                                <thead><tr><th>Property</th><th>Value</th></tr></thead>
+                                <tbody>
+                                    <template x-for="p in (serviceConfig || [])" :key="p.name">
+                                        <tr>
+                                            <td class="mono strong" x-text="p.name"></td>
+                                            <td class="mono">
+                                                <span x-show="!p.sensitive" x-text="p.value === null ? '—' : p.value"></span>
+                                                <span class="tag warn" x-show="p.sensitive">masked</span>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                            <div class="empty empty-sm" x-show="serviceConfig && !serviceConfig.length">
+                                <svg class="ico"><use href="#i-empty"/></svg><span>No readable properties.</span>
+                            </div>
+                            <div class="empty empty-sm" x-show="!serviceConfig && !serviceConfigErr">
+                                <svg class="ico"><use href="#i-empty"/></svg><span>Loading config…</span>
+                            </div>
+                            <div class="empty empty-sm" x-show="serviceConfigErr">
+                                <svg class="ico"><use href="#i-empty"/></svg><span x-text="serviceConfigErr"></span>
+                            </div>
+                        </div>
+
+                        <!-- Consumers section (feeds only) -->
+                        <template x-if="serviceDetail.type === 'feed'">
+                            <div class="card detail-card">
+                                <div class="card-head">
+                                    <h3>Consumers</h3>
+                                    <span class="card-meta" x-text="(serviceDetail.consumers || []).length + ' agent group(s)'"></span>
+                                </div>
+                                <p class="view-sub" x-show="(serviceDetail.consumers || []).length">Agent groups that read this feed. Processors listed under each group all see this feed via the group's read queue.</p>
+                                <template x-for="c in (serviceDetail.consumers || [])" :key="c.path">
+                                    <div class="consumer-block">
+                                        <div class="consumer-head">
+                                            <button type="button" class="btn-link mono strong" :disabled="!hasAgent(c.agentGroup)" @click="openAgent(c.agentGroup)" x-text="c.agentGroup"></button>
+                                            <span class="tag" x-text="c.callback"></span>
+                                            <span class="muted small mono" x-text="c.path"></span>
+                                        </div>
+                                        <ul class="member-list" x-show="(c.processors || []).length">
+                                            <template x-for="p in (c.processors || [])" :key="p">
+                                                <li>
+                                                    <span class="dot-mini processor"></span>
+                                                    <button type="button" class="btn-link mono" @click="openProcessor(c.agentGroup, p)" x-text="p"></button>
+                                                    <span class="muted small">via group</span>
+                                                </li>
+                                            </template>
+                                        </ul>
+                                        <div class="empty empty-sm" x-show="!(c.processors || []).length">
+                                            <svg class="ico"><use href="#i-empty"/></svg><span>No processors registered in this group.</span>
+                                        </div>
+                                    </div>
+                                </template>
+                                <div class="empty empty-sm" x-show="!(serviceDetail.consumers || []).length">
+                                    <svg class="ico"><use href="#i-empty"/></svg><span>No consumers subscribed.</span>
+                                </div>
+                            </div>
+                        </template>
+
+                        <!-- For non-feed services there's nothing to derive; the detail card above is enough -->
+                        <template x-if="serviceDetail.type !== 'feed'">
+                            <div class="card detail-card">
+                                <p class="muted small">No dispatch topology metadata for this entry — feeds and sinks expose subscriber/subscription info; plain services do not.</p>
+                            </div>
+                        </template>
                     </div>
-                </div>
+                </template>
             </section>
 
             <!-- ─── Agents ─────────────────────────────────────────────── -->
             <section class="view" x-show="activeView==='agents'">
-                <div class="view-head">
+                <!-- List mode -->
+                <template x-if="!agentDetail">
                     <div>
-                        <h1>Agents</h1>
-                        <p class="view-sub">Agent groups — the threads that run processors and worker services.</p>
-                    </div>
-                </div>
-                <div class="agent-grid" x-show="agents.length">
-                    <template x-for="a in agents" :key="a.group">
-                        <div class="card agent-card">
-                            <div class="agent-head">
-                                <div>
-                                    <div class="agent-name mono" x-text="a.group"></div>
-                                    <div class="agent-type" x-text="(a.type || 'agent') + ' group'"></div>
-                                </div>
-                                <span class="tag" :class="threadTagClass(a.state)" x-show="a.state" x-text="a.state"></span>
-                                <span class="nav-count" x-show="!a.state" x-text="(a.members ?? []).length"></span>
-                            </div>
-                            <div class="kv-grid kv-grid-1" x-show="a.thread || a.idleStrategy">
-                                <div class="kv" x-show="a.thread"><span class="kv-k">Thread</span><span class="kv-v mono" x-text="a.thread"></span></div>
-                                <div class="kv" x-show="a.idleStrategy"><span class="kv-k">Idle strategy</span><span class="kv-v mono" x-text="a.idleStrategy"></span></div>
-                            </div>
-                            <div class="agent-members">
-                                <span class="field-label">Processors</span>
-                                <ul class="member-list">
-                                    <template x-for="m in (a.members ?? [])" :key="m.name">
-                                        <li><span class="dot-mini" :class="m.kind"></span><span class="mono" x-text="m.name"></span><span class="muted" x-text="m.kind"></span></li>
-                                    </template>
-                                    <li x-show="!(a.members ?? []).length" class="muted">(no processors)</li>
-                                </ul>
+                        <div class="view-head">
+                            <div>
+                                <h1>Agents</h1>
+                                <p class="view-sub">Agent groups — the threads that run processors and worker services. Click a card for detail.</p>
                             </div>
                         </div>
-                    </template>
-                </div>
-                <div class="card" x-show="!agents.length">
-                    <div class="empty">
-                        <svg class="ico ico-lg"><use href="#i-agents"/></svg>
-                        <p>No agent groups reported.</p>
+                        <div class="agent-grid" x-show="agents.length">
+                            <template x-for="a in agents" :key="a.group">
+                                <div class="card agent-card clickable" @click="openAgent(a.group)" :title="'Open ' + a.group">
+                                    <div class="agent-head">
+                                        <div>
+                                            <div class="agent-name mono" x-text="a.group"></div>
+                                            <div class="agent-type" x-text="(a.type || 'agent') + ' group'"></div>
+                                        </div>
+                                        <span class="tag tag-rate" x-show="throughput && groupRateLabel(a.group)" :class="groupRateClass(a.group)" x-text="groupRateLabel(a.group)"></span>
+                                        <span class="tag" :class="threadTagClass(a.state)" x-show="a.state" x-text="a.state"></span>
+                                        <span class="nav-count" x-show="!a.state" x-text="(a.members ?? []).length"></span>
+                                    </div>
+                                    <div class="kv-grid kv-grid-1" x-show="a.thread || a.idleStrategy">
+                                        <div class="kv" x-show="a.thread"><span class="kv-k">Thread</span><span class="kv-v mono" x-text="a.thread"></span></div>
+                                        <div class="kv" x-show="a.idleStrategy"><span class="kv-k">Idle strategy</span><span class="kv-v mono" x-text="a.idleStrategy"></span></div>
+                                    </div>
+                                    <div class="agent-members">
+                                        <span class="field-label">Processors</span>
+                                        <ul class="member-list">
+                                            <template x-for="m in (a.members ?? [])" :key="m.name">
+                                                <li><span class="dot-mini" :class="m.kind"></span><span class="mono" x-text="m.name"></span><span class="muted" x-text="m.kind"></span></li>
+                                            </template>
+                                            <li x-show="!(a.members ?? []).length" class="muted">(no processors)</li>
+                                        </ul>
+                                    </div>
+                                    <div class="kv-grid kv-grid-1" x-show="(a.feeds ?? []).length">
+                                        <div class="kv"><span class="kv-k">Feeds</span><span class="kv-v" x-text="(a.feeds ?? []).length + ' subscribed'"></span></div>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                        <div class="card" x-show="!agents.length">
+                            <div class="empty">
+                                <svg class="ico ico-lg"><use href="#i-agents"/></svg>
+                                <p>No agent groups reported.</p>
+                            </div>
+                        </div>
                     </div>
+                </template>
+
+                <!-- Detail mode -->
+                <template x-if="agentDetail">
+                    <div>
+                        <div class="view-head">
+                            <div class="crumbs">
+                                <button type="button" class="btn-link" @click="clearAgentDetail()">← Agents</button>
+                                <span class="crumb-sep">/</span>
+                                <button type="button" class="btn-link mono" :class="{crumb: !processorDetail}" @click="processorDetail = null" x-text="agentDetail.group"></button>
+                                <template x-if="processorDetail">
+                                    <span><span class="crumb-sep">/</span><span class="crumb mono" x-text="processorDetail.name"></span></span>
+                                </template>
+                            </div>
+                            <span class="tag" :class="threadTagClass(agentDetail.state)" x-show="agentDetail.state" x-text="agentDetail.state"></span>
+                        </div>
+
+                        <!-- Agent overview (always visible in detail mode) -->
+                        <div class="card detail-card">
+                            <h2 class="mono detail-title" x-text="agentDetail.group"></h2>
+                            <div class="kv-grid kv-grid-1">
+                                <div class="kv"><span class="kv-k">Type</span><span class="kv-v" x-text="(agentDetail.kind || agentDetail.type || 'agent') + ' group'"></span></div>
+                                <div class="kv"><span class="kv-k">Processors</span><span class="kv-v" x-text="(agentDetail.members ?? []).length"></span></div>
+                                <div class="kv" x-show="agentDetail.thread"><span class="kv-k">Thread</span><span class="kv-v mono" x-text="agentDetail.thread"></span></div>
+                                <div class="kv" x-show="agentDetail.threadState"><span class="kv-k">Thread state</span><span class="kv-v"><span class="tag" :class="threadTagClass(agentDetail.threadState)" x-text="agentDetail.threadState"></span></span></div>
+                                <div class="kv" x-show="agentDetail.priority"><span class="kv-k">Priority</span><span class="kv-v" x-text="agentDetail.priority + (agentDetail.daemon ? ' (daemon)' : '')"></span></div>
+                                <div class="kv" x-show="agentDetail.idleStrategyClass"><span class="kv-k">Idle strategy</span><span class="kv-v mono" x-text="agentDetail.idleStrategyClass" :title="agentDetail.idleStrategyClass"></span></div>
+                            </div>
+                        </div>
+
+                        <!-- Performance — visible when counters service is on
+                             AND the group has a matching throughput entry. -->
+                        <div class="card detail-card" x-show="!processorDetail && groupThroughput(agentDetail.group)">
+                            <div class="card-head">
+                                <h3>Performance</h3>
+                                <span class="card-meta">live from MongooseCountersService</span>
+                            </div>
+                            <div class="kv-grid">
+                                <div class="kv">
+                                    <span class="kv-k">Rate</span>
+                                    <span class="kv-v mono" :class="groupRateClass(agentDetail.group)"
+                                          x-text="formatRate(groupThroughput(agentDetail.group)?.rate)"></span>
+                                </div>
+                                <div class="kv">
+                                    <span class="kv-k">Events processed</span>
+                                    <span class="kv-v mono" x-text="formatCount(groupThroughput(agentDetail.group)?.total)"></span>
+                                </div>
+                                <div class="kv">
+                                    <span class="kv-k">Idle cycles</span>
+                                    <span class="kv-v mono muted" x-text="formatCount(groupThroughput(agentDetail.group)?.idleCycles)"></span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Processors in this group -->
+                        <div class="card detail-card">
+                            <div class="card-head">
+                                <h3>Processors</h3>
+                                <span class="card-meta" x-text="(agentDetail.members ?? []).length"></span>
+                            </div>
+                            <ul class="member-list">
+                                <template x-for="m in (agentDetail.members ?? [])" :key="m.name">
+                                    <li>
+                                        <span class="dot-mini" :class="m.kind"></span>
+                                        <button type="button" class="btn-link mono" @click="openProcessor(agentDetail.group, m.name)" x-text="m.name"></button>
+                                        <span class="muted small mono" x-text="m.className"></span>
+                                    </li>
+                                </template>
+                                <li x-show="!(agentDetail.members ?? []).length" class="muted">(no processors)</li>
+                            </ul>
+                        </div>
+
+                        <!-- Feeds consumed by this group -->
+                        <div class="card detail-card">
+                            <div class="card-head">
+                                <h3>Feeds consumed</h3>
+                                <span class="card-meta" x-text="(agentDetail.feeds ?? []).length"></span>
+                            </div>
+                            <table class="data-table" x-show="(agentDetail.feeds ?? []).length">
+                                <thead><tr><th>Feed</th><th>Callback</th><th>Read queue</th></tr></thead>
+                                <tbody>
+                                    <template x-for="f in (agentDetail.feeds ?? [])" :key="f.path">
+                                        <tr>
+                                            <td><button type="button" class="btn-link mono strong" :disabled="!hasService(f.feed)" @click="openService(f.feed)" x-text="f.feed"></button></td>
+                                            <td><span class="tag" x-text="f.callback"></span></td>
+                                            <td class="mono muted" x-text="f.path" :title="f.path"></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                            <div class="empty empty-sm" x-show="!(agentDetail.feeds ?? []).length">
+                                <svg class="ico"><use href="#i-empty"/></svg><span>No feed subscriptions for this group.</span>
+                            </div>
+                        </div>
+
+                        <!-- Processor sub-detail -->
+                        <template x-if="processorDetail">
+                            <div class="card detail-card processor-detail">
+                                <div class="card-head">
+                                    <h3>Processor</h3>
+                                    <button type="button" class="btn btn-ghost btn-sm" @click="clearProcessorDetail()">Close</button>
+                                </div>
+                                <div class="kv-grid kv-grid-1">
+                                    <div class="kv"><span class="kv-k">Name</span><span class="kv-v mono strong" x-text="processorDetail.name"></span></div>
+                                    <div class="kv"><span class="kv-k">Class</span><span class="kv-v mono" x-text="processorDetail.className || '—'"></span></div>
+                                    <div class="kv"><span class="kv-k">Agent group</span><span class="kv-v"><button type="button" class="btn-link mono" @click="clearProcessorDetail()" x-text="processorDetail.group"></button></span></div>
+                                </div>
+                                <!-- Performance — visible when counters service is on AND
+                                     a PerformanceMonitorAudit is bound to this processor
+                                     (i.e. processor.{name}.events shows up). The per-node
+                                     fire-count table is the moat-exhibit data — only
+                                     populated when the auditor's auditInvocations() fires. -->
+                                <template x-if="processorThroughput(processorDetail.name)">
+                                    <div>
+                                        <p class="view-sub small">Performance — live from MongooseCountersService.</p>
+                                        <div class="kv-grid">
+                                            <div class="kv"><span class="kv-k">Rate</span>
+                                                <span class="kv-v mono"
+                                                      :class="(processorThroughput(processorDetail.name)?.rate ?? 0) > 0 ? 'rate-live' : ''"
+                                                      x-text="formatRate(processorThroughput(processorDetail.name)?.rate)"></span></div>
+                                            <div class="kv"><span class="kv-k">Total</span>
+                                                <span class="kv-v mono" x-text="formatCount(processorThroughput(processorDetail.name)?.total)"></span></div>
+                                        </div>
+                                        <template x-if="nodesForProcessor(processorDetail.name).length">
+                                            <div>
+                                                <p class="view-sub small" style="margin-top:0.75rem">Per-node invocations (PerformanceMonitorAudit).</p>
+                                                <table class="data-table">
+                                                    <thead><tr><th>Node</th><th class="num">Rate</th><th class="num">Total</th></tr></thead>
+                                                    <tbody>
+                                                        <template x-for="n in nodesForProcessor(processorDetail.name)" :key="n.node">
+                                                            <tr>
+                                                                <td class="mono strong" x-text="n.node"></td>
+                                                                <td class="num" :class="n.rate > 0 ? 'rate-live' : ''" x-text="formatRate(n.rate)"></td>
+                                                                <td class="num muted" x-text="formatCount(n.total)"></td>
+                                                            </tr>
+                                                        </template>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </template>
+                                <!-- Precise per-processor subscriptions (introspection service) -->
+                                <template x-if="processorDetail.subscriptions">
+                                    <div>
+                                        <p class="view-sub small">Feed subscriptions held by this processor (from the introspection service — precise, not group fanout).</p>
+                                        <table class="data-table" x-show="processorDetail.subscriptions.length">
+                                            <thead><tr><th>Feed</th><th>Callback</th></tr></thead>
+                                            <tbody>
+                                                <template x-for="s in processorDetail.subscriptions" :key="s.feed + '/' + s.callback">
+                                                    <tr>
+                                                        <td><button type="button" class="btn-link mono strong" :disabled="!hasService(s.feed)" @click="openService(s.feed)" x-text="s.feed"></button></td>
+                                                        <td><span class="tag" x-text="s.callback"></span></td>
+                                                    </tr>
+                                                </template>
+                                            </tbody>
+                                        </table>
+                                        <div class="empty empty-sm" x-show="!processorDetail.subscriptions.length">
+                                            <svg class="ico"><use href="#i-empty"/></svg><span>This processor holds no feed subscriptions.</span>
+                                        </div>
+                                    </div>
+                                </template>
+                                <!-- Fallback: group fanout when introspection service isn't wired -->
+                                <template x-if="!processorDetail.subscriptions">
+                                    <div>
+                                        <p class="view-sub small">Feeds visible to this processor via its agent group. Per-processor subscriptions aren't being reported by the runtime — this list is the group's fanout.</p>
+                                        <table class="data-table" x-show="feedsForGroup(processorDetail.group).length">
+                                            <thead><tr><th>Feed</th><th>Callback</th><th>Via</th></tr></thead>
+                                            <tbody>
+                                                <template x-for="f in feedsForGroup(processorDetail.group)" :key="f.path">
+                                                    <tr>
+                                                        <td><button type="button" class="btn-link mono strong" :disabled="!hasService(f.feed)" @click="openService(f.feed)" x-text="f.feed"></button></td>
+                                                        <td><span class="tag" x-text="f.callback"></span></td>
+                                                        <td class="muted small">group <span class="mono" x-text="processorDetail.group"></span></td>
+                                                    </tr>
+                                                </template>
+                                            </tbody>
+                                        </table>
+                                        <div class="empty empty-sm" x-show="!feedsForGroup(processorDetail.group).length">
+                                            <svg class="ico"><use href="#i-empty"/></svg><span>This group consumes no feeds.</span>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+            </section>
+
+            <!-- ─── Topology ─────────────────────────────────────────────── -->
+            <section class="view view-fill" x-show="activeView==='topology'">
+                <div class="view-head">
+                    <div>
+                        <h1>Topology</h1>
+                        <p class="view-sub">Feed → agent group → processor. Click any node to open its detail. Click the ⌄ on a processor to inline its compiled graphml (when the resource is shipped with the jar).</p>
+                    </div>
+                    <div class="topology-actions">
+                        <span class="muted small" x-show="topologyError" x-text="topologyError"></span>
+                        <button class="btn btn-ghost btn-sm" @click="topologyRefit()" title="Re-fit graph">Fit</button>
+                        <button class="btn btn-ghost btn-sm" @click="topologyCollapseAll()" x-show="topologyExpandedCount() > 0">Collapse all</button>
+                    </div>
+                </div>
+                <div class="topology-shell">
+                    <div class="topology-canvas" x-ref="topologyCanvas"></div>
+                    <!-- Floating hover tooltip — positioned over the canvas via inline style derived from topologyTip.x/y. -->
+                    <div class="topology-tip" x-show="topologyTip"
+                         :style="topologyTip ? `transform: translate(${Math.min(topologyTip.x + 14, 600)}px, ${topologyTip.y + 14}px)` : ''">
+                        <div class="topology-tip-title" x-text="topologyTip?.title"></div>
+                        <template x-for="(line, idx) in (topologyTip?.lines || [])" :key="idx">
+                            <div class="topology-tip-row">
+                                <span class="topology-tip-k" x-text="line.k" x-show="line.k"></span>
+                                <span class="topology-tip-v mono" x-text="line.v"></span>
+                            </div>
+                        </template>
+                    </div>
+                    <!-- Banner that surfaces "graphml missing" guidance, mirroring the structured 404 from the server. -->
+                    <div class="topology-hint" x-show="topologyHint">
+                        <div class="hint-head">
+                            <strong>No graphml for <span class="mono" x-text="topologyHint?.processor"></span></strong>
+                            <button class="btn btn-ghost btn-sm" @click="topologyHint=null">✕</button>
+                        </div>
+                        <p class="small muted">Looked for <span class="mono" x-text="topologyHint?.expectedResource"></span> on its classloader.</p>
+                        <p class="small" x-text="topologyHint?.hint"></p>
+                    </div>
+                </div>
+                <p class="view-sub small" style="margin-top:0.5rem">
+                    Click a feed or group to open its detail. Click a processor to open its compiled graphml in a dedicated viewer (with filter / scaffold / selection cycle). Shift-click a processor for its detail card. Hover any element for richer info.
+                </p>
+                <div class="topology-legend">
+                    <span class="legend-item"><span class="legend-swatch feed"></span>Feed</span>
+                    <span class="legend-item"><span class="legend-swatch group"></span>Agent group</span>
+                    <span class="legend-item"><span class="legend-swatch processor"></span>Processor</span>
+                </div>
+            </section>
+
+            <!-- ─── Processor graph (dedicated graphml viewer) ────────────── -->
+            <section class="view view-fill" x-show="activeView==='processor-graph'">
+                <div class="view-head">
+                    <div class="crumbs">
+                        <button type="button" class="btn-link" @click="closeProcessorGraph()">← Topology</button>
+                        <span class="crumb-sep">/</span>
+                        <span class="crumb mono" x-text="processorGraphTarget?.group"></span>
+                        <span class="crumb-sep">/</span>
+                        <span class="crumb mono" x-text="processorGraphTarget?.name"></span>
+                    </div>
+                    <div class="proc-stats" x-show="!processorGraphError && !processorGraphHint">
+                        <span x-text="processorGraphNodeCount + ' nodes'"></span>
+                        <span>·</span>
+                        <span x-text="processorGraphEdgeCount + ' edges'"></span>
+                        <span x-show="processorGraphScaffoldHidden > 0" class="muted small">
+                            (hiding <span x-text="processorGraphScaffoldHidden"></span> scaffolding)
+                        </span>
+                    </div>
+                </div>
+
+                <!-- Toolbar — mirrors the fluxtion-web GraphView controls so
+                     the two surfaces feel like the same tool. -->
+                <div class="proc-toolbar" x-show="!processorGraphHint && !processorGraphError">
+                    <label class="ctl">
+                        <span class="ctl-k">Layout</span>
+                        <select x-model="processorGraphLayout" @change="processorGraphApplyLayout()">
+                            <option value="dagre">Dagre ↓</option>
+                            <option value="dagre-lr">Dagre →</option>
+                            <option value="breadthfirst">Breadthfirst</option>
+                            <option value="cose">Force (CoSE)</option>
+                            <option value="concentric">Concentric</option>
+                            <option value="circle">Circle</option>
+                            <option value="grid">Grid</option>
+                        </select>
+                    </label>
+                    <label class="ctl">
+                        <span class="ctl-k">Text</span>
+                        <input type="range" min="0.6" max="1.8" step="0.05"
+                               x-model.number="processorGraphTextScale"
+                               @input="processorGraphApplyScale()">
+                    </label>
+                    <label class="ctl">
+                        <span class="ctl-k">Spacing</span>
+                        <input type="range" min="0.5" max="2" step="0.1"
+                               x-model.number="processorGraphSpacing"
+                               @input="processorGraphApplyLayout()">
+                    </label>
+                    <label class="ctl ctl-toggle">
+                        <input type="checkbox"
+                               x-model="processorGraphHideScaffolding"
+                               @change="processorGraphRender()">
+                        <span>hide scaffolding</span>
+                    </label>
+                    <button class="btn btn-ghost btn-sm" @click="processorGraphApplyFilter()"
+                            :disabled="processorGraphCycleStage === 0"
+                            title="Redraw with only the current selection visible (shortcut: F)">Filter (F)</button>
+                    <button class="btn btn-ghost btn-sm" @click="processorGraphFullGraph()"
+                            :disabled="processorGraphCycleStage === 0 && !processorGraphFilterApplied"
+                            title="Clear selection + restore the full graph">Full graph</button>
+                </div>
+
+                <div class="proc-shell" x-show="!processorGraphHint && !processorGraphError">
+                    <div class="proc-canvas" x-ref="processorCanvas"></div>
+                    <div class="proc-selection-pill" x-show="processorGraphCycleStage > 0 && processorGraphCycleFocus">
+                        <span class="mono" x-text="processorGraphSelectionLabel()"></span>
+                        <span class="muted small" x-show="!processorGraphFilterApplied"> · click to advance · F to filter</span>
+                    </div>
+                    <div class="proc-tip" x-show="processorGraphHoverTip"
+                         :style="processorGraphHoverTip ? `transform: translate(${Math.min(processorGraphHoverTip.x + 14, 600)}px, ${processorGraphHoverTip.y + 14}px)` : ''">
+                        <template x-for="(line, idx) in (processorGraphHoverTip?.lines || [])" :key="idx">
+                            <div class="proc-tip-row">
+                                <span class="proc-tip-k" x-text="line.k" x-show="line.k"></span>
+                                <span class="proc-tip-v mono" x-text="line.v"></span>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
+                <!-- Missing-graphml banner — uses the structured 404 payload
+                     so users see exactly which resource the server expected. -->
+                <div class="proc-empty" x-show="processorGraphHint">
+                    <h3>No graphml for <span class="mono" x-text="processorGraphTarget?.group + '/' + processorGraphTarget?.name"></span></h3>
+                    <p class="small muted">Looked for <span class="mono" x-text="processorGraphHint?.expectedResource"></span> on its classloader.</p>
+                    <p class="small" x-text="processorGraphHint?.hint"></p>
+                </div>
+                <div class="proc-empty" x-show="processorGraphError">
+                    <h3>Couldn't load processor graphml</h3>
+                    <p class="small" x-text="processorGraphError"></p>
                 </div>
             </section>
 
@@ -452,7 +1119,7 @@
                     <template x-for="src in eventSources" :key="src.source">
                         <div class="card queue-card">
                             <div class="card-head">
-                                <h2 class="mono" x-text="src.source"></h2>
+                                <button type="button" class="btn-link mono" :disabled="!hasService(src.source)" @click="openService(src.source)"><h2 class="mono" style="margin:0" x-text="src.source"></h2></button>
                                 <span class="card-meta" x-text="src.queues.length + (src.queues.length===1 ? ' consumer' : ' consumers')"></span>
                             </div>
                             <table class="data-table" x-show="src.queues.length">
@@ -460,7 +1127,7 @@
                                 <tbody>
                                     <template x-for="q in src.queues" :key="q.path">
                                         <tr>
-                                            <td class="mono strong" x-text="q.agentGroup"></td>
+                                            <td><button type="button" class="btn-link mono strong" :disabled="!hasAgent(q.agentGroup)" @click="openAgent(q.agentGroup)" x-text="q.agentGroup"></button></td>
                                             <td><span class="tag" x-text="q.callback"></span></td>
                                             <td class="mono muted" x-text="q.path" :title="q.path"></td>
                                         </tr>

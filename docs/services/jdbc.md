@@ -21,7 +21,7 @@ JDBC connection registry + pool. Each entry is served from a [HikariCP](https://
 services:
   - name: jdbcConnectionLoader
     serviceClass: com.telamin.mongoose.plugin.svc.jdbc.JdbcConnectionLoader
-    instance: !!com.telamin.mongoose.plugin.svc.jdbc.impl.JdbcConnectionLoaderService
+    service: !!com.telamin.mongoose.plugin.svc.jdbc.impl.JdbcConnectionLoaderService
       testConnection: true
       fastFail: false
       connections:

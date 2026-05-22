@@ -4,7 +4,14 @@
   <span class="plugin-tag service">service</span>
 </span>
 
-JLine-backed telnet admin endpoint for a running Mongoose server. Tab-completion against the registered admin command list, in-session history.
+!!! warning "Last-resort interactive admin"
+    The primary interactive command surface is the **Console panel in
+    [`svc-admin-web`](admin-web.md)** — proper terminal rendering, tab
+    completion, history, browser-native, no client install. Use this
+    telnet endpoint only when the web console is unreachable (headless
+    boxes, restricted networks, scripted ops).
+
+JLine-backed telnet admin endpoint for a running Mongoose server. Plain telnet line protocol with server-side echo. Tab-completion + line history are present in the line editor but their behaviour over the wire is client-dependent — proper char-mode telnet clients see them work, `nc` / BSD-telnet-in-line-mode treats them as literal bytes.
 
 ```xml
 <dependency>
@@ -19,7 +26,7 @@ JLine-backed telnet admin endpoint for a running Mongoose server. Tab-completion
 ```yaml
 services:
   - name: adminTelnet
-    instance: !!com.telamin.mongoose.plugin.svc.admintelnet.TelnetAdminCommandProcessor
+    service: !!com.telamin.mongoose.plugin.svc.admintelnet.TelnetAdminCommandProcessor
       listenPort: 2024
       interfaceName: 127.0.0.1
 ```
@@ -30,7 +37,7 @@ Connect:
 telnet 127.0.0.1 2024
 ```
 
-Hit `?` to list available commands; tab-complete is on.
+`commands` lists every registered admin command; `help` / `?` prints the built-in shortlist; `quit` (or `exit`) closes the session. Tab-complete is enabled against the live `AdminCommandRegistry` but only fires for clients that put the connection into character-at-a-time mode; for line-mode clients (the macOS BSD `telnet` default, `nc`) the `\t` byte is treated as a literal — switch to `svc-admin-web`'s Console panel for reliable autocomplete.
 
 ## Configuration reference
 
@@ -48,7 +55,7 @@ Hit `?` to list available commands; tab-complete is on.
 
 ## Examples
 
-- **[how-to/writing-an-admin-command](https://github.com/telaminai/mongoose-examples/tree/main/how-to/writing-an-admin-command)** — register an admin command; `svc-admin-telnet` then surfaces it via the telnet shell with tab-complete.
+- **[how-to/writing-an-admin-command](https://github.com/telaminai/mongoose-examples/tree/main/how-to/writing-an-admin-command)** — register an admin command; `svc-admin-telnet` then surfaces it on the telnet shell, and `svc-admin-web` lists it in the command runner panel.
 
 ## Source
 
