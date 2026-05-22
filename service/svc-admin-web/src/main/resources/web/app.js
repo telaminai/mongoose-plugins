@@ -531,6 +531,18 @@ document.addEventListener('alpine:init', () => {
             return (this.throughput.nodes || []).filter(n => n.processor === processor);
         },
 
+        // Parse a queue path emitted by EFM.sampleQueueDepths. Format:
+        //   /feed/{src}/group/{agentGroup}/subscriber/{Type}#{hash}
+        // Returns { feed, group } — either may be '' if the path doesn't
+        // follow the expected shape (defensive against future format
+        // changes or third-party subscribers).
+        parseQueuePath(path) {
+            if (!path) return { feed: '', group: '' };
+            const m = path.match(/^\/feed\/([^/]+)\/group\/([^/]+)\/subscriber\//);
+            if (!m) return { feed: '', group: '' };
+            return { feed: m[1], group: m[2] };
+        },
+
         // ── topology: lazy lib loader + outer DAG + inline graphml expansion ──
         //
         // Cytoscape is a heavyweight dependency (~425KB) — load it only the

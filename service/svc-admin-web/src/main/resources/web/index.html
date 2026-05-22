@@ -345,11 +345,22 @@
                         <div class="card" x-show="(throughput?.queues ?? []).length">
                             <div class="card-head"><h2>Queue depth</h2><span class="card-meta" x-text="(throughput?.queues?.length ?? 0) + ' queue(s)'"></span></div>
                             <table class="data-table">
-                                <thead><tr><th>Path</th><th class="num">Depth</th></tr></thead>
+                                <thead><tr><th>Feed</th><th>Consumer</th><th class="num">Depth</th></tr></thead>
                                 <tbody>
                                     <template x-for="q in (throughput?.queues ?? [])" :key="q.path">
-                                        <tr>
-                                            <td class="mono muted" x-text="q.path" :title="q.path"></td>
+                                        <tr :title="q.path">
+                                            <td>
+                                                <button type="button" class="btn-link mono strong"
+                                                        :disabled="!hasService(parseQueuePath(q.path).feed)"
+                                                        @click="openService(parseQueuePath(q.path).feed)"
+                                                        x-text="parseQueuePath(q.path).feed || '—'"></button>
+                                            </td>
+                                            <td>
+                                                <button type="button" class="btn-link mono"
+                                                        :disabled="!hasAgent(parseQueuePath(q.path).group)"
+                                                        @click="openAgent(parseQueuePath(q.path).group)"
+                                                        x-text="parseQueuePath(q.path).group || '—'"></button>
+                                            </td>
                                             <td class="num" x-text="formatCount(q.depth)"></td>
                                         </tr>
                                     </template>
