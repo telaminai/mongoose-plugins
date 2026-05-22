@@ -212,6 +212,7 @@ final class MonitoringSampler {
         List<NamedRate> processors = new ArrayList<>();
         List<NodeRate> nodes = new ArrayList<>();
         List<QueueDepth> queues = new ArrayList<>();
+        List<NamedRate> custom = new ArrayList<>();
 
         for (Map.Entry<String, Long> e : current.entrySet()) {
             String label = e.getKey();
@@ -226,6 +227,8 @@ final class MonitoringSampler {
             //   processor.{name}.events
             //   node.{processor}.{node}.invocations
             //   queue.{path}.depth
+            //   service.{name}.{up,errors,...}   — health-service per-service gauges
+            //   anything else                    — surfaced under `custom`
             if (label.startsWith("feed.") && label.endsWith(".published")) {
                 String name = stripPrefixSuffix(label, "feed.", ".published");
                 feeds.add(new NamedRate(name, value, ratePerSec));
@@ -234,6 +237,8 @@ final class MonitoringSampler {
                 Long idleVal = current.get("group." + name + ".idleCycles");
                 long idle = (idleVal == null) ? 0L : idleVal;
                 groups.add(new GroupRate(name, value, ratePerSec, idle));
+            } else if (label.startsWith("group.") && label.endsWith(".idleCycles")) {
+                // paired into the corresponding group.{name}.processed entry above
             } else if (label.startsWith("processor.") && label.endsWith(".events")) {
                 String name = stripPrefixSuffix(label, "processor.", ".events");
                 processors.add(new NamedRate(name, value, ratePerSec));
@@ -251,12 +256,22 @@ final class MonitoringSampler {
             } else if (label.startsWith("queue.") && label.endsWith(".depth")) {
                 String path = stripPrefixSuffix(label, "queue.", ".depth");
                 queues.add(new QueueDepth(path, value));
+            } else if (label.startsWith("service.")) {
+                // Health-service per-service auto-allocated gauges (up,
+                // lastTickEpoch, eventsProcessed, errors). Skip — they're
+                // surfaced under /api/health rather than the Throughput card.
+            } else {
+                // Anything else — app-defined counters (the user's handlers
+                // allocate via MongooseCountersService.counter("app.foo")).
+                // Use the full label as the name so the UI can render it
+                // verbatim.
+                custom.add(new NamedRate(label, value, ratePerSec));
             }
         }
 
         previousCounterValues = current;
         previousTickTs = nowTs;
-        return new Throughput(feeds, groups, processors, nodes, queues);
+        return new Throughput(feeds, groups, processors, nodes, queues, custom);
     }
 
     private static String stripPrefixSuffix(String s, String prefix, String suffix) {
@@ -325,7 +340,8 @@ final class MonitoringSampler {
             List<GroupRate> groups,
             List<NamedRate> processors,
             List<NodeRate> nodes,
-            List<QueueDepth> queues) { }
+            List<QueueDepth> queues,
+            List<NamedRate> custom) { }
 
     public record NamedRate(String name, long total, double rate) { }
     public record GroupRate(String name, long total, double rate, long idleCycles) { }

@@ -368,6 +368,32 @@
                             </table>
                         </div>
                     </div>
+                    <!-- Custom application counters — any counter label that
+                         doesn't match the built-in feed./group./processor./
+                         node./queue. prefixes falls through to this table. The
+                         FX P&L example writes app.{trade,price}.count and
+                         app.mtm.usdCents via MongooseCountersService.counter
+                         from inside its Fluxtion handlers; they show up here. -->
+                    <div class="dash-row" x-show="(throughput?.custom ?? []).length">
+                        <div class="card card-wide">
+                            <div class="card-head">
+                                <h2>Application counters</h2>
+                                <span class="card-meta" x-text="(throughput?.custom?.length ?? 0) + ' counter(s)'"></span>
+                            </div>
+                            <table class="data-table">
+                                <thead><tr><th>Label</th><th class="num">Rate</th><th class="num">Total</th></tr></thead>
+                                <tbody>
+                                    <template x-for="c in (throughput?.custom ?? [])" :key="c.name">
+                                        <tr>
+                                            <td class="mono strong" x-text="c.name"></td>
+                                            <td class="num" :class="c.rate > 0 ? 'rate-live' : ''" x-text="formatRate(c.rate)"></td>
+                                            <td class="num muted" x-text="formatCount(c.total)"></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                     <p class="view-sub small" x-show="(throughput?.nodes ?? []).length">
                         Per-node fire counts:
                         <span x-text="(throughput?.nodes?.length ?? 0) + ' node(s) reporting'"></span>
