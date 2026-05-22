@@ -1,0 +1,1 @@
+<?xml version="1.0" encoding="UTF-8"?><graphml xmlns="http://graphml.graphdrawing.org/xmlns"><graph edgedefault="undirected"><node id="alpha"><data key="vertex_label"><Style properties="EVENTHANDLER"/></data></node><node id="beta"><data key="vertex_label"><Style properties="NODE"/></data></node><edge id="1" source="alpha" target="beta"/></graph></graphml>

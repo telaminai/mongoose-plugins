@@ -48,7 +48,7 @@ eventSinks:
 
 services:
   - name: reference-data
-    instance: !!com.telamin.mongoose.plugin.connector.chronicle.ChronicleMapBuilderCache
+    service: !!com.telamin.mongoose.plugin.connector.chronicle.ChronicleMapBuilderCache
       filePath: ./data/refdata.map
       entries: 1000000
       averageValueSize: 256

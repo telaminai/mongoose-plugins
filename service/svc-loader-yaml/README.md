@@ -30,7 +30,7 @@ You can also configure a static list of YAML files to load at server startup via
 ```yaml
 services:
   - name: yamlEventHandlerLoader
-    instance: !!com.telamin.mongoose.plugin.loader.yaml.EventHandlerLoader
+    service: !!com.telamin.mongoose.plugin.loader.yaml.EventHandlerLoader
       loadAtStartup:
         - yamlFile: ./config/pricing-processor.yaml
           group: pricing-group
