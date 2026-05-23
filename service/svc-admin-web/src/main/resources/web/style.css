@@ -1213,3 +1213,34 @@ textarea { resize: vertical; font-family: ui-monospace, Menlo, monospace; font-s
     .topbar-meta { display: none; }
     .content { padding: 1.1rem; }
 }
+
+/* Server YAML viewer — generous height + token colours.
+   max-height tied to viewport so it actually uses the real estate
+   when the user expands; falls back to scroll if the file is huge. */
+.yaml-view {
+    margin: 0;
+    padding: 0.85rem 1.1rem;
+    max-height: 70vh;
+    min-height: 18rem;
+    overflow: auto;
+    background: var(--surface-deep);
+    border-top: 1px solid var(--border);
+    font-size: 0.78rem;
+    line-height: 1.5;
+    white-space: pre;
+    color: var(--fg);
+}
+.yaml-key      { color: #6cb6ff; font-weight: 600; }   /* light blue */
+.yaml-tag      { color: #c97bff; }                      /* purple — !!class.tags */
+.yaml-string   { color: #a5d6a7; }                      /* green */
+.yaml-num      { color: #ffb86b; }                      /* orange */
+.yaml-bool     { color: #ffb86b; font-weight: 600; }
+.yaml-comment  { color: var(--muted); font-style: italic; }
+
+/* Light-theme overrides — variables in :root carry the base text
+   colour; tokens stay readable against a paler background. */
+:root[data-theme="light"] .yaml-key     { color: #1d4ed8; }
+:root[data-theme="light"] .yaml-tag     { color: #7c3aed; }
+:root[data-theme="light"] .yaml-string  { color: #166534; }
+:root[data-theme="light"] .yaml-num,
+:root[data-theme="light"] .yaml-bool    { color: #c2410c; }

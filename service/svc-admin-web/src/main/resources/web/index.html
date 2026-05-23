@@ -134,6 +134,9 @@
                     <svg class="ico"><use href="#i-queues"/></svg><span>Queues</span>
                     <span class="nav-count" x-show="eventSources.length" x-text="eventSources.length"></span>
                 </button>
+                <button class="nav-item" :class="{active: activeView==='performance'}" @click="go('performance')" x-show="throughput">
+                    <svg class="ico"><use href="#i-topology"/></svg><span>Performance</span>
+                </button>
             </div>
 
             <div class="nav-group" x-show="hasCacheCommands() || hasLoaderCommands()">
@@ -262,16 +265,79 @@
                     </div>
                 </div>
 
-                <!-- ─── Throughput ─────────────────────────────────────────
-                     Visible only when MongooseCountersService is operational
-                     (i.e. mongoose.performanceMonitoring.enabled: true). The
-                     throughput field arrives on every /ws/monitor tick when
-                     the Agrona-backed counters service is wired. -->
+                <!-- Throughput summary — slim card on the Dashboard. The full
+                     throughput / latency surface lives on the dedicated
+                     Performance view (see nav). Shown only when
+                     mongoose.performanceMonitoring.enabled: true is set in
+                     the server YAML. -->
                 <div class="card" x-show="throughput">
                     <div class="card-head">
                         <h2>Throughput</h2>
-                        <span class="card-meta">events per second across the dispatch pipeline</span>
+                        <span class="card-meta">summary — see full Performance view for breakdown</span>
                     </div>
+                    <div class="dash-row" style="padding: 0.5rem 0.75rem 0.25rem;">
+                        <div class="card" style="flex:1;">
+                            <div class="card-head"><h2>Feeds in</h2></div>
+                            <p class="num strong" style="font-size:1.6rem; padding:0.25rem 0.75rem 0.75rem;" x-text="totalFeedRate()"></p>
+                        </div>
+                        <div class="card" style="flex:1;">
+                            <div class="card-head"><h2>Top processor</h2></div>
+                            <p class="mono strong" style="padding:0.25rem 0.75rem 0; min-height:1.4rem;" x-text="topProcessorLabel()"></p>
+                            <p class="num muted" style="padding:0 0.75rem 0.75rem;" x-text="topProcessorRate()"></p>
+                        </div>
+                        <div class="card" style="flex:1;">
+                            <div class="card-head"><h2>Nodes reporting</h2></div>
+                            <p class="num strong" style="font-size:1.6rem; padding:0.25rem 0.75rem 0.75rem;" x-text="(throughput?.nodes?.length ?? 0)"></p>
+                        </div>
+                    </div>
+                    <p style="padding:0 1rem 0.75rem;">
+                        <button class="btn-link" @click="go('performance')">Open Performance view →</button>
+                    </p>
+                </div>
+
+                <!-- Soft hint when counters service isn't operational (no-op
+                     impl installed because mongoose.performanceMonitoring.enabled
+                     is false). Keeps the Dashboard honest about why the
+                     Throughput summary is missing. -->
+                <div class="card" x-show="!throughput">
+                    <div class="card-head"><h2>Throughput</h2><span class="card-meta">disabled</span></div>
+                    <p class="view-sub small" style="padding:0.75rem 1rem">
+                        Performance monitoring is off. Set
+                        <code>mongoose.performanceMonitoring.enabled: true</code> in the server YAML
+                        to enable per-feed / per-group / per-processor counter sampling here.
+                    </p>
+                </div>
+
+                <!-- Server YAML — read on demand from /api/config; mongoose
+                     resolves the config file via the mongooseServer.config.file
+                     system property (set by the boot script). Hidden behind a
+                     toggle so the wiring is one-click visible without
+                     dominating the dashboard. -->
+                <div class="card">
+                    <div class="card-head">
+                        <h2>Server YAML</h2>
+                        <span class="card-meta" x-show="configPath" x-text="configPath"></span>
+                        <span class="card-meta" x-show="!configPath && !configError">click to load</span>
+                        <span class="card-meta" x-show="configError" style="color: var(--bad)" x-text="configError"></span>
+                        <span class="flex-spacer"></span>
+                        <button class="btn btn-ghost btn-sm" @click="loadConfig()" x-show="!configContent">View YAML</button>
+                        <button class="btn btn-ghost btn-sm" @click="loadConfig()" x-show="configContent">Refresh</button>
+                        <button class="btn btn-ghost btn-sm" @click="configContent=''" x-show="configContent">Hide</button>
+                    </div>
+                    <pre class="mono small yaml-view" x-show="configContent" x-html="highlightedConfig()"></pre>
+                </div>
+            </section>
+
+            <!-- ─── Performance — full throughput + latency surface ─────── -->
+            <section class="view" x-show="activeView==='performance'">
+                <div class="view-head">
+                    <div>
+                        <h1>Performance</h1>
+                        <p class="view-sub">events per second across the dispatch pipeline · per-node fire counts · latency percentiles</p>
+                    </div>
+                </div>
+
+                <div class="card" x-show="throughput">
                     <div class="dash-row">
                         <div class="card">
                             <div class="card-head"><h2>Feeds</h2><span class="card-meta" x-text="(throughput?.feeds?.length ?? 0) + ' source(s)'"></span></div>
@@ -322,26 +388,9 @@
                         </div>
                     </div>
                     <div class="dash-row" x-show="(throughput?.processors ?? []).length || (throughput?.queues ?? []).length">
-                        <div class="card" x-show="(throughput?.processors ?? []).length">
-                            <div class="card-head"><h2>Processors</h2><span class="card-meta" x-text="(throughput?.processors?.length ?? 0) + ' processor(s)'"></span></div>
-                            <table class="data-table">
-                                <thead><tr><th>Processor</th><th class="num">Rate</th><th class="num">Total</th></tr></thead>
-                                <tbody>
-                                    <template x-for="p in (throughput?.processors ?? [])" :key="p.name">
-                                        <tr>
-                                            <td>
-                                                <button type="button" class="btn-link mono strong"
-                                                        :disabled="!groupForProcessor(p.name)"
-                                                        @click="openProcessorByName(p.name)"
-                                                        x-text="p.name"></button>
-                                            </td>
-                                            <td class="num" x-text="formatRate(p.rate)"></td>
-                                            <td class="num muted" x-text="formatCount(p.total)"></td>
-                                        </tr>
-                                    </template>
-                                </tbody>
-                            </table>
-                        </div>
+                        <!-- Queue depth on the left so the long queue-path
+                             labels have room to breathe; the narrower
+                             Processors table follows on the right. -->
                         <div class="card" x-show="(throughput?.queues ?? []).length">
                             <div class="card-head"><h2>Queue depth</h2><span class="card-meta" x-text="(throughput?.queues?.length ?? 0) + ' queue(s)'"></span></div>
                             <table class="data-table">
@@ -362,6 +411,26 @@
                                                         x-text="parseQueuePath(q.path).group || '—'"></button>
                                             </td>
                                             <td class="num" x-text="formatCount(q.depth)"></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="card" x-show="(throughput?.processors ?? []).length">
+                            <div class="card-head"><h2>Processors</h2><span class="card-meta" x-text="(throughput?.processors?.length ?? 0) + ' processor(s)'"></span></div>
+                            <table class="data-table">
+                                <thead><tr><th>Processor</th><th class="num">Rate</th><th class="num">Total</th></tr></thead>
+                                <tbody>
+                                    <template x-for="p in (throughput?.processors ?? [])" :key="p.name">
+                                        <tr>
+                                            <td>
+                                                <button type="button" class="btn-link mono strong"
+                                                        :disabled="!groupForProcessor(p.name)"
+                                                        @click="openProcessorByName(p.name)"
+                                                        x-text="p.name"></button>
+                                            </td>
+                                            <td class="num" x-text="formatRate(p.rate)"></td>
+                                            <td class="num muted" x-text="formatCount(p.total)"></td>
                                         </tr>
                                     </template>
                                 </tbody>
@@ -397,20 +466,15 @@
                     <p class="view-sub small" x-show="(throughput?.nodes ?? []).length">
                         Per-node fire counts:
                         <span x-text="(throughput?.nodes?.length ?? 0) + ' node(s) reporting'"></span>
-                        — visible on processor graphml panel (Topology view) when PerformanceMonitorAudit is bound.
+                        — visible on the processor graphml panel + per-node stats tab (open a processor from Topology).
                     </p>
                 </div>
-
-                <!-- Soft hint when counters service isn't operational (no-op
-                     impl installed because mongoose.performanceMonitoring.enabled
-                     is false). Keeps the Dashboard honest about why the
-                     Throughput card is missing instead of silently hiding it. -->
                 <div class="card" x-show="!throughput">
-                    <div class="card-head"><h2>Throughput</h2><span class="card-meta">disabled</span></div>
                     <p class="view-sub small" style="padding:0.75rem 1rem">
                         Performance monitoring is off. Set
-                        <code>mongoose.performanceMonitoring.enabled: true</code> in the server YAML
-                        to enable per-feed / per-group / per-processor counter sampling here.
+                        <code>mongoose.performanceMonitoring.enabled: true</code> (and
+                        <code>latencyHistograms: true</code> for the latency block)
+                        in the server YAML to populate this view.
                     </p>
                 </div>
             </section>
