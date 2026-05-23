@@ -67,6 +67,7 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
     private MongooseServerController serverController;
     private MongooseIntrospectionService introspection;
     private com.telamin.mongoose.service.counters.MongooseCountersService countersService;
+    private com.telamin.mongoose.service.counters.MongooseLatencyService latencyService;
     private byte[] resolvedSessionSecret;
     private final SecureRandom random = new SecureRandom();
     private MonitoringSampler monitoringSampler;
@@ -130,6 +131,12 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
     public void countersService(com.telamin.mongoose.service.counters.MongooseCountersService svc, String name) {
         log.info("Counters service: '{}' name: '{}' operational={}", svc, name, svc.isOperational());
         this.countersService = svc;
+    }
+
+    @ServiceRegistered
+    public void latencyService(com.telamin.mongoose.service.counters.MongooseLatencyService svc, String name) {
+        log.info("Latency service: '{}' name: '{}' operational={}", svc, name, svc.isOperational());
+        this.latencyService = svc;
     }
 
     // EventFlowService → EventSource contract: this admin endpoint does not
@@ -243,7 +250,11 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
                 eventFlowManager.sampleQueueDepths(countersService);
             }
         };
-        monitoringSampler = new MonitoringSampler(metricsIntervalMs, countersForSampler, queueDepthHook);
+        com.telamin.mongoose.service.counters.MongooseLatencyService latencyForSampler =
+                (latencyService != null)
+                        ? latencyService
+                        : com.telamin.mongoose.internal.NoOpLatencyService.INSTANCE;
+        monitoringSampler = new MonitoringSampler(metricsIntervalMs, countersForSampler, latencyForSampler, queueDepthHook);
         monitoringSampler.subscribe(this::broadcastMonitorSnapshot);
         monitoringSampler.start();
 

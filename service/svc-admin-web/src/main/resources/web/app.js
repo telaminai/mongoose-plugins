@@ -127,6 +127,19 @@ document.addEventListener('alpine:init', () => {
         processorGraphCycleStage: 0,   // 0 cleared, 1 focus, 2 neighbours, 3 path, 4 whole graph
         processorGraphCycleFocus: null,
         processorGraphHoverTip: null,  // {x, y, lines} hover panel content
+        // Sibling-tab state — 'graph' shows the cytoscape canvas; 'stats'
+        // shows a sortable / filterable / downloadable per-node table.
+        processorGraphTab: 'graph',
+        processorStatsFilter: '',
+        processorStatsSortCol: 'rate',  // 'node' | 'rate' | 'total'
+        processorStatsSortDir: 'desc',
+        // Per-node latency state — sibling of the throughput table, fed
+        // from throughput.latency.nodes when the latencyHistograms YAML
+        // flag is on. Empty / hidden when latency is null on the wire.
+        latency: null,                  // { nodes: [...], unit: 'ms' } | null
+        processorLatencyFilter: '',
+        processorLatencySortCol: 'p99', // 'node' | 'count' | 'p50' | 'p90' | 'p99' | 'p999' | 'max'
+        processorLatencySortDir: 'desc',
 
         // ── console (terminal) ──
         termInput: '',
@@ -1085,6 +1098,209 @@ document.addEventListener('alpine:init', () => {
 
             // setGraph wipes element classes — re-apply highlight if cycle still active.
             this._applyProcessorGraphHighlight();
+            // ...and re-apply counter overlays (setGraph rebuilt elements
+            // so .has-counter classes + label overlays were wiped).
+            if (this.throughput) this.processorGraphApplyCounters(this.throughput);
+        },
+
+        /**
+         * Overlay per-node counter values on the rendered processor graph.
+         * Filters throughput.nodes to the current target processor and
+         * hands a Map<nodeId, {value, ratePerSec}> to the renderer. The
+         * renderer matches Cytoscape node ids (= Fluxtion field names in
+         * the SEP, which is what PerformanceMonitorAudit reports via
+         * nodeRegistered) and rewrites labels in-place.
+         *
+         * Called from the WS tick handler when the processor-graph view
+         * is active, plus once after setGraph rebuilds elements.
+         */
+        processorGraphApplyCounters(throughput) {
+            const r = this.processorGraphRenderer;
+            const procName = this.processorGraphTarget?.name;
+            if (!r || !procName) return;
+            const map = new Map();
+            for (const n of (throughput.nodes || [])) {
+                if (n.processor === procName) {
+                    map.set(n.node, { value: n.total, ratePerSec: n.rate });
+                }
+            }
+            r.setNodeCounters(map);
+        },
+
+        // ── Per-node stats tab (sibling of the graphml canvas) ───────────
+        // Same data feed as the overlay (throughput.nodes filtered by the
+        // current target processor), exposed as a sortable / filterable
+        // table that survives the cytoscape-renderer regardless of layout
+        // and offers a CSV / JSON download. Useful for debugging when the
+        // overlay says "no data" — if this table is also empty the data
+        // never reached the front-end; if it's populated the gap is in the
+        // renderer wiring.
+        processorStatsRows() {
+            const procName = this.processorGraphTarget?.name;
+            if (!procName) return [];
+            const rows = (this.throughput?.nodes || [])
+                .filter(n => n.processor === procName)
+                .map(n => ({ node: n.node, total: n.total, rate: n.rate }));
+            const f = (this.processorStatsFilter || '').trim().toLowerCase();
+            const filtered = f
+                ? rows.filter(r => (r.node || '').toLowerCase().includes(f))
+                : rows;
+            const col = this.processorStatsSortCol;
+            const sign = this.processorStatsSortDir === 'asc' ? 1 : -1;
+            return [...filtered].sort((a, b) => {
+                const av = a[col], bv = b[col];
+                if (typeof av === 'number' && typeof bv === 'number') {
+                    return av < bv ? -sign : av > bv ? sign : 0;
+                }
+                const as = String(av || '').toLowerCase();
+                const bs = String(bv || '').toLowerCase();
+                return as < bs ? -sign : as > bs ? sign : 0;
+            });
+        },
+
+        processorStatsSort(col) {
+            if (this.processorStatsSortCol === col) {
+                this.processorStatsSortDir =
+                    this.processorStatsSortDir === 'asc' ? 'desc' : 'asc';
+            } else {
+                this.processorStatsSortCol = col;
+                // Numeric columns default to descending so the busiest nodes
+                // float to the top; string columns default to ascending.
+                this.processorStatsSortDir = (col === 'node') ? 'asc' : 'desc';
+            }
+        },
+
+        processorStatsSortIndicator(col) {
+            if (this.processorStatsSortCol !== col) return '';
+            return this.processorStatsSortDir === 'asc' ? '↑' : '↓';
+        },
+
+        // ── Per-node latency table (sibling of the throughput table) ─────
+        processorLatencyAvailable() {
+            return this.latency !== null && Array.isArray(this.latency?.nodes);
+        },
+
+        processorLatencyUnit() {
+            return this.latency?.unit || 'ms';
+        },
+
+        processorLatencyRows() {
+            const procName = this.processorGraphTarget?.name;
+            if (!procName || !this.processorLatencyAvailable()) return [];
+            const rows = this.latency.nodes
+                .filter(n => n.processor === procName)
+                .map(n => ({
+                    node: n.node,
+                    count: n.count,
+                    p50: n.p50, p90: n.p90, p99: n.p99, p999: n.p999, max: n.max,
+                }));
+            const f = (this.processorLatencyFilter || '').trim().toLowerCase();
+            const filtered = f ? rows.filter(r => (r.node || '').toLowerCase().includes(f)) : rows;
+            const col = this.processorLatencySortCol;
+            const sign = this.processorLatencySortDir === 'asc' ? 1 : -1;
+            return [...filtered].sort((a, b) => {
+                const av = a[col], bv = b[col];
+                if (typeof av === 'number' && typeof bv === 'number') {
+                    return av < bv ? -sign : av > bv ? sign : 0;
+                }
+                const as = String(av || '').toLowerCase();
+                const bs = String(bv || '').toLowerCase();
+                return as < bs ? -sign : as > bs ? sign : 0;
+            });
+        },
+
+        processorLatencySort(col) {
+            if (this.processorLatencySortCol === col) {
+                this.processorLatencySortDir =
+                    this.processorLatencySortDir === 'asc' ? 'desc' : 'asc';
+            } else {
+                this.processorLatencySortCol = col;
+                this.processorLatencySortDir = (col === 'node') ? 'asc' : 'desc';
+            }
+        },
+
+        processorLatencySortIndicator(col) {
+            if (this.processorLatencySortCol !== col) return '';
+            return this.processorLatencySortDir === 'asc' ? '↑' : '↓';
+        },
+
+        // Current toggle state for the Latency capture flag, read from the
+        // WS payload's `latency.enabled` field. Reflects server truth on the
+        // next tick after a toggle command resolves.
+        processorLatencyEnabled() {
+            return !!(this.latency && this.latency.enabled);
+        },
+
+        async processorLatencyToggle() {
+            await this.invokeRaw('latency.toggle', []);
+            // No optimistic update — the next WS tick (≤ metricsIntervalMs)
+            // re-emits the latency block with the new `enabled` value.
+        },
+
+        async processorLatencyResetHistograms() {
+            await this.invokeRaw('latency.reset', []);
+        },
+
+        processorLatencyDownload(format) {
+            const procName = this.processorGraphTarget?.name || 'processor';
+            const unit = this.processorLatencyUnit();
+            const rows = this.processorLatencyRows();
+            const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const base = `${procName}-per-node-latency-${stamp}`;
+            let blob, name;
+            if (format === 'json') {
+                blob = new Blob(
+                    [JSON.stringify({ processor: procName, unit, generatedAt: new Date().toISOString(), rows }, null, 2)],
+                    { type: 'application/json' });
+                name = `${base}.json`;
+            } else {
+                const head = `node,count,p50_${unit},p90_${unit},p99_${unit},p99_9_${unit},max_${unit}`;
+                const body = rows.map(r => {
+                    const cell = String(r.node).includes(',')
+                        ? `"${String(r.node).replace(/"/g, '""')}"`
+                        : r.node;
+                    return `${cell},${r.count},${r.p50},${r.p90},${r.p99},${r.p999},${r.max}`;
+                }).join('\n');
+                blob = new Blob([head + '\n' + body + '\n'], { type: 'text/csv' });
+                name = `${base}.csv`;
+            }
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = name;
+            document.body.appendChild(a); a.click(); document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        },
+
+        processorStatsDownload(format) {
+            const procName = this.processorGraphTarget?.name || 'processor';
+            const rows = this.processorStatsRows();
+            const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const base = `${procName}-per-node-stats-${stamp}`;
+            let blob, name;
+            if (format === 'json') {
+                blob = new Blob(
+                    [JSON.stringify({ processor: procName, generatedAt: new Date().toISOString(), rows }, null, 2)],
+                    { type: 'application/json' });
+                name = `${base}.json`;
+            } else {
+                const head = 'node,total,rate_per_sec';
+                const body = rows.map(r => {
+                    const cell = String(r.node).includes(',')
+                        ? `"${String(r.node).replace(/"/g, '""')}"`
+                        : r.node;
+                    return `${cell},${r.total},${r.rate}`;
+                }).join('\n');
+                blob = new Blob([head + '\n' + body + '\n'], { type: 'text/csv' });
+                name = `${base}.csv`;
+            }
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = name;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
         },
 
         processorGraphApplyLayout() {
@@ -1266,6 +1482,18 @@ document.addEventListener('alpine:init', () => {
                         if (this.activeView === 'topology') {
                             this.topologyApplyPulse(frame.throughput);
                         }
+                        // Per-node counter overlay on the processor graphml
+                        // viewer. Same activeView gate — no overlay walk
+                        // unless the user is looking at that surface.
+                        if (this.activeView === 'processor-graph') {
+                            this.processorGraphApplyCounters(frame.throughput);
+                        }
+                    }
+                    // Latency block is null when the latencyHistograms flag
+                    // is off — preserve last-known instead of clobbering so
+                    // the table doesn't flicker on a transient null frame.
+                    if (frame.latency) {
+                        this.latency = frame.latency;
                     }
                 } catch (e) {
                     console.warn('bad monitor frame', e);
