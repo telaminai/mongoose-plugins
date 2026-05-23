@@ -324,8 +324,7 @@
                         <button class="btn btn-ghost btn-sm" @click="loadConfig()" x-show="configContent">Refresh</button>
                         <button class="btn btn-ghost btn-sm" @click="configContent=''" x-show="configContent">Hide</button>
                     </div>
-                    <pre class="mono small" x-show="configContent" x-text="configContent"
-                         style="padding:0.75rem 1rem; margin:0; max-height:24rem; overflow:auto; background:var(--surface-deep); border-top:1px solid var(--border);"></pre>
+                    <pre class="mono small yaml-view" x-show="configContent" x-html="highlightedConfig()"></pre>
                 </div>
             </section>
 
@@ -389,26 +388,9 @@
                         </div>
                     </div>
                     <div class="dash-row" x-show="(throughput?.processors ?? []).length || (throughput?.queues ?? []).length">
-                        <div class="card" x-show="(throughput?.processors ?? []).length">
-                            <div class="card-head"><h2>Processors</h2><span class="card-meta" x-text="(throughput?.processors?.length ?? 0) + ' processor(s)'"></span></div>
-                            <table class="data-table">
-                                <thead><tr><th>Processor</th><th class="num">Rate</th><th class="num">Total</th></tr></thead>
-                                <tbody>
-                                    <template x-for="p in (throughput?.processors ?? [])" :key="p.name">
-                                        <tr>
-                                            <td>
-                                                <button type="button" class="btn-link mono strong"
-                                                        :disabled="!groupForProcessor(p.name)"
-                                                        @click="openProcessorByName(p.name)"
-                                                        x-text="p.name"></button>
-                                            </td>
-                                            <td class="num" x-text="formatRate(p.rate)"></td>
-                                            <td class="num muted" x-text="formatCount(p.total)"></td>
-                                        </tr>
-                                    </template>
-                                </tbody>
-                            </table>
-                        </div>
+                        <!-- Queue depth on the left so the long queue-path
+                             labels have room to breathe; the narrower
+                             Processors table follows on the right. -->
                         <div class="card" x-show="(throughput?.queues ?? []).length">
                             <div class="card-head"><h2>Queue depth</h2><span class="card-meta" x-text="(throughput?.queues?.length ?? 0) + ' queue(s)'"></span></div>
                             <table class="data-table">
@@ -429,6 +411,26 @@
                                                         x-text="parseQueuePath(q.path).group || '—'"></button>
                                             </td>
                                             <td class="num" x-text="formatCount(q.depth)"></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="card" x-show="(throughput?.processors ?? []).length">
+                            <div class="card-head"><h2>Processors</h2><span class="card-meta" x-text="(throughput?.processors?.length ?? 0) + ' processor(s)'"></span></div>
+                            <table class="data-table">
+                                <thead><tr><th>Processor</th><th class="num">Rate</th><th class="num">Total</th></tr></thead>
+                                <tbody>
+                                    <template x-for="p in (throughput?.processors ?? [])" :key="p.name">
+                                        <tr>
+                                            <td>
+                                                <button type="button" class="btn-link mono strong"
+                                                        :disabled="!groupForProcessor(p.name)"
+                                                        @click="openProcessorByName(p.name)"
+                                                        x-text="p.name"></button>
+                                            </td>
+                                            <td class="num" x-text="formatRate(p.rate)"></td>
+                                            <td class="num muted" x-text="formatCount(p.total)"></td>
                                         </tr>
                                     </template>
                                 </tbody>

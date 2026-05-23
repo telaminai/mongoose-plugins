@@ -1772,6 +1772,50 @@ document.addEventListener('alpine:init', () => {
             return p ? this.formatRate(p.rate) : '';
         },
 
+        // Token-coloured YAML for the View YAML card. Regex-based, no
+        // external dependency — covers the common shapes the operator
+        // cares about (keys, !!fqn tags, strings, numbers, comments).
+        // Returns HTML; the escape() pass neutralises user content
+        // before injecting highlight spans, so x-html is safe.
+        highlightedConfig() {
+            if (!this.configContent) return '';
+            const escape = (s) => s
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+            return this.configContent.split('\n').map((line) => {
+                // Pull a trailing comment off first so colour spans don't
+                // bleed into commentary or get confused by `#` inside text.
+                let code = line, comment = '';
+                const hashIdx = line.indexOf('#');
+                if (hashIdx >= 0) {
+                    const before = line.slice(0, hashIdx);
+                    const dq = (before.match(/"/g) || []).length;
+                    const sq = (before.match(/'/g) || []).length;
+                    if (dq % 2 === 0 && sq % 2 === 0) {
+                        code = line.slice(0, hashIdx);
+                        comment = line.slice(hashIdx);
+                    }
+                }
+                let html = escape(code)
+                    // !!fully.qualified.ClassName YAML tags
+                    .replace(/(!!\S+)/g, '<span class="yaml-tag">$1</span>')
+                    // "double-quoted" + 'single-quoted' strings
+                    .replace(/(&quot;[^&]*?&quot;)/g, '<span class="yaml-string">$1</span>')
+                    .replace(/('[^']*?')/g, '<span class="yaml-string">$1</span>')
+                    // `  someKey:` at indent
+                    .replace(/^(\s*)([A-Za-z_][\w-]*)(\s*:)/, '$1<span class="yaml-key">$2</span>$3')
+                    // `- listKey:` items
+                    .replace(/^(\s*-\s+)([A-Za-z_][\w-]*)(\s*:)/, '$1<span class="yaml-key">$2</span>$3')
+                    // bare numbers + scalar keywords after a colon
+                    .replace(/(:\s+)(-?\d+(?:\.\d+)?)\b/g, '$1<span class="yaml-num">$2</span>')
+                    .replace(/(:\s+)(true|false|null|~|yes|no|on|off)\b/g, '$1<span class="yaml-bool">$2</span>');
+                if (comment) html += '<span class="yaml-comment">' + escape(comment) + '</span>';
+                return html;
+            }).join('\n');
+        },
+
         // Fetch the server YAML on demand via /api/config. The endpoint reads
         // the file each request, so a Refresh click picks up live edits.
         async loadConfig() {
