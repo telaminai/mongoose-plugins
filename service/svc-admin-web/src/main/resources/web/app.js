@@ -21,6 +21,12 @@ document.addEventListener('alpine:init', () => {
     Alpine.data('adminApp', () => ({
         // ── shell ──
         activeView: 'dashboard',
+
+        // Server YAML (Dashboard "View YAML" card). configContent != ''
+        // doubles as the open/closed flag — empty string means collapsed.
+        configContent: '',
+        configPath: '',
+        configError: '',
         theme: document.documentElement.getAttribute('data-theme') || 'light',
         now: Date.now(),
         toasts: [],
@@ -1744,6 +1750,47 @@ document.addEventListener('alpine:init', () => {
             if (r >= 1_000)     return (r / 1_000).toFixed(r < 10_000 ? 1 : 0) + 'k/s';
             if (r >= 10)        return r.toFixed(0) + '/s';
             return r.toFixed(2) + '/s';
+        },
+
+        // ── Performance-page summary helpers (Dashboard slim card) ───────
+        totalFeedRate() {
+            const feeds = this.throughput?.feeds ?? [];
+            const total = feeds.reduce((acc, f) => acc + (f.rate || 0), 0);
+            return this.formatRate(total);
+        },
+
+        // Picks the busiest processor by rate. Returns '—' when none reporting.
+        topProcessor() {
+            const procs = this.throughput?.processors ?? [];
+            if (!procs.length) return null;
+            return procs.reduce((best, p) =>
+                (best == null || (p.rate || 0) > (best.rate || 0)) ? p : best, null);
+        },
+        topProcessorLabel() { return this.topProcessor()?.name ?? '—'; },
+        topProcessorRate()  {
+            const p = this.topProcessor();
+            return p ? this.formatRate(p.rate) : '';
+        },
+
+        // Fetch the server YAML on demand via /api/config. The endpoint reads
+        // the file each request, so a Refresh click picks up live edits.
+        async loadConfig() {
+            this.configError = '';
+            try {
+                const r = await fetch('/api/config', { credentials: 'same-origin' });
+                const body = await r.json();
+                if (!r.ok) {
+                    this.configError = body?.err || ('HTTP ' + r.status);
+                    this.configContent = '';
+                    this.configPath = body?.path || '';
+                    return;
+                }
+                this.configPath = body.path || '';
+                this.configContent = body.content || '';
+            } catch (e) {
+                this.configError = 'network error: ' + e.message;
+                this.configContent = '';
+            }
         },
 
         // Lookup helpers for the per-row badges on Services + Agents views.
