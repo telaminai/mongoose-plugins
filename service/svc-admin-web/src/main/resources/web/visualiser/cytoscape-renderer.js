@@ -42,6 +42,30 @@ function shapeForNodeKind(nodeKind) {
   return NODE_KIND_SHAPES[nodeKind] ?? NODE_KIND_SHAPES.UNKNOWN;
 }
 
+// Compact human-readable counter formatting for the on-graph overlay.
+// The overlay sits *inside* the node box so brevity beats precision —
+// "1.2k" + "4.0/s" reads at a glance; "12,345" + "4.00/s" would crowd
+// the shape. Negative gauges keep their sign (e.g. P&L can be -$43M).
+function formatTotal(value) {
+  if (!Number.isFinite(value)) return "—";
+  const abs = Math.abs(value);
+  const sign = value < 0 ? "-" : "";
+  if (abs >= 1e9) return `${sign}${(abs / 1e9).toFixed(abs >= 1e10 ? 0 : 1)}B`;
+  if (abs >= 1e6) return `${sign}${(abs / 1e6).toFixed(abs >= 1e7 ? 0 : 1)}M`;
+  if (abs >= 1e3) return `${sign}${(abs / 1e3).toFixed(abs >= 1e4 ? 0 : 1)}k`;
+  return `${sign}${abs}`;
+}
+
+function formatRate(ratePerSec) {
+  if (!Number.isFinite(ratePerSec)) return "0/s";
+  const abs = Math.abs(ratePerSec);
+  if (abs >= 1e6) return `${(ratePerSec / 1e6).toFixed(1)}M/s`;
+  if (abs >= 1e3) return `${(ratePerSec / 1e3).toFixed(1)}k/s`;
+  if (abs >= 10)  return `${ratePerSec.toFixed(0)}/s`;
+  if (abs >= 1)   return `${ratePerSec.toFixed(1)}/s`;
+  return abs === 0 ? "0/s" : `${ratePerSec.toFixed(2)}/s`;
+}
+
 export function canonicalGraphToElements(graph, options = {}) {
   const visibleNodeIds = options.visibleNodeIds ?? null;
   const visibleNodeSet = visibleNodeIds ? new Set(visibleNodeIds) : null;
@@ -50,21 +74,28 @@ export function canonicalGraphToElements(graph, options = {}) {
 
   const nodeElements = nodes
     .filter((node) => !visibleNodeSet || visibleNodeSet.has(node.id))
-    .map((node) => ({
-      group: "nodes",
-      data: {
-        id: node.id,
-        label: node.displayName ?? node.id,
-        className: node.className ?? "",
-        nodeKind: node.nodeKind ?? "UNKNOWN",
-        colour: colourForNodeKind(node.nodeKind),
-        shape: shapeForNodeKind(node.nodeKind),
-        labelLines: node.labelLines ?? [],
-        attributes: node.attributes ?? {},
-        incomingEdges: node.incomingEdges ?? [],
-        outgoingEdges: node.outgoingEdges ?? []
-      }
-    }));
+    .map((node) => {
+      const baseLabel = node.displayName ?? node.id;
+      return ({
+        group: "nodes",
+        data: {
+          id: node.id,
+          // `baseLabel` is the static name; `label` is what Cytoscape
+          // renders. Counter overlay rewrites `label` to baseLabel + a
+          // rate/total line; clearing the overlay restores baseLabel.
+          baseLabel,
+          label: baseLabel,
+          className: node.className ?? "",
+          nodeKind: node.nodeKind ?? "UNKNOWN",
+          colour: colourForNodeKind(node.nodeKind),
+          shape: shapeForNodeKind(node.nodeKind),
+          labelLines: node.labelLines ?? [],
+          attributes: node.attributes ?? {},
+          incomingEdges: node.incomingEdges ?? [],
+          outgoingEdges: node.outgoingEdges ?? []
+        }
+      });
+    });
 
   const nodeIdSet = new Set(nodeElements.map((element) => element.data.id));
   const edgeElements = edges
@@ -133,7 +164,10 @@ function createStylesheet(theme = "light", scale = 1) {
         color: palette.nodeLabel,
         "font-size": fontSize,
         "font-weight": 500,
-        "text-wrap": "ellipsis",
+        // wrap (not ellipsis) so the counter-overlay's "name\nrate · total"
+        // renders as two lines. Plain nodes without overlay still wrap any
+        // long base label rather than truncating mid-word.
+        "text-wrap": "wrap",
         "text-max-width": textMax,
         "text-valign": "center",
         "text-halign": "center",
@@ -146,6 +180,16 @@ function createStylesheet(theme = "light", scale = 1) {
         "border-opacity": 0.7,
         "transition-property": "opacity, background-color, border-color, border-opacity, background-opacity",
         "transition-duration": "200ms"
+      }
+    },
+    {
+      // Nodes with a live counter overlay get a brighter outline + slightly
+      // taller box so the second label line fits without crowding the shape.
+      selector: "node.has-counter",
+      style: {
+        height: h + 12,
+        "border-width": 2,
+        "border-opacity": 0.95
       }
     },
     {
@@ -377,6 +421,36 @@ export function createCytoscapeRenderer(container, options = {}) {
       cy.elements().remove();
       cy.add(elements);
       return elements;
+    },
+    /**
+     * Overlay per-node counter values fed by the Mongoose
+     * PerformanceMonitorAudit. `byNodeId` is a Map keyed by Cytoscape node
+     * id (= Fluxtion field name in the SEP) → { value, ratePerSec }.
+     *
+     * Each matching node's label becomes "<baseLabel>\n<rate> · <total>"
+     * and picks up the `.has-counter` class for a slightly brighter
+     * outline + taller box. Nodes not present in the map fall back to
+     * their plain baseLabel so a counter going stale doesn't leave a
+     * frozen value showing.
+     *
+     * Cheap (≤ N node-data writes per tick); called from the WS tick
+     * handler whenever the processor-graph view is active.
+     */
+    setNodeCounters(byNodeId) {
+      const map = byNodeId instanceof Map ? byNodeId : new Map();
+      cy.nodes().forEach((node) => {
+        const baseLabel = node.data("baseLabel") || node.data("label") || node.id();
+        const rec = map.get(node.id());
+        if (rec) {
+          const rate = formatRate(rec.ratePerSec);
+          const total = formatTotal(rec.value);
+          node.data("label", `${baseLabel}\n${rate} · ${total}`);
+          node.addClass("has-counter");
+        } else {
+          node.data("label", baseLabel);
+          node.removeClass("has-counter");
+        }
+      });
     },
     runLayout(layoutName, opts = {}) {
       createLayout(cy, layoutName, opts.spacing ?? 1).run();

@@ -992,6 +992,52 @@ textarea { resize: vertical; font-family: ui-monospace, Menlo, monospace; font-s
 }
 .proc-canvas { flex: 1; min-height: 400px; height: 100%; width: 100%; }
 
+/* Per-node stats sibling tab — mirrors proc-shell sizing so switching
+   tabs doesn't reflow the page, but uses a scrollable table layout
+   instead of a fixed cytoscape canvas. */
+.proc-stats-shell {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: auto;
+    padding: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+}
+.proc-stats-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+}
+.proc-stats-toolbar .ctl { display: inline-flex; align-items: center; gap: 0.35rem; }
+.proc-stats-toolbar .ctl-k {
+    font-size: 0.78rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.proc-stats-toolbar input[type="text"] {
+    padding: 0.25rem 0.5rem;
+    background: var(--surface-deep);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--fg);
+    min-width: 12rem;
+}
+.proc-stats-shell .flex-spacer { flex: 1; }
+.proc-stats-shell table { width: 100%; }
+.proc-stats-h {
+    margin: 0.4rem 0 0.15rem;
+    font-size: 0.95rem;
+    font-weight: 600;
+}
+.proc-stats-h:first-of-type { margin-top: 0; }
+
 .proc-selection-pill {
     position: absolute;
     top: 0.5rem;
