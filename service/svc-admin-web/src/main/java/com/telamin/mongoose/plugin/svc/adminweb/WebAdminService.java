@@ -213,6 +213,7 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         // Dashboard endpoints.
         javalin.get("/api/server", this::handleServer);
         javalin.get("/api/jvm", this::handleJvm);
+        javalin.get("/api/config", this::handleConfig);
 
         // Dispatcher introspection. Services/agents are structured JSON sourced
         // by invoking + parsing the server.service.list / server.processors.list
@@ -492,6 +493,25 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
 
     private void handleJvm(Context ctx) {
         ctx.json(MonitoringSampler.snapshot());
+    }
+
+    // Returns the YAML config file the server was booted with as plain text,
+    // wrapped in a small JSON envelope { path, content } so the UI can show
+    // both. Read once per request — cheap, and operators expect a live read.
+    private void handleConfig(Context ctx) {
+        String path = System.getProperty("mongooseServer.config.file");
+        if (path == null || path.isEmpty()) {
+            ctx.status(HttpStatus.NOT_FOUND);
+            ctx.json(Map.of("err", "mongooseServer.config.file system property not set"));
+            return;
+        }
+        try {
+            String content = java.nio.file.Files.readString(java.nio.file.Paths.get(path));
+            ctx.json(Map.of("path", path, "content", content));
+        } catch (java.io.IOException e) {
+            ctx.status(HttpStatus.INTERNAL_SERVER_ERROR);
+            ctx.json(Map.of("path", path, "err", "read failed: " + e.getMessage()));
+        }
     }
 
     // -------- dispatcher introspection --------
