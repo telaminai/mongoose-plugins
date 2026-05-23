@@ -68,6 +68,8 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
     private MongooseIntrospectionService introspection;
     private com.telamin.mongoose.service.counters.MongooseCountersService countersService;
     private com.telamin.mongoose.service.counters.MongooseLatencyService latencyService;
+    private com.telamin.mongoose.service.audit.MongooseAuditCaptureService auditCapture;
+    private com.telamin.mongoose.service.audit.MongooseAuditIntrospectionService auditIntrospection;
     private byte[] resolvedSessionSecret;
     private final SecureRandom random = new SecureRandom();
     private MonitoringSampler monitoringSampler;
@@ -137,6 +139,18 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
     public void latencyService(com.telamin.mongoose.service.counters.MongooseLatencyService svc, String name) {
         log.info("Latency service: '{}' name: '{}' operational={}", svc, name, svc.isOperational());
         this.latencyService = svc;
+    }
+
+    @ServiceRegistered
+    public void auditCaptureService(com.telamin.mongoose.service.audit.MongooseAuditCaptureService svc, String name) {
+        log.info("Audit capture service: '{}' name: '{}'", svc, name);
+        this.auditCapture = svc;
+    }
+
+    @ServiceRegistered
+    public void auditIntrospectionService(com.telamin.mongoose.service.audit.MongooseAuditIntrospectionService svc, String name) {
+        log.info("Audit introspection service: '{}' name: '{}'", svc, name);
+        this.auditIntrospection = svc;
     }
 
     // EventFlowService → EventSource contract: this admin endpoint does not
@@ -214,6 +228,16 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         javalin.get("/api/server", this::handleServer);
         javalin.get("/api/jvm", this::handleJvm);
         javalin.get("/api/config", this::handleConfig);
+
+        // Audit-log capture endpoints (Phase 2 of the audit-log-viewer
+        // plugin spec). Read endpoints back the introspection service;
+        // control endpoints drive the capture service. Each path
+        // returns 503 with a clear message when the corresponding
+        // service is the NoOp (capture disabled in YAML).
+        javalin.get("/api/audit/files", this::handleAuditList);
+        javalin.get("/api/audit/file/{id}/metadata", this::handleAuditMetadata);
+        javalin.post("/api/audit/{processor}/start", this::handleAuditStart);
+        javalin.post("/api/audit/{processor}/stop", this::handleAuditStop);
 
         // Dispatcher introspection. Services/agents are structured JSON sourced
         // by invoking + parsing the server.service.list / server.processors.list
@@ -493,6 +517,106 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
 
     private void handleJvm(Context ctx) {
         ctx.json(MonitoringSampler.snapshot());
+    }
+
+    // -------- audit-capture (Phase 2) --------
+    //
+    // The introspection service catalogues files; the capture service
+    // mutates state. Mirror that split in the HTTP surface: GETs hit
+    // introspection, POSTs hit capture. Both return 503 with a clear
+    // message when the corresponding NoOp service is installed (i.e.
+    // performanceMonitoring.auditCapture.enabled = false in YAML).
+
+    private void handleAuditList(Context ctx) {
+        if (auditIntrospection == null) {
+            ctx.status(HttpStatus.SERVICE_UNAVAILABLE);
+            ctx.json(Map.of("err", "audit introspection service not bound"));
+            return;
+        }
+        java.util.List<com.telamin.mongoose.service.audit.AuditSinkHandle> list = auditIntrospection.listAvailable();
+        // The handle record uses java.nio.file.Path which Jackson refuses
+        // to render structurally. Project to a small JSON-friendly shape.
+        java.util.List<Map<String, Object>> out = new java.util.ArrayList<>(list.size());
+        for (com.telamin.mongoose.service.audit.AuditSinkHandle h : list) {
+            out.add(handleToJson(h));
+        }
+        ctx.json(out);
+    }
+
+    private void handleAuditMetadata(Context ctx) {
+        if (auditIntrospection == null) {
+            ctx.status(HttpStatus.SERVICE_UNAVAILABLE);
+            ctx.json(Map.of("err", "audit introspection service not bound"));
+            return;
+        }
+        String id = ctx.pathParam("id");
+        // For now the {id} from the spec is the processorName — Phase 1's
+        // Chronicle impl uses the processor name as the stable file id
+        // (one queue dir per processor). A future cycle-aware id can be
+        // a richer key without breaking this handler.
+        com.telamin.mongoose.service.audit.AuditSinkHandle h = auditIntrospection.currentSink(id);
+        if (h == null) {
+            // Fall back to a directory-walk match — historical (closed) sinks.
+            for (com.telamin.mongoose.service.audit.AuditSinkHandle candidate : auditIntrospection.listAvailable()) {
+                if (id.equals(candidate.id())) {
+                    h = candidate;
+                    break;
+                }
+            }
+        }
+        if (h == null) {
+            ctx.status(HttpStatus.NOT_FOUND);
+            ctx.json(Map.of("err", "no audit file with id=" + id));
+            return;
+        }
+        ctx.json(handleToJson(h));
+    }
+
+    private void handleAuditStart(Context ctx) {
+        if (auditCapture == null) {
+            ctx.status(HttpStatus.SERVICE_UNAVAILABLE);
+            ctx.json(Map.of("err", "audit capture service not bound"));
+            return;
+        }
+        String processor = ctx.pathParam("processor");
+        try {
+            auditCapture.start(processor);
+        } catch (IllegalArgumentException e) {
+            ctx.status(HttpStatus.NOT_FOUND);
+            ctx.json(Map.of("err", e.getMessage()));
+            return;
+        }
+        ctx.json(Map.of(
+                "processor", processor,
+                "recording", auditCapture.isRecording(processor)));
+    }
+
+    private void handleAuditStop(Context ctx) {
+        if (auditCapture == null) {
+            ctx.status(HttpStatus.SERVICE_UNAVAILABLE);
+            ctx.json(Map.of("err", "audit capture service not bound"));
+            return;
+        }
+        String processor = ctx.pathParam("processor");
+        auditCapture.stop(processor);
+        ctx.json(Map.of(
+                "processor", processor,
+                "recording", auditCapture.isRecording(processor)));
+    }
+
+    /** Project an AuditSinkHandle to a JSON-friendly map (Path → String). */
+    private static Map<String, Object> handleToJson(com.telamin.mongoose.service.audit.AuditSinkHandle h) {
+        Map<String, Object> m = new java.util.LinkedHashMap<>();
+        m.put("id", h.id());
+        m.put("processorName", h.processorName());
+        m.put("path", h.path() == null ? null : h.path().toString());
+        m.put("cycle", h.cycle());
+        m.put("sizeBytes", h.sizeBytes());
+        m.put("recordCount", h.recordCount());
+        m.put("startedAt", h.startedAt() == null ? null : h.startedAt().toString());
+        m.put("lastWriteAt", h.lastWriteAt() == null ? null : h.lastWriteAt().toString());
+        m.put("isLive", h.isLive());
+        return m;
     }
 
     // Returns the YAML config file the server was booted with as plain text,
