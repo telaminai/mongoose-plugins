@@ -1102,7 +1102,15 @@
                             title="Clear selection + restore the full graph">Full graph</button>
                 </div>
 
-                <div class="proc-shell" x-show="!processorGraphHint && !processorGraphError">
+                <!-- Sibling tab bar: graph canvas vs per-node stats table.
+                     Stays mounted across both tabs so cytoscape's container
+                     doesn't tear down when switching to the table. -->
+                <div class="seg seg-tabs" x-show="!processorGraphHint && !processorGraphError" style="margin: 6px 0;">
+                    <button type="button" class="seg-btn" :class="{active: processorGraphTab==='graph'}" @click="processorGraphTab='graph'">Graph</button>
+                    <button type="button" class="seg-btn" :class="{active: processorGraphTab==='stats'}" @click="processorGraphTab='stats'">Per-node stats <span class="seg-count" x-text="processorStatsRows().length"></span></button>
+                </div>
+
+                <div class="proc-shell" x-show="!processorGraphHint && !processorGraphError && processorGraphTab==='graph'">
                     <div class="proc-canvas" x-ref="processorCanvas"></div>
                     <div class="proc-selection-pill" x-show="processorGraphCycleStage > 0 && processorGraphCycleFocus">
                         <span class="mono" x-text="processorGraphSelectionLabel()"></span>
@@ -1116,6 +1124,105 @@
                                 <span class="proc-tip-v mono" x-text="line.v"></span>
                             </div>
                         </template>
+                    </div>
+                </div>
+
+                <!-- ─── Per-node stats tab — throughput table + latency table -->
+                <div class="proc-stats-shell" x-show="!processorGraphHint && !processorGraphError && processorGraphTab==='stats'">
+                    <!-- Throughput table -->
+                    <h3 class="proc-stats-h">Throughput <span class="muted small">— invocations per node</span></h3>
+                    <div class="proc-stats-toolbar">
+                        <label class="ctl">
+                            <span class="ctl-k">Filter</span>
+                            <input type="text" x-model="processorStatsFilter" placeholder="node name contains…">
+                        </label>
+                        <span class="muted small" x-text="processorStatsRows().length + ' / ' + ((throughput?.nodes ?? []).filter(n => n.processor === processorGraphTarget?.name).length) + ' rows'"></span>
+                        <span class="flex-spacer"></span>
+                        <button class="btn btn-ghost btn-sm" @click="processorStatsDownload('csv')" :disabled="!processorStatsRows().length">Download CSV</button>
+                        <button class="btn btn-ghost btn-sm" @click="processorStatsDownload('json')" :disabled="!processorStatsRows().length">Download JSON</button>
+                    </div>
+                    <table class="data-table sortable" x-show="processorStatsRows().length">
+                        <thead>
+                            <tr>
+                                <th><button type="button" class="th-sort" :class="{active: processorStatsSortCol==='node'}" @click="processorStatsSort('node')">Node <span class="sort-ind" x-text="processorStatsSortIndicator('node')"></span></button></th>
+                                <th class="num"><button type="button" class="th-sort" :class="{active: processorStatsSortCol==='rate'}" @click="processorStatsSort('rate')">Rate (per s) <span class="sort-ind" x-text="processorStatsSortIndicator('rate')"></span></button></th>
+                                <th class="num"><button type="button" class="th-sort" :class="{active: processorStatsSortCol==='total'}" @click="processorStatsSort('total')">Total invocations <span class="sort-ind" x-text="processorStatsSortIndicator('total')"></span></button></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template x-for="r in processorStatsRows()" :key="r.node">
+                                <tr>
+                                    <td class="mono" x-text="r.node"></td>
+                                    <td class="num" x-text="r.rate.toFixed(2)"></td>
+                                    <td class="num" x-text="r.total"></td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                    <div class="empty" x-show="!processorStatsRows().length">
+                        <p x-show="processorStatsFilter">No nodes match “<span x-text="processorStatsFilter"></span>” for <span class="mono" x-text="processorGraphTarget?.name"></span>.</p>
+                        <p x-show="!processorStatsFilter">No per-node counters reported yet for <span class="mono" x-text="processorGraphTarget?.name"></span>. If the processor's <code>processor.&lt;name&gt;.events</code> counter is ticking but this is empty, the <code>PerformanceMonitorAudit</code> handles weren't rebound when the counters service arrived.</p>
+                    </div>
+
+                    <!-- Latency table — only when latencyHistograms is enabled
+                         in YAML (server emits null `latency` block otherwise
+                         and the section stays collapsed). -->
+                    <h3 class="proc-stats-h" x-show="processorLatencyAvailable()">
+                        Latency
+                        <span class="muted small">— percentiles per node (<span x-text="processorLatencyUnit()"></span>)</span>
+                        <span class="tag" :class="{ok: processorLatencyEnabled(), warn: !processorLatencyEnabled()}"
+                              x-text="processorLatencyEnabled() ? 'recording' : 'paused'"></span>
+                    </h3>
+                    <div class="proc-stats-toolbar" x-show="processorLatencyAvailable()">
+                        <button class="btn btn-sm" :class="{'btn-ghost': processorLatencyEnabled()}"
+                                @click="processorLatencyToggle()"
+                                :title="processorLatencyEnabled() ? 'Pause histogram recording' : 'Resume histogram recording'">
+                            <span x-text="processorLatencyEnabled() ? 'Pause' : 'Resume'"></span>
+                        </button>
+                        <button class="btn btn-ghost btn-sm" @click="processorLatencyResetHistograms()"
+                                :disabled="!processorLatencyEnabled()"
+                                title="Clear all histograms (latency.reset admin command)">Reset</button>
+                        <label class="ctl">
+                            <span class="ctl-k">Filter</span>
+                            <input type="text" x-model="processorLatencyFilter" placeholder="node name contains…">
+                        </label>
+                        <span class="muted small" x-text="processorLatencyRows().length + ' rows'"></span>
+                        <span class="flex-spacer"></span>
+                        <button class="btn btn-ghost btn-sm" @click="processorLatencyDownload('csv')" :disabled="!processorLatencyRows().length">Download CSV</button>
+                        <button class="btn btn-ghost btn-sm" @click="processorLatencyDownload('json')" :disabled="!processorLatencyRows().length">Download JSON</button>
+                    </div>
+                    <table class="data-table sortable" x-show="processorLatencyAvailable() && processorLatencyRows().length">
+                        <thead>
+                            <tr>
+                                <th><button type="button" class="th-sort" :class="{active: processorLatencySortCol==='node'}" @click="processorLatencySort('node')">Node <span class="sort-ind" x-text="processorLatencySortIndicator('node')"></span></button></th>
+                                <th class="num"><button type="button" class="th-sort" :class="{active: processorLatencySortCol==='count'}" @click="processorLatencySort('count')">Count <span class="sort-ind" x-text="processorLatencySortIndicator('count')"></span></button></th>
+                                <th class="num"><button type="button" class="th-sort" :class="{active: processorLatencySortCol==='p50'}" @click="processorLatencySort('p50')">p50 <span class="sort-ind" x-text="processorLatencySortIndicator('p50')"></span></button></th>
+                                <th class="num"><button type="button" class="th-sort" :class="{active: processorLatencySortCol==='p90'}" @click="processorLatencySort('p90')">p90 <span class="sort-ind" x-text="processorLatencySortIndicator('p90')"></span></button></th>
+                                <th class="num"><button type="button" class="th-sort" :class="{active: processorLatencySortCol==='p99'}" @click="processorLatencySort('p99')">p99 <span class="sort-ind" x-text="processorLatencySortIndicator('p99')"></span></button></th>
+                                <th class="num"><button type="button" class="th-sort" :class="{active: processorLatencySortCol==='p999'}" @click="processorLatencySort('p999')">p99.9 <span class="sort-ind" x-text="processorLatencySortIndicator('p999')"></span></button></th>
+                                <th class="num"><button type="button" class="th-sort" :class="{active: processorLatencySortCol==='max'}" @click="processorLatencySort('max')">max <span class="sort-ind" x-text="processorLatencySortIndicator('max')"></span></button></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template x-for="r in processorLatencyRows()" :key="r.node">
+                                <tr>
+                                    <td class="mono" x-text="r.node"></td>
+                                    <td class="num" x-text="r.count"></td>
+                                    <td class="num" x-text="r.p50"></td>
+                                    <td class="num" x-text="r.p90"></td>
+                                    <td class="num" x-text="r.p99"></td>
+                                    <td class="num" x-text="r.p999"></td>
+                                    <td class="num" x-text="r.max"></td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                    <div class="empty empty-sm" x-show="processorLatencyAvailable() && !processorLatencyRows().length">
+                        <p x-show="processorLatencyFilter">No nodes match “<span x-text="processorLatencyFilter"></span>” for <span class="mono" x-text="processorGraphTarget?.name"></span>.</p>
+                        <p x-show="!processorLatencyFilter">No latency samples recorded yet. Histograms accumulate as events flow.</p>
+                    </div>
+                    <div class="muted small" x-show="!processorLatencyAvailable()" style="margin-top:0.4rem;">
+                        Latency histograms are off. Set <code>performanceMonitoring.latencyHistograms: true</code> in the server YAML to enable per-node percentiles.
                     </div>
                 </div>
 

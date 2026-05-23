@@ -61,6 +61,9 @@ final class MonitoringSampler {
 
     /** Counters service for throughput sampling. May be the no-op. */
     private final MongooseCountersService counters;
+    /** Latency service for percentile snapshots. May be the no-op; when
+     *  the no-op is installed the {@code latency} WS block is suppressed. */
+    private final com.telamin.mongoose.service.counters.MongooseLatencyService latencyService;
     /** Optional per-tick callback for queue-depth sampling — gives EFM a
      *  chance to write {@code queue.{path}.depth} gauges before we walk the
      *  counters. {@code null} when not wired. */
@@ -71,15 +74,27 @@ final class MonitoringSampler {
     private long previousTickTs = 0L;
 
     MonitoringSampler(long intervalMs) {
-        this(intervalMs, com.telamin.mongoose.internal.NoOpCountersService.INSTANCE, null);
+        this(intervalMs,
+                com.telamin.mongoose.internal.NoOpCountersService.INSTANCE,
+                com.telamin.mongoose.internal.NoOpLatencyService.INSTANCE,
+                null);
+    }
+
+    /** Three-arg legacy ctor — retained for any caller still on the counters-only API. */
+    MonitoringSampler(long intervalMs,
+                      MongooseCountersService counters,
+                      Runnable beforeTickHook) {
+        this(intervalMs, counters, com.telamin.mongoose.internal.NoOpLatencyService.INSTANCE, beforeTickHook);
     }
 
     MonitoringSampler(long intervalMs,
                       MongooseCountersService counters,
+                      com.telamin.mongoose.service.counters.MongooseLatencyService latencyService,
                       Runnable beforeTickHook) {
         this.defaultIntervalMs = intervalMs;
         this.intervalMs = intervalMs;
         this.counters = counters;
+        this.latencyService = latencyService;
         this.beforeTickHook = beforeTickHook;
     }
 
@@ -197,7 +212,23 @@ final class MonitoringSampler {
         Throughput throughput = counters.isOperational()
                 ? buildThroughput(base.ts())
                 : null;
-        return new JvmSnapshot(base.ts(), base.jvm(), base.queues(), throughput);
+        // Latency block is emitted only when an HdrHistogram-backed service
+        // is installed — the no-op suppresses it so the WS payload doesn't
+        // ship a permanently-empty block to every client.
+        Latency latency = latencyService != null && latencyService.isOperational()
+                ? buildLatency()
+                : null;
+        return new JvmSnapshot(base.ts(), base.jvm(), base.queues(), throughput, latency);
+    }
+
+    private Latency buildLatency() {
+        List<NodeLatency> nodes = new ArrayList<>();
+        latencyService.forEachNode((processor, node, snap) ->
+                nodes.add(new NodeLatency(
+                        processor, node,
+                        snap.count(), snap.p50(), snap.p90(),
+                        snap.p99(), snap.p999(), snap.max())));
+        return new Latency(nodes, "ms", latencyService.isEnabled());
     }
 
     private Throughput buildThroughput(long nowTs) {
@@ -313,7 +344,12 @@ final class MonitoringSampler {
 
     public record ServerInfo(String pid, String runtime, long startTime, long uptimeMs) { }
 
-    public record JvmSnapshot(long ts, JvmInfo jvm, List<QueueInfo> queues, Throughput throughput) { }
+    public record JvmSnapshot(long ts, JvmInfo jvm, List<QueueInfo> queues, Throughput throughput, Latency latency) {
+        /** Back-compat ctor — pre-latency callers (and {@link #snapshot()}) emit null latency. */
+        public JvmSnapshot(long ts, JvmInfo jvm, List<QueueInfo> queues, Throughput throughput) {
+            this(ts, jvm, queues, throughput, null);
+        }
+    }
 
     public record JvmInfo(
             long heapUsed,
@@ -347,4 +383,25 @@ final class MonitoringSampler {
     public record GroupRate(String name, long total, double rate, long idleCycles) { }
     public record NodeRate(String processor, String node, long total, double rate) { }
     public record QueueDepth(String path, long depth) { }
+
+    /**
+     * Latency block — emitted when an HdrHistogram-backed
+     * {@link com.telamin.mongoose.service.counters.MongooseLatencyService}
+     * is installed. {@code unit} tags the time unit so the front-end
+     * renders the numbers correctly without guessing (default: ms).
+     */
+    public record Latency(List<NodeLatency> nodes, String unit, boolean enabled) {
+        /** Two-arg back-compat ctor; pre-toggle callers default {@code enabled=true}. */
+        public Latency(List<NodeLatency> nodes, String unit) { this(nodes, unit, true); }
+    }
+
+    public record NodeLatency(
+            String processor,
+            String node,
+            long count,
+            long p50,
+            long p90,
+            long p99,
+            long p999,
+            long max) { }
 }
