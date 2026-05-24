@@ -23,9 +23,9 @@
     <properties>
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
-        <fluxtion.version>1.0.0</fluxtion.version>
+        <fluxtion.version>1.0.1</fluxtion.version>
         <fluxtion.generator.version>1.0.27</fluxtion.generator.version>
-        <mongoose.version>1.0.15</mongoose.version>
+        <mongoose.version>1.0.16</mongoose.version>
         <log4j2.version>2.24.3</log4j2.version>
         <lombok.version>1.18.42</lombok.version>
         <jackson.version>2.18.2</jackson.version>

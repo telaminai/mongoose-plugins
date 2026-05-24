@@ -193,6 +193,27 @@ function createStylesheet(theme = "light", scale = 1) {
       }
     },
     {
+      // Replay highlight — nodes that fired in the current audit record.
+      // Border thickens + colour shifts to the accent so the moving
+      // cursor in the Replay tab reads against a dimmed graph.
+      selector: "node.highlighted",
+      style: {
+        "border-width": 3,
+        "border-color": "#22c55e",
+        "border-opacity": 1,
+        "background-blacken": -0.15,
+        "z-index": 10
+      }
+    },
+    {
+      // Replay dim — every other node (and edge) fades back to make the
+      // active set visually pop.
+      selector: ".dimmed",
+      style: {
+        opacity: 0.28
+      }
+    },
+    {
       selector: "edge",
       style: {
         width: 1.5,
@@ -436,6 +457,37 @@ export function createCytoscapeRenderer(container, options = {}) {
      * Cheap (≤ N node-data writes per tick); called from the WS tick
      * handler whenever the processor-graph view is active.
      */
+    /**
+     * Replay-highlight `activeIds` (Set or Array) and dim everything
+     * else. Passing an empty/null set clears both classes and restores
+     * the static graph. The dim class is applied to ALL non-active
+     * elements (nodes + edges) so the active sub-graph reads cleanly.
+     */
+    setActiveNodes(activeIds) {
+      const ids = (activeIds instanceof Set)
+        ? activeIds
+        : new Set(Array.isArray(activeIds) ? activeIds : []);
+      if (ids.size === 0) {
+        cy.elements().removeClass("highlighted").removeClass("dimmed");
+        return;
+      }
+      cy.batch(() => {
+        cy.nodes().forEach((n) => {
+          if (ids.has(n.id())) {
+            n.addClass("highlighted").removeClass("dimmed");
+          } else {
+            n.removeClass("highlighted").addClass("dimmed");
+          }
+        });
+        cy.edges().forEach((e) => {
+          // An edge is "active" if both endpoints are in the set.
+          const both = ids.has(e.source().id()) && ids.has(e.target().id());
+          if (both) e.removeClass("dimmed");
+          else e.addClass("dimmed");
+        });
+      });
+    },
+
     setNodeCounters(byNodeId) {
       const map = byNodeId instanceof Map ? byNodeId : new Map();
       cy.nodes().forEach((node) => {

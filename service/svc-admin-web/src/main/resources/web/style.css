@@ -161,6 +161,30 @@ code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
     text-transform: uppercase;
     color: var(--fg-faint);
 }
+/* Click-to-collapse group header. Wraps .nav-label inside a button so
+   the entire row is the target. Caret on the left mirrors the
+   common IDE / Explorer tree convention. */
+.nav-group-head {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.7rem 0.55rem 0.35rem;
+    width: 100%;
+    background: none;
+    border: 0;
+    cursor: pointer;
+    text-align: left;
+    color: var(--fg-faint);
+}
+.nav-group-head:hover { color: var(--fg); background: rgba(127,127,127,0.06); border-radius: 4px; }
+.nav-group-head .nav-label { padding: 0; }
+.nav-caret {
+    display: inline-block;
+    width: 0.85rem;
+    font-size: 0.7rem;
+    line-height: 1;
+    color: var(--muted);
+}
 .nav-item {
     display: flex;
     align-items: center;
@@ -233,8 +257,10 @@ code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
 /* ─── views ──────────────────────────────────────────────────────────── */
 .view { max-width: 1180px; }
 /* fill the remaining content area below the banner; the inner card scrolls,
-   so the input row stays glued to the bottom even when the banner is shown. */
-.view-fill { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+   so the input row stays glued to the bottom even when the banner is shown.
+   view-fill is for canvas-based views (topology, processor-graph) — drop
+   the 1180px cap so the canvas uses the full browser width on wide monitors. */
+.view-fill { flex: 1; display: flex; flex-direction: column; min-height: 0; max-width: none; }
 .view-head {
     display: flex;
     align-items: flex-start;
@@ -331,6 +357,44 @@ code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
 }
 .dash-row .card { margin-bottom: 1.1rem; }
 .card-wide { min-width: 0; }
+
+/* Dashboard Throughput summary — three slim cells in one row. */
+.dash-throughput-row {
+    display: flex;
+    gap: 0.75rem;
+    padding: 0.5rem 0.95rem 0.95rem;
+}
+.dash-throughput-cell {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    padding: 0.55rem 0.75rem;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+}
+.dash-throughput-label {
+    font-size: 0.65rem;
+    color: var(--fg-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+}
+.dash-throughput-value {
+    font-size: 1.2rem;
+    font-weight: 700;
+    line-height: 1.1;
+    color: var(--fg);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.dash-throughput-sub {
+    font-size: 0.78rem;
+    color: var(--fg-faint);
+}
 
 .spark-wrap { height: 110px; }
 .spark { width: 100%; height: 100%; display: block; overflow: visible; }
@@ -1031,6 +1095,281 @@ textarea { resize: vertical; font-family: ui-monospace, Menlo, monospace; font-s
 }
 .proc-stats-shell .flex-spacer { flex: 1; }
 .proc-stats-shell table { width: 100%; }
+
+/* Replay tab — sibling of Graph + Per-node stats. Sits below the
+   shared cytoscape canvas. Two-pane grid: events on the left,
+   payload on the right. Compact lines, scrollable independently. */
+.proc-replay-shell {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.5rem 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+.replay-grid {
+    display: grid;
+    grid-template-columns: 38% 6px 1fr;        /* inline style overrides */
+    gap: 0;
+    flex: 1;
+    min-height: 0;
+}
+.replay-records,
+.replay-payload {
+    background: var(--surface-deep);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.4rem 0.55rem;
+    overflow: auto;
+    max-height: 32rem;
+}
+.replay-records  { margin-right: 0.3rem; }
+.replay-payload  { margin-left: 0.3rem; }
+.replay-record-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+.replay-record-list li {
+    display: grid;
+    grid-template-columns: 3.2rem 8rem 1fr;     /* idx · time · eventType — FQN removed */
+    gap: 0.5rem;
+    padding: 0.18rem 0.35rem;
+    border-radius: 4px;
+    cursor: pointer;
+    align-items: baseline;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.replay-row-time { color: var(--fg-faint); }
+
+/* Scrub slider above the grid. Range input styled via accent-color for
+   theme consistency without per-thumb vendor rules. */
+.replay-scrub {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    padding: 0.4rem 0.2rem 0.5rem;
+}
+.replay-scrub-input {
+    flex: 1;
+    accent-color: var(--accent);
+    cursor: pointer;
+}
+.replay-scrub-l { min-width: 7rem; text-align: left; }
+.replay-scrub-r { min-width: 8rem; text-align: right; }
+
+/* Draggable column separator between Events and Node payload. */
+.replay-splitter {
+    cursor: col-resize;
+    background: transparent;
+    position: relative;
+}
+.replay-splitter::before {
+    content: '';
+    position: absolute;
+    top: 0; bottom: 0;
+    left: 2px; right: 2px;
+    background: var(--border);
+    border-radius: 2px;
+    transition: background 0.1s;
+}
+.replay-splitter:hover::before,
+.replay-splitter:active::before { background: var(--accent); }
+
+/* Right-panel FQN + time header. Replaces the old FQN that used to
+   appear inline in the left-pane record rows. */
+.replay-payload-head {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.35rem;
+    margin-bottom: 0.4rem;
+}
+.replay-payload-head-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+.replay-payload-fqn {
+    margin-top: 0.2rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.replay-payload-tabs { margin-bottom: 0.4rem; }
+.replay-payload-node { color: var(--accent); }
+.replay-payload-text { color: var(--fg-faint); }
+.yaml-dash  { color: var(--fg-faint); }
+.yaml-null,
+.yaml-empty { color: var(--fg-faint); font-style: italic; }
+
+/* Nav rail full-collapse — collapses the rail to a 48px strip showing
+   only icons. Category headers + labels hide; nav-items center the
+   icon. Driven by the .nav-collapsed class on .layout. */
+.nav-collapse-toggle {
+    align-self: flex-end;
+    margin-bottom: 0.3rem;
+    width: 1.6rem;
+    height: 1.6rem;
+    border: 0;
+    background: var(--surface-2);
+    color: var(--fg-faint);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.78rem;
+}
+.nav-collapse-toggle:hover { color: var(--fg); background: var(--surface); }
+.layout.nav-collapsed .nav { width: 48px; padding: 0.85rem 0.35rem; }
+.layout.nav-collapsed .nav-label,
+.layout.nav-collapsed .nav-group-head,
+.layout.nav-collapsed .nav-item span,
+.layout.nav-collapsed .nav-count,
+.layout.nav-collapsed .nav-dot { display: none !important; }
+.layout.nav-collapsed .nav-item {
+    justify-content: center;
+    padding: 0.45rem 0;
+}
+.layout.nav-collapsed .nav-item .ico { margin: 0; }
+.layout.nav-collapsed .nav-collapse-toggle { align-self: center; }
+.replay-record-list li:hover  { background: var(--surface); }
+.replay-record-list li.active { background: var(--accent-dim, #1d4ed833); }
+.replay-payload-list { display: flex; flex-direction: column; gap: 0.35rem; }
+.replay-payload-row {
+    display: grid;
+    grid-template-columns: 12rem 1fr;
+    gap: 0.6rem;
+    padding: 0.25rem 0.45rem;
+    border-radius: 4px;
+    cursor: pointer;
+}
+.replay-payload-row:hover  { background: var(--surface); }
+.replay-payload-row.active { background: var(--accent-dim, #1d4ed833); }
+.replay-payload-row pre { margin: 0; white-space: pre-wrap; }
+
+/* ─── Replay-tab wide layout ──────────────────────────────────────────
+   On the Replay tab the cytoscape canvas sits in the main pane on the
+   left and the records + payload column docks on the right, stacked
+   vertically. Outside of Replay mode the canvas falls back to its
+   normal full-width Graph-tab behaviour.
+
+   Heights are set against the viewport so the layout actually uses
+   the available real estate. The side-column width is driven by a CSS
+   variable updated by the vertical splitter drag.
+*/
+.proc-replay-layout.replay-mode {
+    --replay-side-width: 32rem;     /* default; user-adjustable via splitter */
+    display: flex;
+    flex-direction: row;
+    gap: 0;                         /* splitter provides its own gutter */
+    height: calc(100vh - 230px);    /* viewport minus the top toolbars */
+    min-height: 28rem;
+    width: 100%;
+}
+.proc-replay-layout.replay-mode > .proc-shell {
+    flex: 1 1 auto;
+    min-width: 0;                   /* lets the canvas shrink properly */
+    height: 100%;
+    overflow: hidden;
+}
+/* Vertical splitter between the canvas (left) and the side column
+   (right). Drag handler in app.js writes the CSS variable. */
+.proc-replay-layout.replay-mode > .proc-replay-vsplit {
+    flex: 0 0 6px;
+    cursor: col-resize;
+    background: transparent;
+    position: relative;
+    align-self: stretch;
+}
+.proc-replay-layout.replay-mode > .proc-replay-vsplit::before {
+    content: '';
+    position: absolute;
+    top: 0; bottom: 0;
+    left: 2px; right: 2px;
+    background: var(--border);
+    border-radius: 2px;
+    transition: background 0.1s;
+}
+.proc-replay-layout.replay-mode > .proc-replay-vsplit:hover::before,
+.proc-replay-layout.replay-mode > .proc-replay-vsplit:active::before { background: var(--accent); }
+.proc-replay-layout.replay-mode > .proc-replay-shell {
+    flex: 0 0 var(--replay-side-width);
+    width: var(--replay-side-width);
+    min-width: var(--replay-side-width);
+    max-width: var(--replay-side-width);
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+}
+/* In wide mode, records + payload stack vertically (records above,
+   payload below) — the inline grid-template-columns style on
+   replay-grid gets overridden. */
+.proc-replay-layout.replay-mode .replay-grid {
+    display: flex !important;
+    flex-direction: column;
+    gap: 0.5rem;
+    flex: 1 1 auto;
+    min-height: 0;
+    grid-template-columns: none !important;
+}
+.proc-replay-layout.replay-mode .replay-grid .replay-records,
+.proc-replay-layout.replay-mode .replay-grid .replay-payload {
+    margin: 0;
+    max-height: none;
+    min-height: 0;
+}
+.proc-replay-layout.replay-mode .replay-grid .replay-records {
+    flex: 0 0 38%;                  /* fixed share for the events list */
+    overflow-y: auto;
+}
+.proc-replay-layout.replay-mode .replay-grid .replay-payload {
+    flex: 1 1 auto;
+    overflow-y: auto;
+}
+.proc-replay-layout.replay-mode .replay-splitter { display: none; }
+
+/* Copy button overlay on the Text view */
+.replay-text-wrap { position: relative; }
+.replay-text-copy {
+    position: absolute;
+    top: 0.35rem;
+    right: 0.45rem;
+    z-index: 2;
+}
+
+/* Tighter spacing for the Replay tab's Logical view — the shared
+   .yaml-view rule (Server YAML config view) uses 1.5 line-height +
+   0.85rem padding which is comfortable for one big document but
+   wastes vertical room when stacked per-node in the Replay panel. */
+.replay-payload-row .yaml-view {
+    padding: 0.3rem 0.5rem;
+    min-height: 0;
+    max-height: none;
+    line-height: 1.25;
+    border-top: 0;
+    font-size: 0.75rem;
+}
+
+/* Raw audit-record text view — Text tab + the "no node logs" fallback. */
+.replay-record-raw {
+    margin: 0.4rem 0 0;
+    padding: 0.5rem 0.65rem;
+    background: var(--surface-deep);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 0.75rem;
+    line-height: 1.35;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--fg);
+}
+.replay-payload-empty { padding: 0.4rem 0.55rem; }
+.replay-empty { padding: 0.6rem 0.5rem; }
 .proc-stats-h {
     margin: 0.4rem 0 0.15rem;
     font-size: 0.95rem;
@@ -1085,6 +1424,34 @@ textarea { resize: vertical; font-family: ui-monospace, Menlo, monospace; font-s
 .queue-card .data-table th:nth-child(2),
 .queue-card .data-table td:nth-child(2) { width: 18%; }
 .queue-card .data-table td:last-child { word-break: break-all; font-size: 0.78rem; }
+
+/* ─── queues tree-table ──────────────────────────────────────────────── */
+.queue-tree td.qtr-name { white-space: nowrap; }
+.queue-tree .qtr-indent { display: inline-block; }
+.queue-tree .qtr-chevron {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.1rem;
+    height: 1.1rem;
+    margin-right: 0.35rem;
+    padding: 0;
+    background: none;
+    border: 0;
+    color: var(--muted);
+    font-size: 0.7rem;
+    cursor: pointer;
+    transition: transform 0.12s ease;
+    transform: rotate(0deg);
+}
+.queue-tree .qtr-chevron.open { transform: rotate(90deg); }
+.queue-tree .qtr-chevron.hidden { visibility: hidden; }
+.queue-tree .qtr-chevron:hover { color: var(--text); }
+.queue-tree tr.qtr-d0 td.qtr-name .btn-link { font-weight: 600; }
+.queue-tree tr.qtr-d1 td.qtr-name .btn-link { font-size: 0.85rem; }
+.queue-tree tr.qtr-d2 td.qtr-name .btn-link { color: var(--muted); font-size: 0.82rem; }
+.queue-tree tr.qtr-d1 { background: color-mix(in srgb, var(--surface-2) 35%, transparent); }
+.queue-tree tr.qtr-d2 td:last-child { word-break: break-all; font-size: 0.74rem; }
 
 /* ─── cache / loader ─────────────────────────────────────────────────── */
 .form-row { display: flex; flex-wrap: wrap; gap: 0.65rem; align-items: flex-start; margin-bottom: 0.85rem; }
