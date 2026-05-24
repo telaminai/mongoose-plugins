@@ -22,6 +22,26 @@ document.addEventListener('alpine:init', () => {
         // ── shell ──
         activeView: 'dashboard',
 
+        // Left-nav category expand/collapse state. Persisted to
+        // localStorage so the user's collapse pattern survives reload.
+        // Default: every category expanded so first-time users see
+        // every entry without hunting for a caret.
+        navExpanded: (() => {
+            try {
+                const raw = localStorage.getItem('mongoose-admin-nav-expanded');
+                if (raw) return JSON.parse(raw);
+            } catch (_) { /* fall through */ }
+            return {monitor: true, admin: true, dispatch: true, config: true, plugins: true};
+        })(),
+
+        // Whole-rail collapse — separate from per-category expand state.
+        // When true the rail collapses to a slim strip of icons. Hydrated
+        // from localStorage so the user's choice survives reload.
+        navCollapsed: (() => {
+            try { return localStorage.getItem('mongoose-admin-nav-collapsed') === '1'; }
+            catch (_) { return false; }
+        })(),
+
         // Server YAML (Dashboard "View YAML" card). configContent != ''
         // doubles as the open/closed flag — empty string means collapsed.
         configContent: '',
@@ -95,8 +115,15 @@ document.addEventListener('alpine:init', () => {
         services: [],
         servicesAvailable: false,
         servicesFilter: '',
-        servicesTab: 'all',              // 'all' | 'service' | 'feed' | 'sink'
-        servicesSortCol: null,           // 'name' | 'type' | 'className' | null
+        // Drives the Services / Feeds / Sinks views. Set by the
+        // left-nav buttons; default 'service' so direct deep-links
+        // land on the most informative subset.
+        servicesTab: 'service',          // 'service' | 'feed' | 'sink'
+        // Default sort: by type, ascending — groups feeds together,
+        // sinks together, services together (the operator's first
+        // mental cut when scanning the table). Click any column header
+        // to override.
+        servicesSortCol: 'type',         // 'name' | 'type' | 'className' | null
         servicesSortDir: 'asc',          // 'asc' | 'desc'
         serviceDetail: null,             // currently-open service row in detail mode
         serviceConfig: null,             // reflective config for the open service (lazy)
@@ -107,6 +134,11 @@ document.addEventListener('alpine:init', () => {
         processorDetail: null,           // { group, name, className } open under an agent detail
         eventSources: [],
         queuesAvailable: false,
+        queuesFilter: '',
+        queuesSortCol: 'name',
+        queuesSortDir: 'asc',
+        queuesExpanded: {},          // key → bool; collapsed by default for L1
+        queuesExpandAll: false,
 
         // ── topology view (cytoscape, lazy-loaded) ──
         topologyCy: null,              // cytoscape instance; created on first activation
@@ -134,8 +166,44 @@ document.addEventListener('alpine:init', () => {
         processorGraphCycleFocus: null,
         processorGraphHoverTip: null,  // {x, y, lines} hover panel content
         // Sibling-tab state — 'graph' shows the cytoscape canvas; 'stats'
-        // shows a sortable / filterable / downloadable per-node table.
+        // shows a sortable / filterable / downloadable per-node table;
+        // 'replay' steps through an audit-log file with the same canvas
+        // highlighted per record.
         processorGraphTab: 'graph',
+
+        // ── Compliance tab state ────────────────────────────────────
+        complianceReport: null,        // { processor, group, className, inputs[], outputs[], services[], warnings[] }
+        complianceLoading: false,
+        complianceError: '',
+
+        // ── Replay tab state ────────────────────────────────────────
+        replayEngine: null,           // lazy — createReplayEngine() on first enter
+        replayFiles: [],              // [{id, processorName, isLive, recordCount, ...}]
+        replaySelectedFile: '',       // id of the file currently loaded
+        replayRecords: [],            // parsed ReplayRecord[]
+        replayRecordIndex: -1,
+        replayStepIndex: -1,
+        replayRecordCount: 0,
+        replayStepCount: 0,
+        replayPlaying: false,
+        replayCurrentRecord: null,
+        replayHasRecords: false,
+        replayError: '',
+        replayRecording: false,       // whether the audit-capture service reports our processor recording
+        replayPayloadTab: 'logical',  // 'logical' | 'text' — node payload presentation
+        replayCopyState: '',          // transient status for the Copy button on Text view
+        replaySideWidthPx: (() => {
+            // Persist user-adjusted side-column width across sessions.
+            try {
+                const v = parseInt(localStorage.getItem('mongoose-admin-replay-side-width') ?? '', 10);
+                if (Number.isFinite(v) && v >= 280 && v <= 900) return v;
+            } catch (_) { /* fall through */ }
+            return 460;               // sensible default, matches 32rem-ish
+        })(),
+        _replaySideDragging: false,
+        replaySplitPct: 38,           // left-column width as % of replay-grid
+        _replayDragging: false,
+        _replayKeyHandler: null,
         processorStatsFilter: '',
         processorStatsSortCol: 'rate',  // 'node' | 'rate' | 'total'
         processorStatsSortDir: 'desc',
@@ -221,8 +289,26 @@ document.addEventListener('alpine:init', () => {
 
         // ── view + theme ──
 
+        navToggle(category) {
+            this.navExpanded[category] = !this.navExpanded[category];
+            try {
+                localStorage.setItem('mongoose-admin-nav-expanded', JSON.stringify(this.navExpanded));
+            } catch (_) { /* localStorage disabled — collapse state is session-only */ }
+        },
+
         go(view) {
             this.activeView = view;
+            // Clear the destination view's detail state — clicking a nav
+            // link always returns to that view's root list, never lands
+            // mid-drill-down. Without this, navigating Services → detail
+            // → click Feeds nav would show "the Services detail" header
+            // because serviceDetail wasn't reset.
+            if (view === 'services') {
+                this.serviceDetail = null;
+            } else if (view === 'agents') {
+                this.agentDetail = null;
+                this.processorDetail = null;
+            }
             // Topology + Processor-graph are lazy-mounted — their canvas
             // <div>s only exist when the view is shown, and cytoscape needs a
             // real layout pass after the first paint to size correctly.
@@ -231,6 +317,11 @@ document.addEventListener('alpine:init', () => {
                 requestAnimationFrame(() => this.topologyEnter());
             } else if (view === 'processor-graph') {
                 requestAnimationFrame(() => this.processorGraphEnter());
+            } else if (view === 'config' && !this.configContent && !this.configError) {
+                // Auto-load the YAML — the user is on the Config view because
+                // they want to see it; the explicit "View YAML" button was
+                // friction.
+                this.loadConfig();
             }
         },
 
@@ -367,6 +458,187 @@ document.addEventListener('alpine:init', () => {
             } catch (e) {
                 this.queuesAvailable = false;
                 this.eventSources = [];
+            }
+        },
+
+        // ── Queues view: tree-table rollup ─────────────────────────────
+        //
+        // The tree is purely name-based: each event-source name is split
+        // by '.' and walked into a prefix tree. Intermediate segments
+        // become pure rollup ("group") nodes; the segment that matches
+        // an actual eventSource is the "feed" leaf. Below a feed, its
+        // consumer subscribers render as "subscriber" rows.
+        //
+        // Example: `adminCommand.datagen.rate` with 2 consumers becomes
+        //   adminCommand            (group)
+        //     datagen               (group)
+        //       rate                (feed)         ← src.source matches here
+        //         onTrade           (subscriber)
+        //         onPrice           (subscriber)
+        //
+        // Sources with no '.' in the name sit at the top level.
+        //
+        // queuesExpanded is keyed by row.key so collapse/expand survives
+        // re-renders. An unset key means "use the global default"
+        // (Expand all toggle). Filtering force-opens every match's
+        // ancestor chain.
+        queueTreeRows() {
+            const filter = (this.queuesFilter || '').trim().toLowerCase();
+            const expandAll = this.queuesExpandAll;
+            const isOpen = (k) => {
+                if (filter) return true;
+                const v = this.queuesExpanded[k];
+                return v === undefined ? expandAll : v;
+            };
+            const sign = this.queuesSortDir === 'asc' ? 1 : -1;
+            const sortKey = this.queuesSortCol;
+            const cmp = (a, b) => {
+                let av, bv;
+                if (sortKey === 'count') {
+                    av = a.totalConsumers || 0; bv = b.totalConsumers || 0;
+                } else {
+                    av = (a.label || '').toLowerCase(); bv = (b.label || '').toLowerCase();
+                }
+                return av < bv ? -sign : av > bv ? sign : 0;
+            };
+
+            // 1. Build the prefix tree.
+            const root = { label: '', fullPath: '', depth: -1, children: new Map(), src: null };
+            for (const src of (this.eventSources || [])) {
+                const segs = (src.source || '').split('.').filter(s => s.length);
+                if (!segs.length) continue;
+                let node = root;
+                let acc = '';
+                for (let i = 0; i < segs.length; i++) {
+                    const seg = segs[i];
+                    acc = acc ? acc + '.' + seg : seg;
+                    if (!node.children.has(seg)) {
+                        node.children.set(seg, {
+                            label: seg, fullPath: acc, depth: i,
+                            children: new Map(), src: null,
+                        });
+                    }
+                    node = node.children.get(seg);
+                }
+                node.src = src;
+            }
+
+            // 2. Precompute totals (consumers + descendant consumers).
+            const countTotals = (n) => {
+                let c = n.src ? (n.src.queues || []).length : 0;
+                for (const ch of n.children.values()) c += countTotals(ch);
+                n.totalConsumers = c;
+                return c;
+            };
+            for (const n of root.children.values()) countTotals(n);
+
+            // 3. DFS into flat rows, applying sort at each level.
+            const rows = [];
+            const walk = (parent) => {
+                const kids = [...parent.children.values()].sort(cmp);
+                for (const node of kids) {
+                    const isFeed = !!node.src;
+                    const consumers = isFeed ? (node.src.queues || []) : [];
+                    const hasChildren = node.children.size > 0 || consumers.length > 0;
+                    const key = (isFeed ? 'feed:' : 'group:') + node.fullPath;
+                    const row = {
+                        key, depth: node.depth, label: node.label, fullPath: node.fullPath,
+                        type: isFeed ? 'feed' : 'group',
+                        childCount: node.totalConsumers,
+                        hasChildren, expanded: isOpen(key),
+                        feed: isFeed ? node.fullPath : null,
+                        group: null, callback: null, path: null,
+                    };
+                    rows.push(row);
+                    if (row.expanded) {
+                        walk(node);
+                        if (isFeed) {
+                            const subs = consumers.map(q => ({
+                                q, label: q.callback || q.agentGroup || '(consumer)'
+                            })).sort(cmp);
+                            for (const s of subs) {
+                                rows.push({
+                                    key: 'sub:' + s.q.path,
+                                    depth: node.depth + 1,
+                                    label: s.label,
+                                    fullPath: node.fullPath + '.' + s.label,
+                                    type: 'subscriber',
+                                    childCount: 0,
+                                    hasChildren: false, expanded: false,
+                                    feed: node.fullPath,
+                                    group: s.q.agentGroup,
+                                    callback: s.q.callback,
+                                    path: s.q.path,
+                                });
+                            }
+                        }
+                    }
+                }
+            };
+            walk(root);
+
+            // 4. Filter: keep matches + their ancestors and descendants.
+            if (!filter) return rows;
+            const match = (r) => r.fullPath.toLowerCase().includes(filter)
+                                 || (r.path || '').toLowerCase().includes(filter);
+            const keep = new Array(rows.length).fill(false);
+            for (let i = 0; i < rows.length; i++) {
+                if (!match(rows[i])) continue;
+                keep[i] = true;
+                // Ancestors: walk backwards looking for strictly-shallower depth.
+                let need = rows[i].depth - 1;
+                for (let j = i - 1; j >= 0 && need >= 0; j--) {
+                    if (rows[j].depth === need) { keep[j] = true; need--; }
+                    else if (rows[j].depth < need) break;
+                }
+                // Descendants: any deeper row contiguous after i.
+                const baseDepth = rows[i].depth;
+                for (let j = i + 1; j < rows.length; j++) {
+                    if (rows[j].depth > baseDepth) keep[j] = true;
+                    else break;
+                }
+            }
+            return rows.filter((_, i) => keep[i]);
+        },
+
+        queueRowToggle(row) {
+            if (!row.hasChildren) return;
+            const cur = this.queuesExpanded[row.key];
+            const open = cur === undefined ? this.queuesExpandAll : cur;
+            this.queuesExpanded[row.key] = !open;
+        },
+
+        queueExpandAllToggle() {
+            this.queuesExpandAll = !this.queuesExpandAll;
+            // Clear per-row overrides so the new default takes effect.
+            this.queuesExpanded = {};
+        },
+
+        sortQueues(col) {
+            if (this.queuesSortCol === col) {
+                this.queuesSortDir = this.queuesSortDir === 'asc' ? 'desc' : 'asc';
+            } else {
+                this.queuesSortCol = col;
+                this.queuesSortDir = 'asc';
+            }
+        },
+
+        queueSortIndicator(col) {
+            if (this.queuesSortCol !== col) return '';
+            return this.queuesSortDir === 'asc' ? '↑' : '↓';
+        },
+
+        // Click handler for the Name column — depends on row level.
+        openQueueRow(row) {
+            if (row.type === 'feed' && this.hasService(row.feed)) {
+                this.openService(row.feed);
+            } else if (row.type === 'group' && this.hasAgent(row.group)) {
+                this.openAgent(row.group);
+            } else if (row.type === 'subscriber' && this.hasAgent(row.group)) {
+                // Subscriber callback lives inside the agent — best match is
+                // to jump to the agent detail where the callback table is
+                // already shown.
+                this.openAgent(row.group);
             }
         },
 
@@ -726,6 +998,49 @@ document.addEventListener('alpine:init', () => {
                     });
                 }
             }
+            // Sinks: any service classified as type=sink. Each sink carries a
+            // `consumers` array — one entry per processor that writes to it
+            // (computed server-side from each processor's ServiceRegistryQuery).
+            const sinks = (this.services || []).filter(s => s.type === 'sink');
+            const sinksByName = new Map();
+            for (const s of sinks) {
+                const id = 'sink:' + s.name;
+                sinksByName.set(s.name, id);
+                els.push({ data: {
+                    id, label: s.name, kind: 'sink', sinkName: s.name,
+                    tipLines: [
+                        { k: 'Sink',           v: s.name },
+                        { k: 'Implementation', v: s.className || '—' },
+                        { k: 'Producers',      v: String((s.consumers || []).length) + ' processor(s)' },
+                    ],
+                } });
+            }
+            // Processor → sink edges, derived from each sink's consumers.
+            // Multiple nodes inside one processor can all write to the same
+            // sink (the any-name dispatch pattern), so we collapse to one
+            // edge per (processor, sink) pair and list the nodes in the tip.
+            for (const s of sinks) {
+                for (const c of (s.consumers || [])) {
+                    const procId = 'proc:' + c.group + '/' + c.processor;
+                    const sinkId = sinksByName.get(s.name);
+                    if (!sinkId) continue;
+                    const nodes = c.nodes || [];
+                    els.push({
+                        data: {
+                            id: 'e:' + procId + '>' + sinkId,
+                            source: procId,
+                            target: sinkId,
+                            label: nodes.length === 1 ? nodes[0] : (nodes.length + ' nodes'),
+                            kind: 'ps',
+                            tipLines: [
+                                { k: 'Writes to', v: c.processor + ' → ' + s.name },
+                                { k: 'Group',     v: c.group },
+                                { k: 'Via nodes', v: nodes.length ? nodes.join(', ') : '(any-name dispatch)' },
+                            ],
+                        }
+                    });
+                }
+            }
             return els;
         },
 
@@ -795,6 +1110,15 @@ document.addEventListener('alpine:init', () => {
                   style: { 'background-color': '#f59e0b', 'color': '#1f1300', 'border-color': '#b8740a' } },
                 { selector: 'node[kind="processor"]',
                   style: { 'background-color': '#10b981', 'color': '#003323', 'border-color': '#086a4f', 'font-weight': 'bold' } },
+                // Sink — visually distinct from feed (right side of flow) but
+                // same warmth-class so the eye reads "external system".
+                // Reddish-purple to contrast with the cool blue of feeds.
+                { selector: 'node[kind="sink"]',
+                  style: { 'background-color': '#a855f7', 'color': '#fff', 'border-color': '#6b21a8', 'shape': 'round-rectangle' } },
+                // Processor → sink edge — same visual weight as feed → group
+                // edges but distinct via a warmer line colour.
+                { selector: 'edge[kind="ps"]',
+                  style: { 'line-color': '#c084fc', 'target-arrow-color': '#c084fc' } },
                 // Inner graphml styles by jGraph Style property.
                 { selector: 'node[kind="EVENTHANDLER"]',
                   style: { 'background-color': '#ef4444', 'color': '#fff', 'shape': 'round-rectangle', 'font-size': 9 } },
@@ -1309,6 +1633,615 @@ document.addEventListener('alpine:init', () => {
             URL.revokeObjectURL(url);
         },
 
+        // ── Compliance tab ──────────────────────────────────────────
+        //
+        // Fetches the per-processor compliance report from
+        //   GET /api/processors/{group}/{name}/compliance
+        // and renders inputs (feeds), outputs (sinks), and other bound
+        // services along with their physical config. Refreshes on every
+        // tab activation so values reflect the live server state.
+
+        async complianceEnter() {
+            const target = this.processorGraphTarget;
+            if (!target) { this.complianceError = 'no processor selected'; return; }
+            this.complianceError = '';
+            this.complianceLoading = true;
+            try {
+                const url = `/api/processors/${encodeURIComponent(target.group)}/${encodeURIComponent(target.name)}/compliance`;
+                const r = await fetch(url, { credentials: 'same-origin' });
+                if (!r.ok) {
+                    let body = '';
+                    try { body = JSON.stringify(await r.json()); } catch (_) {}
+                    this.complianceError = `compliance: HTTP ${r.status} ${body}`;
+                    return;
+                }
+                this.complianceReport = await r.json();
+            } catch (e) {
+                this.complianceError = 'compliance: network error — ' + (e.message || e);
+            } finally {
+                this.complianceLoading = false;
+            }
+        },
+
+        complianceDownload() {
+            if (!this.complianceReport) return;
+            const blob = new Blob([JSON.stringify(this.complianceReport, null, 2)],
+                { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+            a.href = url;
+            a.download = `${this.processorGraphTarget?.name || 'processor'}-compliance-${stamp}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        },
+
+        // ── Replay tab ──────────────────────────────────────────────
+        // Lifecycle: replayEnter() on first activation of the Replay
+        // tab — creates the engine + onChange listener + fetches the
+        // file list. Subsequent re-entries reuse the engine.
+
+        replayEnter() {
+            this.replayError = '';
+            if (!this.replayEngine) {
+                this.replayEngine = window.createReplayEngine();
+                this.replayEngine.onChange(() => this._replaySync());
+            }
+            this._ensureReplayKeyHandler();
+            this.replayLoadFiles();
+            this.replayRefreshRecordingState();
+        },
+
+        async replayLoadFiles() {
+            try {
+                const r = await fetch('/api/audit/files', { credentials: 'same-origin' });
+                if (!r.ok) {
+                    this.replayError = 'audit files: HTTP ' + r.status;
+                    this.replayFiles = [];
+                    return;
+                }
+                const all = await r.json();
+                // Show only files for the current target processor — keeps
+                // the dropdown tight on a multi-processor server.
+                const procName = this.processorGraphTarget?.name;
+                this.replayFiles = procName
+                    ? all.filter(f => f.processorName === procName)
+                    : all;
+                this.replayError = '';
+            } catch (e) {
+                this.replayError = 'audit files: network error — ' + e.message;
+            }
+        },
+
+        async replayLoadFile() {
+            if (!this.replaySelectedFile) return;
+            this.replayError = '';
+            try {
+                const url = `/api/audit/file/${encodeURIComponent(this.replaySelectedFile)}?limit=10000`;
+                const r = await fetch(url, { credentials: 'same-origin' });
+                if (!r.ok) {
+                    this.replayError = 'load file: HTTP ' + r.status;
+                    return;
+                }
+                const text = await r.text();
+                const parsed = window.eventLogParser.parseNdjson(text);
+                this.replayEngine.loadRecords(parsed.records);
+                if (parsed.errors.length > 0) {
+                    console.warn('[replay] parser errors', parsed.errors.slice(0, 5));
+                }
+            } catch (e) {
+                this.replayError = 'load file: network error — ' + e.message;
+            }
+        },
+
+        async replayRefreshRecordingState() {
+            const procName = this.processorGraphTarget?.name;
+            if (!procName) return;
+            try {
+                // Re-use the listAvailable response to derive isRecording
+                // for our processor (it has an isLive flag).
+                const r = await fetch('/api/audit/files', { credentials: 'same-origin' });
+                if (!r.ok) return;
+                const all = await r.json();
+                this.replayRecording = all.some(f => f.processorName === procName && f.isLive);
+            } catch (_) { /* swallow */ }
+        },
+
+        async replayToggleRecord() {
+            const procName = this.processorGraphTarget?.name;
+            if (!procName) return;
+            const verb = this.replayRecording ? 'stop' : 'start';
+            try {
+                const r = await fetch(`/api/audit/${encodeURIComponent(procName)}/${verb}`, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-Token': this.csrfToken || ''
+                    },
+                    body: '{}'
+                });
+                if (!r.ok) {
+                    const body = await r.json().catch(() => ({}));
+                    this.replayError = `audit.${verb}: ${body.err || ('HTTP ' + r.status)}`;
+                    return;
+                }
+                this.replayError = '';
+                // Refresh state — gives the user instant feedback even
+                // before the next WS frame.
+                await this.replayRefreshRecordingState();
+                await this.replayLoadFiles();
+            } catch (e) {
+                this.replayError = `audit.${verb}: network error — ${e.message}`;
+            }
+        },
+
+        replayExport(format) {
+            if (!this.replaySelectedFile) return;
+            const url = `/api/audit/file/${encodeURIComponent(this.replaySelectedFile)}/export?format=${encodeURIComponent(format)}`;
+            // Plain navigation triggers the Content-Disposition download.
+            window.location.href = url;
+        },
+
+        // ── Top-level Replay nav entry ──────────────────────────────
+        // Promotes the Replay surface to a primary nav item without
+        // duplicating the cytoscape canvas — the picker view here just
+        // routes the user into the processor-graph view with the
+        // Replay sibling-tab pre-activated.
+
+        async goReplay() {
+            // If we're already viewing a processor, just flip the tab.
+            if (this.processorGraphTarget && this.activeView === 'processor-graph') {
+                this.processorGraphTab = 'replay';
+                this.replayEnter();
+                return;
+            }
+            // Otherwise show the picker.
+            this.activeView = 'replay';
+            // Best-effort refresh of introspection (agents + services) +
+            // audit-files so rows show RECORDING tags + record counts.
+            try {
+                await Promise.all([this.loadIntrospection(), this.replayLoadFilesAll()]);
+            } catch (_) { /* swallow */ }
+        },
+
+        // Pulls /api/audit/files once for the picker so every row shows
+        // its audit state without one fetch per row.
+        async replayLoadFilesAll() {
+            try {
+                const r = await fetch('/api/audit/files', { credentials: 'same-origin' });
+                if (!r.ok) { this._allAuditFiles = []; return; }
+                this._allAuditFiles = await r.json();
+            } catch (_) {
+                this._allAuditFiles = [];
+            }
+        },
+
+        // Rows for the picker: every registered processor with its
+        // group + audit state. Sorted so live captures float to the top.
+        replayProcessorRows() {
+            const rows = [];
+            const auditByName = new Map();
+            for (const f of (this._allAuditFiles || [])) {
+                // Keep the most-recent / live one per processor name.
+                const existing = auditByName.get(f.processorName);
+                if (!existing || (f.isLive && !existing.isLive)) auditByName.set(f.processorName, f);
+            }
+            for (const a of (this.agents || [])) {
+                for (const m of (a.members ?? [])) {
+                    const audit = auditByName.get(m.name);
+                    rows.push({
+                        name: m.name,
+                        group: a.group,
+                        isLive: !!audit?.isLive,
+                        hasFile: !!audit,
+                        recordCount: audit?.recordCount ?? -1
+                    });
+                }
+            }
+            rows.sort((x, y) => {
+                if (x.isLive !== y.isLive) return x.isLive ? -1 : 1;
+                if (x.hasFile !== y.hasFile) return x.hasFile ? -1 : 1;
+                return x.name.localeCompare(y.name);
+            });
+            return rows;
+        },
+
+        // Click handler: drop into the processor-graph view with the
+        // Replay tab live. openProcessorGraph loads the graphml +
+        // mounts cytoscape; we pre-set the tab so processorGraphEnter
+        // leaves us looking at Replay and call replayEnter so the file
+        // picker + record list populate before the first render.
+        async openProcessorForReplay(group, name) {
+            this.processorGraphTab = 'replay';
+            await this.openProcessorGraph(group, name);
+            this.replayEnter();
+        },
+
+        replayPrevRecord() { this.replayEngine?.prevRecord(); },
+        replayNextRecord() { this.replayEngine?.nextRecord(); },
+        replayPrevStep()   { this.replayEngine?.prevStep(); },
+        replayNextStep()   { this.replayEngine?.nextStep(); },
+        replaySetRecord(i) { this.replayEngine?.setRecordIndex(i); },
+        replaySetStep(i)   { this.replayEngine?.setStepIndex(i); },
+        replayTogglePlay() {
+            if (!this.replayEngine) return;
+            if (this.replayEngine.isPlaying()) this.replayEngine.pause();
+            else this.replayEngine.play(700);
+        },
+
+        // ── replay: presentation helpers ─────────────────────────────
+
+        // Short, monotonic-friendly time format for record rows. The
+        // audit pipeline emits eventTime in epoch-millis; we display
+        // HH:MM:SS.mmm so dense bursts are still distinguishable.
+        formatReplayTime(ts) {
+            if (!ts && ts !== 0) return '';
+            const d = new Date(ts);
+            if (Number.isNaN(d.getTime())) return '';
+            const pad = (n, w = 2) => String(n).padStart(w, '0');
+            return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds())
+                + '.' + pad(d.getMilliseconds(), 3);
+        },
+
+        // ── Replay tab: Text view colorization ──────────────────────
+        //
+        // The Text tab shows the full audit record. Format-detect the
+        // text and apply matching syntax highlighting:
+        //  - starts with `{` or `[` → JSON colorization
+        //  - otherwise → YAML colorization (used by the server-side
+        //    YAML-parse-failure fallback, which surfaces the raw text)
+        //
+        // Both paths reuse the existing yaml-* token classes so the
+        // colors line up with the Logical view + Server YAML config view.
+
+        formatTextRecord(text) {
+            if (!text) return '';
+            const trimmed = text.trim();
+            if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+                return this._highlightJson(text);
+            }
+            return this._highlightYaml(text);
+        },
+
+        _highlightJson(text) {
+            // Tokenizer pass — each iteration matches exactly one of:
+            //   1: string (with optional trailing colon → key)
+            //   2: the colon group on a key match
+            //   3: true / false / null
+            //   4: number
+            //   5: punctuation, whitespace, or other (passed through)
+            const esc = (s) => s
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+            const re = /("(?:\\.|[^"\\])*")(\s*:)?|(\btrue\b|\bfalse\b|\bnull\b)|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|([\s\S])/g;
+            const out = [];
+            let m;
+            while ((m = re.exec(text)) !== null) {
+                if (m[1]) {
+                    if (m[2]) {
+                        out.push('<span class="yaml-key">' + esc(m[1]) + '</span>' + esc(m[2]));
+                    } else {
+                        out.push('<span class="yaml-string">' + esc(m[1]) + '</span>');
+                    }
+                } else if (m[3]) {
+                    if (m[3] === 'null') out.push('<span class="yaml-null">null</span>');
+                    else                  out.push('<span class="yaml-bool">' + m[3] + '</span>');
+                } else if (m[4]) {
+                    out.push('<span class="yaml-num">' + m[4] + '</span>');
+                } else {
+                    out.push(esc(m[0]));
+                }
+            }
+            return out.join('');
+        },
+
+        _highlightYaml(text) {
+            // Line-based highlighter. Each line either matches:
+            //   - `<indent><key>: <value>` (most common)
+            //   - block-literal value lines under `key: |`
+            //   - sequence-item rows starting with `- `
+            // The value tokenizer matches numbers / bools / null first,
+            // then falls through to "string" for everything else.
+            const esc = (s) => s
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+            const valueHtml = (v) => {
+                if (v === '') return '';
+                if (v === '|' || v === '>' || v === '|-' || v === '>-') {
+                    return '<span class="yaml-meta">' + esc(v) + '</span>';
+                }
+                if (/^-?\d+(\.\d+)?([eE][+-]?\d+)?$/.test(v)) {
+                    return '<span class="yaml-num">' + esc(v) + '</span>';
+                }
+                if (v === 'true' || v === 'false') {
+                    return '<span class="yaml-bool">' + esc(v) + '</span>';
+                }
+                if (v === 'null') {
+                    return '<span class="yaml-null">null</span>';
+                }
+                return '<span class="yaml-string">' + esc(v) + '</span>';
+            };
+            return text.split('\n').map(line => {
+                // Sequence item: "<indent>- <rest>"
+                const seq = line.match(/^(\s*)(- )(.*)$/);
+                if (seq) {
+                    const [, lead, dash, rest] = seq;
+                    // The rest may itself be `<key>: <value>` or inline.
+                    const inner = rest.match(/^([\w.\-]+)(:\s*)(.*)$/);
+                    if (inner) {
+                        return lead + '<span class="yaml-dash">' + esc(dash) + '</span>'
+                            + '<span class="yaml-key">' + esc(inner[1]) + '</span>'
+                            + esc(inner[2]) + valueHtml(inner[3]);
+                    }
+                    return lead + '<span class="yaml-dash">' + esc(dash) + '</span>' + valueHtml(rest);
+                }
+                // Key: value
+                const m = line.match(/^(\s*)([\w.\-]+)(:\s*)(.*)$/);
+                if (!m) return esc(line);
+                const [, lead, key, colon, value] = m;
+                return lead + '<span class="yaml-key">' + esc(key) + '</span>'
+                    + esc(colon) + valueHtml(value);
+            }).join('\n');
+        },
+
+        // Render a JSON-like payload as syntax-highlighted YAML. Returns
+        // an HTML string with <span class="yaml-..."> markers; callers
+        // bind via x-html. We hand-roll the renderer rather than
+        // pulling SnakeYAML or js-yaml because the payload shape is
+        // narrow (map / list of scalars one or two levels deep) and
+        // the dep cost would dwarf the format complexity.
+        formatPayloadAsYaml(obj, indent = 0) {
+            const esc = (s) => String(s)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const pad = (n) => ' '.repeat(n * 2);
+            const tokenScalar = (v) => {
+                if (v === null || v === undefined) return '<span class="yaml-null">null</span>';
+                if (typeof v === 'boolean') return '<span class="yaml-bool">' + v + '</span>';
+                if (typeof v === 'number') return '<span class="yaml-num">' + v + '</span>';
+                const s = esc(v);
+                // Quote strings that look like YAML reserved tokens or that
+                // contain special chars — mirrors snakeyaml's plain-style
+                // safety rules just enough for our payloads.
+                if (/^[@&*!|>%,`]/.test(s) || /:\s|\s#|^\s|\s$/.test(s)) {
+                    return '<span class="yaml-string">"' + s.replace(/"/g, '\\"') + '"</span>';
+                }
+                return '<span class="yaml-string">' + s + '</span>';
+            };
+            const render = (v, depth) => {
+                if (v === null || v === undefined) return tokenScalar(v);
+                if (Array.isArray(v)) {
+                    if (!v.length) return '<span class="yaml-empty">[]</span>';
+                    return v.map(item => '\n' + pad(depth) + '<span class="yaml-dash">-</span> '
+                        + (item && typeof item === 'object'
+                            ? render(item, depth + 1).replace(/^\n[ ]+/, '')
+                            : tokenScalar(item))).join('');
+                }
+                if (typeof v === 'object') {
+                    const keys = Object.keys(v);
+                    if (!keys.length) return '<span class="yaml-empty">{}</span>';
+                    return keys.map(k => {
+                        const child = v[k];
+                        const keyTok = '<span class="yaml-key">' + esc(k) + '</span>';
+                        if (child && typeof child === 'object' && !Array.isArray(child)
+                                && Object.keys(child).length) {
+                            return '\n' + pad(depth) + keyTok + ':' + render(child, depth + 1);
+                        }
+                        if (Array.isArray(child) && child.length
+                                && child.some(x => x && typeof x === 'object')) {
+                            return '\n' + pad(depth) + keyTok + ':' + render(child, depth + 1);
+                        }
+                        return '\n' + pad(depth) + keyTok + ': ' + render(child, depth + 1);
+                    }).join('');
+                }
+                return tokenScalar(v);
+            };
+            const out = render(obj, indent);
+            return out.replace(/^\n/, '');  // strip leading newline
+        },
+
+        // ── replay: slider, splitter, keyboard ───────────────────────
+
+        replaySliderValue() {
+            return this.replayHasRecords ? (this.replayRecordIndex + 1) : 0;
+        },
+        replaySliderMax() {
+            return Math.max(1, this.replayRecordCount);
+        },
+        /** Splitter drag handler — adjusts the Replay-mode side column
+         *  width. Measures cursor relative to the .proc-replay-layout
+         *  container's right edge so the user gets direct manipulation.
+         *  Clamps to [280, 900]px so the side column can't degenerate or
+         *  swallow the canvas. Persists to localStorage on release. */
+        replayStartSideDrag(e) {
+            const layout = e.target.closest('.proc-replay-layout');
+            if (!layout) return;
+            this._replaySideDragging = true;
+            const onMove = (ev) => {
+                if (!this._replaySideDragging) return;
+                const rect = layout.getBoundingClientRect();
+                const fromRight = rect.right - ev.clientX;
+                const w = Math.max(280, Math.min(900, fromRight));
+                this.replaySideWidthPx = Math.round(w);
+                // Nudge cytoscape so the canvas keeps up with the resize.
+                this.replayCanvasResize();
+            };
+            const onUp = () => {
+                this._replaySideDragging = false;
+                try {
+                    localStorage.setItem('mongoose-admin-replay-side-width',
+                                         String(this.replaySideWidthPx));
+                } catch (_) {}
+                window.removeEventListener('mousemove', onMove);
+                window.removeEventListener('mouseup', onUp);
+            };
+            window.addEventListener('mousemove', onMove);
+            window.addEventListener('mouseup', onUp);
+            e.preventDefault();
+        },
+
+        /** Tell cytoscape that its container size may have changed — the
+         *  Replay tab toggles a flex layout that shrinks the canvas. The
+         *  renderer doesn't auto-detect container resizes; without this
+         *  call the rendered nodes stay in their old positions. */
+        replayCanvasResize() {
+            const r = this.processorGraphRenderer;
+            if (!r || !r.cy) return;
+            this.$nextTick(() => {
+                try { r.cy.resize(); r.cy.fit(undefined, 30); } catch (_) {}
+            });
+        },
+
+        async replayCopyText() {
+            const text = this.replayCurrentRecord?.rawText || '';
+            if (!text) return;
+            try {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    await navigator.clipboard.writeText(text);
+                } else {
+                    // Fallback for non-secure-context / older browsers.
+                    const ta = document.createElement('textarea');
+                    ta.value = text;
+                    ta.style.position = 'fixed';
+                    ta.style.opacity = '0';
+                    document.body.appendChild(ta);
+                    ta.focus();
+                    ta.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(ta);
+                }
+                this.replayCopyState = 'Copied';
+            } catch (e) {
+                this.replayCopyState = 'Copy failed';
+            }
+            // Reset the button label after a short hold so it doesn't
+            // stick on "Copied" forever.
+            setTimeout(() => { this.replayCopyState = ''; }, 1200);
+        },
+
+        replaySliderChange(v) {
+            const i = Math.max(0, Math.min(this.replayRecordCount - 1, (+v) - 1));
+            // Mark this position change as a scrub so _replaySync skips
+            // the cytoscape highlight — the slider is for reading data,
+            // not for stepping the graph through events. The flag is set
+            // synchronously around setRecordIndex (which notifies +
+            // syncs synchronously), then reset.
+            this._replayScrubbing = true;
+            try { this.replaySetRecord(i); }
+            finally { this._replayScrubbing = false; }
+        },
+
+        replayStartDrag(e) {
+            this._replayDragging = true;
+            const onMove = (ev) => {
+                if (!this._replayDragging) return;
+                const grid = e.target.closest('.replay-grid');
+                if (!grid) return;
+                const rect = grid.getBoundingClientRect();
+                const pct = ((ev.clientX - rect.left) / rect.width) * 100;
+                this.replaySplitPct = Math.max(18, Math.min(72, pct));
+            };
+            const onUp = () => {
+                this._replayDragging = false;
+                window.removeEventListener('mousemove', onMove);
+                window.removeEventListener('mouseup', onUp);
+            };
+            window.addEventListener('mousemove', onMove);
+            window.addEventListener('mouseup', onUp);
+            e.preventDefault();
+        },
+
+        // Mounted once and routed by activeView / processorGraphTab so we
+        // don't fight other view-specific shortcuts.
+        _ensureReplayKeyHandler() {
+            if (this._replayKeyHandler) return;
+            const self = this;
+            this._replayKeyHandler = (e) => {
+                if (self.activeView !== 'processor-graph') return;
+                if (self.processorGraphTab !== 'replay') return;
+                const t = e.target;
+                if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA'
+                          || t.tagName === 'SELECT' || t.isContentEditable)) return;
+                if (e.metaKey || e.ctrlKey || e.altKey) return;
+                switch (e.key) {
+                    case 'ArrowLeft':  self.replayPrevRecord(); break;
+                    case 'ArrowRight': self.replayNextRecord(); break;
+                    case 'ArrowUp':    self.replayPrevStep();   break;
+                    case 'ArrowDown':  self.replayNextStep();   break;
+                    case ' ':          self.replayTogglePlay(); break;
+                    default: return;
+                }
+                e.preventDefault();
+            };
+            window.addEventListener('keydown', this._replayKeyHandler);
+        },
+
+        // ── nav rail collapse ────────────────────────────────────────
+        navToggleCollapse() {
+            this.navCollapsed = !this.navCollapsed;
+            try {
+                localStorage.setItem('mongoose-admin-nav-collapsed',
+                    this.navCollapsed ? '1' : '0');
+            } catch (_) {}
+        },
+
+        // Pulled from the engine on every onChange. Mirrors state into
+        // Alpine reactives so x-text / x-show bindings observe changes.
+        _replaySync() {
+            const e = this.replayEngine;
+            if (!e) return;
+            const prevIndex = this.replayRecordIndex;
+            this.replayRecordIndex = e.getRecordIndex();
+            this.replayStepIndex = e.getStepIndex();
+            this.replayRecordCount = e.getRecordCount();
+            this.replayStepCount = e.getStepCount();
+            this.replayPlaying = e.isPlaying();
+            this.replayRecords = e.getAllRecords();
+            this.replayCurrentRecord = e.getCurrentRecord();
+            this.replayHasRecords = this.replayRecordCount > 0;
+            // Drive the cytoscape highlight on every position change
+            // EXCEPT slider drag — the slider is a pure scrub control,
+            // explicitly opt-out of graph evolution. Everything else
+            // (arrow keys / prev / next / play / Events click) is a
+            // "step me to this record" action and gets the highlight.
+            if (!this._replayScrubbing) {
+                const r = this.processorGraphRenderer;
+                if (r && typeof r.setActiveNodes === 'function') {
+                    const ids = e.getActiveNodeIds();
+                    // Add the event-type node to the active set so the
+                    // SEP's @OnEventHandler subscription for this event
+                    // lights up alongside the touched user nodes.
+                    // graphml node IDs match the event class simple
+                    // name (e.g. "Trade", "MidPrice"); unknown IDs are
+                    // harmless no-ops in cytoscape lookup.
+                    const eventType = this.replayCurrentRecord?.eventType;
+                    if (eventType) ids.push(eventType);
+                    r.setActiveNodes(ids);
+                }
+            }
+            // Scroll the Events list to follow the active record. Skipped
+            // when the index didn't change so casual hover doesn't snap
+            // the list back. nextTick so the :class="{active: ...}" has
+            // landed by the time we look up the element.
+            if (this.replayRecordIndex !== prevIndex && this.replayRecordIndex >= 0) {
+                this.$nextTick(() => this._replayScrollActiveIntoView());
+            }
+        },
+
+        _replayScrollActiveIntoView() {
+            const list = this.$refs.replayList;
+            if (!list) return;
+            const row = list.querySelector('li[data-replay-idx="' + this.replayRecordIndex + '"]');
+            if (!row) return;
+            // 'nearest' avoids gratuitous scrolling when the row is
+            // already visible — only nudges when actually off-screen.
+            row.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+        },
+
         processorGraphApplyLayout() {
             const r = this.processorGraphRenderer;
             if (!r) return;
@@ -1542,10 +2475,22 @@ document.addEventListener('alpine:init', () => {
                 this.logsStatus = 'unavailable';
                 return;
             }
-            this.logsWs.onopen = () => { this.logsStatus = 'live'; };
+            this.logsWs.onopen = () => {
+                this.logsStatus = 'live';
+                // Reset backoff so the next close starts retrying quickly.
+                this._logsReconnectMs = 1000;
+            };
             this.logsWs.onmessage = (evt) => {
                 try {
                     const line = JSON.parse(evt.data);
+                    // Monotonic per-client sequence — the x-for key. Without
+                    // this, identical (ts, logger, msg) tuples produce
+                    // duplicate keys that crash Alpine's DOM reconciler
+                    // with `Cannot read properties of undefined (reading
+                    // 'after')`, which cascades into broader reactivity
+                    // breakage (the logs status pill stuck on Disconnected
+                    // was a symptom of this).
+                    line._seq = (this._logSeq = (this._logSeq || 0) + 1);
                     this.logs.push(line);
                     if (this.logs.length > this.logCap) {
                         this.logs.splice(0, this.logs.length - this.logCap);
@@ -1560,8 +2505,29 @@ document.addEventListener('alpine:init', () => {
                     console.warn('bad log frame', e);
                 }
             };
-            this.logsWs.onclose = () => { this.logsStatus = 'closed'; };
-            this.logsWs.onerror = () => { this.logsStatus = 'error'; };
+            this.logsWs.onclose = () => {
+                this.logsStatus = 'closed';
+                this._scheduleLogsReconnect();
+            };
+            this.logsWs.onerror = () => {
+                this.logsStatus = 'error';
+                // onerror is followed by onclose; reconnect from there.
+            };
+        },
+
+        // Re-open /ws/logs with capped exponential backoff after the
+        // server closes the socket (Jetty idle timeout, server restart,
+        // transient network drop). Cancelled on view-leave by
+        // closeLogsWs setting logsWs = null and clearing the timer.
+        _scheduleLogsReconnect() {
+            if (this._logsReconnectTimer) return;
+            const wait = this._logsReconnectMs || 1000;
+            this._logsReconnectMs = Math.min(wait * 2, 15000);
+            this._logsReconnectTimer = setTimeout(() => {
+                this._logsReconnectTimer = null;
+                if (this.activeView !== 'logs') return;
+                this.openLogsWs();
+            }, wait);
         },
 
         // ── logs ──
@@ -1945,6 +2911,7 @@ document.addEventListener('alpine:init', () => {
             });
             if (this.ws)     { try { this.ws.close(); }     catch (e) {} this.ws = null; }
             if (this.logsWs) { try { this.logsWs.close(); } catch (e) {} this.logsWs = null; }
+            if (this._logsReconnectTimer) { clearTimeout(this._logsReconnectTimer); this._logsReconnectTimer = null; }
             this.logs = [];
             this.logsStatus = '';
             this.wsStatus = '';
