@@ -41,6 +41,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -236,6 +237,8 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         // service is the NoOp (capture disabled in YAML).
         javalin.get("/api/audit/files", this::handleAuditList);
         javalin.get("/api/audit/file/{id}/metadata", this::handleAuditMetadata);
+        javalin.get("/api/audit/file/{id}", this::handleAuditRead);
+        javalin.get("/api/audit/file/{id}/export", this::handleAuditExport);
         javalin.post("/api/audit/{processor}/start", this::handleAuditStart);
         javalin.post("/api/audit/{processor}/stop", this::handleAuditStop);
 
@@ -248,17 +251,21 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         javalin.get("/api/agents", this::handleAgents);
         javalin.get("/api/queues", this::handleQueues);
         javalin.get("/api/processors/{group}/{name}/graphml", this::handleProcessorGraphml);
+        javalin.get("/api/processors/{group}/{name}/compliance", this::handleProcessorCompliance);
 
         // Conditional file picker for loader forms. Always mounted, but returns
         // 404 when loaderBaseDir is unset so the UI hides the tab automatically.
         javalin.get("/api/files", this::handleListFiles);
 
-        // Monitoring WebSocket. Same auth filter applies to the HTTP upgrade
-        // request because Javalin's before() runs on the upgrade. CSRF on WS
-        // is carried as ?csrf=... query param (browsers can't add headers).
+        // WebSocket auth filter MUST be registered before any ws() route so
+        // it applies to all of them (Javalin only matches before() filters
+        // against routes registered AFTER the filter). CSRF on WS is carried
+        // as ?csrf=... query param because browsers can't add headers on
+        // the upgrade.
         javalin.before("/ws/*", this::enforceWsUpgradeAuth);
         javalin.ws("/ws/monitor", this::configureMonitorWs);
         javalin.ws("/ws/logs",    this::configureLogsWs);
+        javalin.ws("/ws/audit-tail/{processor}", this::configureAuditTailWs);
 
         // Periodic sampler — broadcasts to all live monitor clients. When the
         // counters service is operational the sampler reads forEachCounter
@@ -604,6 +611,252 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
                 "recording", auditCapture.isRecording(processor)));
     }
 
+    private void handleAuditRead(Context ctx) {
+        if (auditIntrospection == null) {
+            ctx.status(HttpStatus.SERVICE_UNAVAILABLE);
+            ctx.json(Map.of("err", "audit introspection service not bound"));
+            return;
+        }
+        String id = ctx.pathParam("id");
+        com.telamin.mongoose.service.audit.AuditSinkHandle handle = findHandle(id);
+        if (handle == null || handle.path() == null) {
+            ctx.status(HttpStatus.NOT_FOUND);
+            ctx.json(Map.of("err", "no audit file with id=" + id));
+            return;
+        }
+        long from = parseLong(ctx.queryParam("from"), 0);
+        long limit = parseLong(ctx.queryParam("limit"), 1000);
+        ctx.contentType("application/x-ndjson");
+        try (net.openhft.chronicle.queue.ChronicleQueue q =
+                     net.openhft.chronicle.queue.impl.single.SingleChronicleQueueBuilder
+                             .binary(handle.path())
+                             .readOnly(true)
+                             .build();
+             java.io.PrintWriter w = new java.io.PrintWriter(ctx.outputStream())) {
+            net.openhft.chronicle.queue.ExcerptTailer tailer = q.createTailer();
+            long index = 0;
+            long emitted = 0;
+            while (emitted < limit) {
+                try (net.openhft.chronicle.wire.DocumentContext dc = tailer.readingDocument()) {
+                    if (!dc.isPresent()) break;
+                    if (index++ < from) continue;
+                    String yaml = dc.wire().getValueIn().text();
+                    if (yaml == null) continue;
+                    String json = AuditRecordProjection.yamlToJson(yaml);
+                    w.write(json);
+                    w.write('\n');
+                    emitted++;
+                }
+            }
+            w.flush();
+        } catch (Throwable e) {
+            log.warn("audit read failed for {}", id, e);
+            ctx.status(HttpStatus.INTERNAL_SERVER_ERROR);
+            ctx.contentType("application/json");
+            ctx.result("{\"err\":\"audit read failed: " + e.getClass().getSimpleName()
+                    + ": " + String.valueOf(e.getMessage()).replace("\"", "'") + "\"}");
+        }
+    }
+
+    private void handleAuditExport(Context ctx) {
+        if (auditIntrospection == null) {
+            ctx.status(HttpStatus.SERVICE_UNAVAILABLE);
+            ctx.json(Map.of("err", "audit introspection service not bound"));
+            return;
+        }
+        String id = ctx.pathParam("id");
+        String fmt = ctx.queryParamAsClass("format", String.class).getOrDefault("yaml");
+        com.telamin.mongoose.service.audit.AuditSinkHandle handle = findHandle(id);
+        if (handle == null || handle.path() == null) {
+            ctx.status(HttpStatus.NOT_FOUND);
+            ctx.json(Map.of("err", "no audit file with id=" + id));
+            return;
+        }
+        boolean json = "jsonl".equalsIgnoreCase(fmt);
+        String stamp = java.time.LocalDateTime.now()
+                .format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
+        String filename = id + "-audit-" + stamp + (json ? ".jsonl" : ".yaml");
+        ctx.contentType(json ? "application/x-ndjson" : "text/yaml");
+        ctx.header("Content-Disposition", "attachment; filename=\"" + filename + "\"");
+        try (net.openhft.chronicle.queue.ChronicleQueue q =
+                     net.openhft.chronicle.queue.impl.single.SingleChronicleQueueBuilder
+                             .binary(handle.path())
+                             .readOnly(true)
+                             .build();
+             java.io.PrintWriter w = new java.io.PrintWriter(ctx.outputStream())) {
+            net.openhft.chronicle.queue.ExcerptTailer tailer = q.createTailer();
+            boolean first = true;
+            while (true) {
+                try (net.openhft.chronicle.wire.DocumentContext dc = tailer.readingDocument()) {
+                    if (!dc.isPresent()) break;
+                    String yaml = dc.wire().getValueIn().text();
+                    if (yaml == null) continue;
+                    if (json) {
+                        // One JSON object per line — drop-in for jq / Loki / Splunk.
+                        w.write(AuditRecordProjection.yamlToJson(yaml));
+                        w.write('\n');
+                    } else {
+                        // YAML `---` separated documents — drop-in for the
+                        // desktop fluxtion-visualiser's eventlog-parser.
+                        if (!first) w.write("\n---\n");
+                        w.write(yaml);
+                        first = false;
+                    }
+                }
+            }
+            w.flush();
+        } catch (Throwable e) {
+            log.warn("audit export failed for {}", id, e);
+            ctx.status(HttpStatus.INTERNAL_SERVER_ERROR);
+            ctx.contentType("application/json");
+            ctx.result("{\"err\":\"audit export failed: " + e.getClass().getSimpleName()
+                    + ": " + String.valueOf(e.getMessage()).replace("\"", "'") + "\"}");
+        }
+    }
+
+    /**
+     * Live-tail WS — adaptive flush per the Phase 2 spec.
+     *
+     * <p>Each subscribed client gets:
+     * <ul>
+     *   <li>A dedicated Chronicle tailer positioned at the tip on connect</li>
+     *   <li>A ~25 ms scheduled poll that batches new records</li>
+     *   <li>Frame fan-out when buffer ≥ BATCH_THRESHOLD (32) OR
+     *       now − lastFlush > MAX_LATENCY_MS (50) — whichever first</li>
+     * </ul>
+     * Tab-hidden suspension via the {@code {"op":"pause"}} /
+     * {@code {"op":"resume"}} opcodes.
+     */
+    private void configureAuditTailWs(io.javalin.websocket.WsConfig ws) {
+        final long MAX_LATENCY_MS = 50;
+        final int BATCH_THRESHOLD = 32;
+        final long POLL_INTERVAL_MS = 25;
+        ws.onConnect(ctx -> {
+            try { ctx.session.setIdleTimeout(java.time.Duration.ofMinutes(10)); }
+            catch (Throwable t) { log.warn("could not set ws idle timeout", t); }
+            String processor = ctx.pathParam("processor");
+            if (auditIntrospection == null) {
+                ctx.send(java.util.Map.of("err", "audit introspection service not bound"));
+                ctx.session.close();
+                return;
+            }
+            com.telamin.mongoose.service.audit.AuditSinkHandle h = auditIntrospection.currentSink(processor);
+            if (h == null || h.path() == null) {
+                ctx.send(java.util.Map.of("err", "no live capture for processor " + processor));
+                ctx.session.close();
+                return;
+            }
+            net.openhft.chronicle.queue.ChronicleQueue q =
+                    net.openhft.chronicle.queue.impl.single.SingleChronicleQueueBuilder
+                            .binary(h.path()).build();
+            net.openhft.chronicle.queue.ExcerptTailer tailer = q.createTailer().toEnd();
+            java.util.concurrent.ScheduledExecutorService exec =
+                    java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
+                        Thread t = new Thread(r, "audit-tail-" + processor);
+                        t.setDaemon(true);
+                        return t;
+                    });
+            AuditTailState state = new AuditTailState(q, tailer, exec);
+            ctx.attribute("audit-tail-state", state);
+
+            exec.scheduleAtFixedRate(() -> {
+                if (!ctx.session.isOpen() || state.paused) return;
+                try {
+                    java.util.List<Object> batch = new java.util.ArrayList<>();
+                    while (true) {
+                        try (net.openhft.chronicle.wire.DocumentContext dc = tailer.readingDocument()) {
+                            if (!dc.isPresent()) break;
+                            String yaml = dc.wire().getValueIn().text();
+                            if (yaml == null) continue;
+                            String json = AuditRecordProjection.yamlToJson(yaml);
+                            batch.add(JSON_FRAGMENT_MARK + json);  // sentinel to splice as raw JSON
+                            if (batch.size() >= BATCH_THRESHOLD) break;
+                        }
+                    }
+                    long now = System.currentTimeMillis();
+                    boolean shouldFlush = !batch.isEmpty()
+                            && (batch.size() >= BATCH_THRESHOLD
+                            || now - state.lastFlush > MAX_LATENCY_MS);
+                    if (shouldFlush) {
+                        StringBuilder sb = new StringBuilder("[");
+                        for (int i = 0; i < batch.size(); i++) {
+                            String raw = (String) batch.get(i);
+                            if (i > 0) sb.append(',');
+                            sb.append(raw.substring(JSON_FRAGMENT_MARK.length()));
+                        }
+                        sb.append(']');
+                        ctx.send(sb.toString());
+                        state.lastFlush = now;
+                    }
+                } catch (Exception e) {
+                    log.debug("audit tail tick failed for {}", processor, e);
+                }
+            }, POLL_INTERVAL_MS, POLL_INTERVAL_MS, java.util.concurrent.TimeUnit.MILLISECONDS);
+        });
+        ws.onMessage(ctx -> {
+            AuditTailState state = ctx.attribute("audit-tail-state");
+            if (state == null) return;
+            String body = ctx.message();
+            if (body == null) return;
+            if (body.contains("\"pause\"")) state.paused = true;
+            else if (body.contains("\"resume\"")) state.paused = false;
+        });
+        ws.onClose(ctx -> {
+            AuditTailState state = ctx.attribute("audit-tail-state");
+            if (state != null) state.close();
+        });
+        ws.onError(ctx -> {
+            AuditTailState state = ctx.attribute("audit-tail-state");
+            if (state != null) state.close();
+        });
+    }
+
+    private static final String JSON_FRAGMENT_MARK = " ";
+
+    /** Per-WS state for the audit-tail subscription. */
+    private static final class AuditTailState {
+        final net.openhft.chronicle.queue.ChronicleQueue queue;
+        final net.openhft.chronicle.queue.ExcerptTailer tailer;
+        final java.util.concurrent.ScheduledExecutorService exec;
+        volatile boolean paused = false;
+        volatile long lastFlush = System.currentTimeMillis();
+
+        AuditTailState(net.openhft.chronicle.queue.ChronicleQueue q,
+                       net.openhft.chronicle.queue.ExcerptTailer t,
+                       java.util.concurrent.ScheduledExecutorService e) {
+            this.queue = q;
+            this.tailer = t;
+            this.exec = e;
+        }
+
+        void close() {
+            exec.shutdownNow();
+            try {
+                queue.close();
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    private com.telamin.mongoose.service.audit.AuditSinkHandle findHandle(String id) {
+        if (auditIntrospection == null) return null;
+        com.telamin.mongoose.service.audit.AuditSinkHandle live = auditIntrospection.currentSink(id);
+        if (live != null) return live;
+        for (com.telamin.mongoose.service.audit.AuditSinkHandle h : auditIntrospection.listAvailable()) {
+            if (id.equals(h.id())) return h;
+        }
+        return null;
+    }
+
+    private static long parseLong(String s, long fallback) {
+        if (s == null || s.isBlank()) return fallback;
+        try {
+            return Long.parseLong(s);
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
+    }
+
     /** Project an AuditSinkHandle to a JSON-friendly map (Path → String). */
     private static Map<String, Object> handleToJson(com.telamin.mongoose.service.audit.AuditSinkHandle h) {
         Map<String, Object> m = new java.util.LinkedHashMap<>();
@@ -672,6 +925,12 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
             raw.forEach((feed, list) -> consumersByFeed.put(feed, expandConsumers(list, procLookup)));
         }
 
+        // Sink → consumers map. Computed by walking every processor's
+        // ServiceRegistryQuery: feeds give us the input side, this gives the
+        // output side. Together they're the data the Topology view needs to
+        // render full feed → processor → sink flow.
+        Map<String, List<Map<String, Object>>> consumersBySink = consumersBySink();
+
         List<Map<String, Object>> services = new ArrayList<>();
         serverController.registeredServices().forEach((name, svc) -> {
             Object instance = svc.instance();
@@ -685,10 +944,89 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
                     : (instance != null ? instance.getClass().getName() : ""));
             if ("feed".equals(type)) {
                 entry.put("consumers", consumersByFeed.getOrDefault(name, Collections.emptyList()));
+            } else if ("sink".equals(type)) {
+                entry.put("consumers", consumersBySink.getOrDefault(name, Collections.emptyList()));
             }
             services.add(entry);
         });
         ctx.json(Map.of("services", services));
+    }
+
+    /**
+     * Walk every registered processor's {@link com.telamin.fluxtion.runtime.service.ServiceRegistryQuery}
+     * and produce a sink-name → consumer-processors map. Each consumer
+     * entry: {@code { processor, group, nodes: [...] }}.
+     *
+     * <p>Falls through silently for processors whose runtime predates
+     * fluxtion 1.0.1 (no ServiceRegistryQuery) — those just don't
+     * contribute to the sink-attribution view; the rest still do.
+     *
+     * <p>Time complexity: O(processors × sinks) — both are small in
+     * practice (single-digit). Recomputed per request since the values
+     * are cheap and the underlying topology can shift at runtime
+     * (dynamic node injection, late service registration).
+     */
+    private Map<String, List<Map<String, Object>>> consumersBySink() {
+        Map<String, List<Map<String, Object>>> out = new LinkedHashMap<>();
+        if (serverController == null) return out;
+
+        // Snapshot sinks up-front so we don't iterate registeredServices()
+        // N times inside the processor loop.
+        Map<String, Object> sinkInstances = new LinkedHashMap<>();
+        serverController.registeredServices().forEach((name, svc) -> {
+            Object instance = svc.instance();
+            if (instance != null && "sink".equals(classifyService(instance))) {
+                sinkInstances.put(name, instance);
+            }
+        });
+        if (sinkInstances.isEmpty()) return out;
+
+        serverController.registeredProcessors().forEach((group, procs) -> {
+            for (NamedEventProcessor np : procs) {
+                com.telamin.fluxtion.runtime.DataFlow processor = np.eventProcessor();
+                if (processor == null) continue;
+
+                // DSL-published sinks (SinkPublisher fields) — present on
+                // every processor regardless of fluxtion-runtime version.
+                Set<String> dslSinks = publisherSinkNames(processor);
+
+                java.util.Optional<com.telamin.fluxtion.runtime.service.ServiceRegistryQuery> queryOpt;
+                try {
+                    queryOpt = processor.serviceRegistryQuery();
+                } catch (NoSuchMethodError | AbstractMethodError olderRuntime) {
+                    queryOpt = java.util.Optional.empty();
+                }
+                com.telamin.fluxtion.runtime.service.ServiceRegistryQuery q = queryOpt.orElse(null);
+
+                for (Map.Entry<String, Object> sinkEntry : sinkInstances.entrySet()) {
+                    String sinkName = sinkEntry.getKey();
+                    Object sinkInstance = sinkEntry.getValue();
+
+                    List<String> nodes = java.util.Collections.emptyList();
+                    if (q != null) {
+                        try {
+                            nodes = consumersForBinding(q, sinkInstance.getClass(), sinkName, sinkInstance);
+                        } catch (Throwable t) {
+                            log.warn("topology: sink consumer lookup failed for '{}' on processor '{}'",
+                                    sinkName, np.name(), t);
+                        }
+                    }
+                    if (nodes.isEmpty() && dslSinks.contains(sinkName)) {
+                        // DSL terminator attribution — the SinkPublisher's name
+                        // doubles as the consumer label on the topology edge.
+                        nodes = java.util.Collections.singletonList(sinkName);
+                    }
+                    if (nodes.isEmpty()) continue;
+
+                    Map<String, Object> entry = new LinkedHashMap<>();
+                    entry.put("processor", np.name());
+                    entry.put("group", group);
+                    entry.put("nodes", nodes);
+                    out.computeIfAbsent(sinkName, k -> new ArrayList<>()).add(entry);
+                }
+            }
+        });
+        return out;
     }
 
     /**
@@ -980,6 +1318,424 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
     }
 
     /**
+     * Per-processor compliance report — answers the regulator-friendly
+     * question "which external systems does this processor read from and
+     * write to?" with the actual configured implementation behind each
+     * binding. Combines three sources:
+     *
+     * <ul>
+     *   <li>The processor's {@link com.telamin.fluxtion.runtime.service.ServiceRegistryQuery}
+     *       — declared {@code @ServiceRegistered} dependencies, per node.</li>
+     *   <li>{@code registeredServices()} — the actual feed/sink/service
+     *       instances the runtime resolved against.</li>
+     *   <li>{@link #summarizeConfig(Object)} — reflective bean-property
+     *       extraction of the physical configuration (file paths, kafka
+     *       topics, network addresses, …) with sensitive-named values
+     *       redacted.</li>
+     * </ul>
+     *
+     * <p>The combined result is the audit-trail evidence: a complete,
+     * compiler-guaranteed list of every external system the processor
+     * touches, with their bindings and configuration. Suitable for
+     * compliance review, refactor-safety pre-flight checks, and any
+     * "show me what this thing does" question that today requires
+     * reading source.
+     */
+    private void handleProcessorCompliance(Context ctx) {
+        try {
+            handleProcessorComplianceImpl(ctx);
+        } catch (Throwable t) {
+            // Surface the real cause — Javalin's default 500 has no body and
+            // the compliance endpoint touches a wide reflection + service-
+            // registry surface that's easy to break on version drift. Be
+            // generous with the diagnostic.
+            log.warn("compliance handler failed for {}/{}",
+                    ctx.pathParam("group"), ctx.pathParam("name"), t);
+            ctx.status(HttpStatus.INTERNAL_SERVER_ERROR);
+            ctx.contentType("application/json");
+            String msg = String.valueOf(t.getMessage()).replace("\"", "'");
+            ctx.result("{\"err\":\"compliance failed: " + t.getClass().getSimpleName()
+                    + ": " + msg + "\"}");
+        }
+    }
+
+    private void handleProcessorComplianceImpl(Context ctx) {
+        if (serverController == null) {
+            ctx.status(HttpStatus.NOT_FOUND);
+            ctx.json(Map.of("err", "MongooseServerController not available"));
+            return;
+        }
+        String group = ctx.pathParam("group");
+        String name = ctx.pathParam("name");
+
+        java.util.Collection<NamedEventProcessor> procs =
+                serverController.registeredProcessors().get(group);
+        if (procs == null) {
+            ctx.status(HttpStatus.NOT_FOUND);
+            ctx.json(Map.of("err", "unknown agent group: " + group));
+            return;
+        }
+        NamedEventProcessor match = null;
+        for (NamedEventProcessor np : procs) {
+            if (name.equals(np.name())) { match = np; break; }
+        }
+        if (match == null || match.eventProcessor() == null) {
+            ctx.status(HttpStatus.NOT_FOUND);
+            ctx.json(Map.of("err", "processor '" + name + "' not registered in group '" + group + "'"));
+            return;
+        }
+
+        com.telamin.fluxtion.runtime.DataFlow processor = match.eventProcessor();
+
+        // serviceRegistryQuery() is a default method on DataFlow that landed
+        // in fluxtion-runtime 1.0.1. Wrap the call so older SEPs / older
+        // fluxtion-runtime jars don't take the endpoint down — they just
+        // get the degraded "no binding attribution" view.
+        java.util.Optional<com.telamin.fluxtion.runtime.service.ServiceRegistryQuery> queryOpt =
+                java.util.Optional.empty();
+        try {
+            queryOpt = processor.serviceRegistryQuery();
+        } catch (NoSuchMethodError | AbstractMethodError olderRuntime) {
+            // fluxtion-runtime predates ServiceRegistryQuery — fall through.
+        }
+
+        List<Map<String, Object>> inputs = new ArrayList<>();
+        List<Map<String, Object>> outputs = new ArrayList<>();
+        List<Map<String, Object>> services = new ArrayList<>();
+        List<String> warnings = new ArrayList<>();
+
+        if (queryOpt.isEmpty()) {
+            warnings.add("ServiceRegistryQuery not available on this processor — "
+                    + "compliance view limited to services without binding attribution. "
+                    + "Rebuild against fluxtion-runtime ≥ 1.0.1 for full coverage.");
+        }
+
+        // Topology data — used to attribute feeds. Feeds bind via
+        // @OnEventHandler subscriptions through EventFlowManager, NOT via
+        // @ServiceRegistered, so ServiceRegistryQuery can't see them; we
+        // have to walk the queue topology to discover which feeds this
+        // processor's agent group consumes.
+        List<Map<String, Object>> topology = currentTopologySources();
+
+        // Sinks this processor writes to via the DSL .sink("name") terminator
+        // — generated as `SinkPublisher` fields on the SEP. This is the
+        // mechanism flow-builder graphs use; @ServiceRegistered MessageSink
+        // is the imperative-node mechanism. Both apply; either is enough
+        // to attribute a sink to this processor.
+        Set<String> publishedSinkNames = publisherSinkNames(processor);
+
+        for (Map.Entry<String, com.telamin.fluxtion.runtime.service.Service<?>> e :
+                serverController.registeredServices().entrySet()) {
+            String svcName = e.getKey();
+            Object instance = e.getValue().instance();
+            if (instance == null) continue;
+
+            String kind = classifyService(instance);
+
+            List<String> consumerNodes;
+            try {
+                if ("feed".equals(kind)) {
+                    // Feed attribution from the queue topology.
+                    consumerNodes = feedConsumersForGroup(svcName, group, topology);
+                    // A service can be BOTH a feed (implements EventSource)
+                    // and a @ServiceRegistered binding target — common for
+                    // infrastructure services like AdminCommandRegistry.
+                    // If the topology says this group doesn't subscribe but
+                    // the binding graph says it consumes, reclassify so the
+                    // entry lands in `services` rather than being dropped.
+                    if (consumerNodes.isEmpty()) {
+                        List<String> bindingConsumers = queryOpt
+                                .map(q -> consumersForBinding(q, instance.getClass(), svcName, instance))
+                                .orElse(java.util.Collections.emptyList());
+                        if (!bindingConsumers.isEmpty()) {
+                            consumerNodes = bindingConsumers;
+                            kind = "service";   // reclassify
+                        }
+                    }
+                } else if ("sink".equals(kind)) {
+                    // Sink attribution: @ServiceRegistered binding OR DSL
+                    // SinkPublisher field. Either one means this processor
+                    // writes to the sink.
+                    consumerNodes = queryOpt
+                            .map(q -> consumersForBinding(q, instance.getClass(), svcName, instance))
+                            .orElse(java.util.Collections.emptyList());
+                    if (consumerNodes.isEmpty() && publishedSinkNames.contains(svcName)) {
+                        // Attribute to the SinkPublisher field's target name;
+                        // the field name is the DSL sink id and travels with
+                        // the generated source for inspection.
+                        consumerNodes = java.util.Collections.singletonList(svcName);
+                    }
+                } else {
+                    // Other services: @ServiceRegistered binding only.
+                    consumerNodes = queryOpt
+                            .map(q -> consumersForBinding(q, instance.getClass(), svcName, instance))
+                            .orElse(java.util.Collections.emptyList());
+                }
+            } catch (Throwable t) {
+                // A buggy single-service lookup shouldn't abort the whole
+                // report — log and continue with no attribution.
+                log.warn("compliance: consumer lookup failed for service '{}'", svcName, t);
+                consumerNodes = java.util.Collections.emptyList();
+            }
+
+            // Skip services this processor doesn't bind to. OUTSIDE the
+            // try/catch so a thrown lookup (consumerNodes ends up empty)
+            // doesn't accidentally include the service in the report.
+            // For non-feed/sink categories, when queryOpt is absent we
+            // can't tell — fall through and include everything.
+            boolean skip;
+            if ("feed".equals(kind) || "sink".equals(kind)) {
+                skip = consumerNodes.isEmpty();
+            } else {
+                skip = queryOpt.isPresent() && consumerNodes.isEmpty();
+            }
+
+            if (skip) continue;
+
+            Map<String, Object> entry = new LinkedHashMap<>();
+            entry.put("name", svcName);
+            entry.put("type", kind);
+            entry.put("className", instance.getClass().getName());
+            entry.put("config", summarizeConfig(instance));
+            entry.put("consumerNodes", consumerNodes);
+
+            switch (kind) {
+                case "feed":    inputs.add(entry); break;
+                case "sink":    outputs.add(entry); break;
+                default:        services.add(entry);
+            }
+        }
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("processor", name);
+        body.put("group", group);
+        body.put("className", processor.getClass().getName());
+        body.put("inputs", inputs);
+        body.put("outputs", outputs);
+        body.put("services", services);
+        if (!warnings.isEmpty()) body.put("warnings", warnings);
+
+        ctx.json(body);
+    }
+
+    /**
+     * Find the node ids inside the processor that declared
+     * {@code @ServiceRegistered} for a given service binding.
+     *
+     * <p>{@code @ServiceRegistered} binds on the declared parameter type
+     * (typically an interface like {@code MessageSink} or {@code EventFeed},
+     * not the concrete class). Walks the instance's interface + superclass
+     * chain so a sink registered as {@code MessageSink<Trade>} still matches
+     * a node that declared {@code MessageSink<?>} as its dependency.
+     *
+     * <p>Two listener shapes are surfaced:
+     * <ol>
+     *   <li><b>Statically named</b> — {@code @ServiceRegistered("foo") void on(T svc)}.
+     *       Matched via {@link com.telamin.fluxtion.runtime.service.ServiceRegistryQuery#findNamedDependency}.</li>
+     *   <li><b>Any-name dispatch</b> — {@code @ServiceRegistered void on(T svc, String name)}.
+     *       This is mongoose's idiomatic pattern: one method receives every
+     *       service of that type and the node dispatches by {@code name}
+     *       internally (typically a switch). For compliance purposes the
+     *       node IS a code-path consumer of every named service of that
+     *       type — the exact runtime branch lives in the node source, not
+     *       in the dependency graph. We include these in the consumer list
+     *       so the report reflects the full set of nodes that could touch
+     *       this service.</li>
+     * </ol>
+     */
+    /**
+     * SEP infrastructure node names — added by Fluxtion's codegen on every
+     * generated processor regardless of user code. These bind to a wide set
+     * of services internally (e.g. {@code subscriptionManager} consumes every
+     * {@code NamedFeed}, {@code serviceRegistry} consumes every registered
+     * service) but they're not user-meaningful compliance attribution —
+     * surfacing them as "consumers" creates the appearance that every
+     * processor uses every feed/service. Filter them out.
+     */
+    private static final Set<String> INFRASTRUCTURE_NODE_NAMES = Set.of(
+            "subscriptionManager",
+            "nodeNameLookup",
+            "serviceRegistry",
+            "clock",
+            "perfMon",
+            "eventLogManager",
+            "context"
+    );
+
+    private static List<String> consumersForBinding(
+            com.telamin.fluxtion.runtime.service.ServiceRegistryQuery q,
+            Class<?> instanceType,
+            String svcName,
+            Object svcInstance) {
+        java.util.LinkedHashSet<String> out = new java.util.LinkedHashSet<>();
+        for (Class<?> candidate : collectTypeHierarchy(instanceType)) {
+            // Statically-named: exact (class, name) match.
+            q.findNamedDependency(candidate, svcName).ifPresent(d -> {
+                for (com.telamin.fluxtion.runtime.service.ServiceDependency.ConsumerNode cn : d.consumers()) {
+                    if (cn.nodeName() != null && !INFRASTRUCTURE_NODE_NAMES.contains(cn.nodeName())) {
+                        out.add(cn.nodeName());
+                    }
+                }
+            });
+            // Any-name dispatch: nodes that receive every service of this type.
+            for (com.telamin.fluxtion.runtime.service.ServiceDependency d :
+                    q.serviceDependencies(candidate)) {
+                if (d.serviceName() != null) continue; // already covered above
+                for (com.telamin.fluxtion.runtime.service.ServiceDependency.ConsumerNode cn : d.consumers()) {
+                    if (cn.nodeName() == null) continue;
+                    if (INFRASTRUCTURE_NODE_NAMES.contains(cn.nodeName())) continue;
+                    Object node = cn.node();
+                    // SinkPublisher: declares its target sink name at
+                    // construction; only dispatches to the registered service
+                    // whose name matches.
+                    if (node instanceof com.telamin.fluxtion.runtime.output.SinkPublisher<?>) {
+                        String target = ((com.telamin.fluxtion.runtime.output.SinkPublisher<?>) node).getName();
+                        if (svcName.equals(target)) out.add(cn.nodeName());
+                        continue;
+                    }
+                    // MessageSink any-name (`void on(MessageSink, String name)`
+                    // → switch dispatch) is the common multi-instance case.
+                    // The dep graph can't see the switch, so we runtime-verify:
+                    // walk the node's fields and check whether the actual
+                    // sink instance is stored anywhere. If yes, the node
+                    // demonstrably has a code path to this sink. If no,
+                    // exclude — over-attribution.
+                    boolean isMessageSink = candidate != null
+                            && com.telamin.fluxtion.runtime.output.MessageSink.class.isAssignableFrom(candidate);
+                    if (isMessageSink && svcInstance != null) {
+                        if (nodeStoresInstance(node, svcInstance)) {
+                            out.add(cn.nodeName());
+                        }
+                        // else: node doesn't actually hold this sink — skip
+                        continue;
+                    }
+                    // Other any-name consumers (single-instance services like
+                    // SchedulerService, AdminCommandRegistry). Over-attribution
+                    // doesn't apply because there's only one instance per
+                    // class; include unconditionally.
+                    out.add(cn.nodeName());
+                }
+            }
+        }
+        return new ArrayList<>(out);
+    }
+
+    /**
+     * Runtime-verified field check — walks {@code node}'s declared fields
+     * (including inherited) for a value identity-equal to {@code instance}.
+     *
+     * <p>Used to disambiguate the {@code @ServiceRegistered void on(T, String name)}
+     * any-name dispatch pattern. The dependency graph says "this node
+     * consumes every T", but the switch inside the method only stores
+     * specific ones. After service registration completes, the node's
+     * fields hold exactly the instances its switch accepted; identity
+     * comparison against each registered instance recovers the actual
+     * binding precisely.
+     */
+    private static boolean nodeStoresInstance(Object node, Object instance) {
+        if (node == null || instance == null) return false;
+        Class<?> c = node.getClass();
+        while (c != null && c != Object.class) {
+            for (java.lang.reflect.Field f : c.getDeclaredFields()) {
+                if (java.lang.reflect.Modifier.isStatic(f.getModifiers())) continue;
+                try {
+                    f.setAccessible(true);
+                    if (f.get(node) == instance) return true;
+                } catch (Throwable ignored) {
+                    // A non-readable field shouldn't suppress the others.
+                }
+            }
+            c = c.getSuperclass();
+        }
+        return false;
+    }
+
+    /**
+     * Find the sink names this processor writes to via the DSL
+     * {@code .sink("name")} terminator. The fluxtion-builder DSL generates a
+     * {@link com.telamin.fluxtion.runtime.output.SinkPublisher} field on the
+     * SEP for each terminator — the field's constructor argument is the
+     * sink name to publish to. We reflect over the SEP's declared fields
+     * to enumerate them.
+     *
+     * <p>Complementary to {@link #consumersForBinding}, which attributes
+     * via {@code @ServiceRegistered MessageSink} listeners on imperative
+     * nodes. Either path is sufficient evidence that this processor writes
+     * to the named sink.
+     *
+     * <p>Quiet on any reflection failure — a field that won't yield its
+     * value just doesn't contribute to the set; the report still renders.
+     */
+    private static Set<String> publisherSinkNames(com.telamin.fluxtion.runtime.DataFlow processor) {
+        java.util.LinkedHashSet<String> out = new java.util.LinkedHashSet<>();
+        Class<?> cls = processor.getClass();
+        for (java.lang.reflect.Field f : cls.getDeclaredFields()) {
+            if (!com.telamin.fluxtion.runtime.output.SinkPublisher.class.isAssignableFrom(f.getType())) continue;
+            try {
+                f.setAccessible(true);
+                Object v = f.get(processor);
+                if (v instanceof com.telamin.fluxtion.runtime.output.SinkPublisher<?>) {
+                    String n = ((com.telamin.fluxtion.runtime.output.SinkPublisher<?>) v).getName();
+                    if (n != null && !n.isEmpty()) out.add(n);
+                }
+            } catch (Throwable ignored) {
+                // One bad field shouldn't suppress the rest.
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Find the event types this processor's agent group subscribes to from
+     * a given feed. Feeds are wired through {@code EventFlowManager} via
+     * {@code @OnEventHandler} subscriptions, NOT {@code @ServiceRegistered},
+     * so {@link com.telamin.fluxtion.runtime.service.ServiceRegistryQuery}
+     * can't attribute them — we walk the queue topology instead.
+     *
+     * <p>Returns the simple class names of the events delivered to this
+     * group's processors (e.g. {@code ["Trade", "MidPrice"]}). Empty list
+     * means this processor's group is not a consumer of this feed.
+     */
+    private static List<String> feedConsumersForGroup(
+            String feedName, String group, List<Map<String, Object>> topology) {
+        java.util.LinkedHashSet<String> out = new java.util.LinkedHashSet<>();
+        for (Map<String, Object> src : topology) {
+            if (!feedName.equals(src.get("source"))) continue;
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> queues = (List<Map<String, Object>>) src.get("queues");
+            if (queues == null) continue;
+            for (Map<String, Object> q : queues) {
+                if (!group.equals(q.get("agentGroup"))) continue;
+                Object cb = q.get("callback");
+                if (cb != null) out.add(String.valueOf(cb));
+            }
+        }
+        return new ArrayList<>(out);
+    }
+
+    /** Collect all classes + interfaces in the type's hierarchy — used to
+     *  match {@code @ServiceRegistered} bindings against the abstract types
+     *  they were declared on rather than the concrete service class.
+     *
+     *  <p>Null-safe: {@link Class#getSuperclass()} returns {@code null} for
+     *  interfaces and primitives, so we filter at the add site rather than
+     *  letting {@link java.util.ArrayDeque#add} blow up on nulls — that NPE
+     *  poisoned every non-feed lookup before the fix. */
+    private static Set<Class<?>> collectTypeHierarchy(Class<?> type) {
+        java.util.LinkedHashSet<Class<?>> out = new java.util.LinkedHashSet<>();
+        java.util.ArrayDeque<Class<?>> q = new java.util.ArrayDeque<>();
+        if (type != null) q.add(type);
+        while (!q.isEmpty()) {
+            Class<?> c = q.poll();
+            if (c == Object.class || !out.add(c)) continue;
+            Class<?> sup = c.getSuperclass();
+            if (sup != null) q.add(sup);
+            for (Class<?> i : c.getInterfaces()) q.add(i);
+        }
+        return out;
+    }
+
+    /**
      * Per-service configuration view — reflects public bean-style getters on
      * the registered instance into a key/value table. Sensitive-named getters
      * (password / secret / token / credential / apikey / privatekey /
@@ -1251,21 +2007,50 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         }
 
         String origin = ctx.header("Origin");
+        log.info("WS upgrade attempt: path={} origin='{}' boundHost='{}' listenPort={}",
+                ctx.path(), origin, host, listenPort);
         if (origin != null && !originAllowed(origin)) {
+            log.warn("WS upgrade REJECTED: origin '{}' not allowed (bound host='{}', listenPort={})",
+                    origin, host, listenPort);
             throw new UnauthorizedResponse("origin not allowed: " + origin, Map.of());
         }
+        log.info("WS upgrade ACCEPTED: path={}", ctx.path());
     }
 
     private boolean originAllowed(String origin) {
-        // Default policy: same host:port we're bound to. Behind a reverse
-        // proxy on a different host, this becomes a config knob; deferred.
-        String expectedHttp = "http://" + host + ":" + listenPort;
-        String expectedHttps = "https://" + host + ":" + listenPort;
-        return origin.equals(expectedHttp) || origin.equals(expectedHttps);
+        // Default policy: same port; same host OR loopback-equivalent
+        // (localhost ⇄ 127.0.0.1 ⇄ ::1) OR server bound to 0.0.0.0
+        // (accept-any). Behind a reverse proxy on a different host this
+        // becomes a config knob; deferred. The old policy was exact
+        // string equality, which silently rejected every WS upgrade when
+        // the bind host and the access host disagreed (e.g. server bound
+        // to `localhost`, browser hits `127.0.0.1`).
+        try {
+            java.net.URI uri = java.net.URI.create(origin);
+            if (uri.getPort() != listenPort) return false;
+            String originHost = uri.getHost();
+            if (originHost == null) return false;
+            if (originHost.equalsIgnoreCase(host)) return true;
+            if ("0.0.0.0".equals(host)) return true;       // bound to all
+            if (isLoopback(originHost) && isLoopback(host)) return true;
+            return false;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private static boolean isLoopback(String h) {
+        if (h == null) return false;
+        return "localhost".equalsIgnoreCase(h)
+                || "127.0.0.1".equals(h)
+                || "::1".equals(h)
+                || "[::1]".equals(h);
     }
 
     private void configureMonitorWs(WsConfig ws) {
         ws.onConnect(ctx -> {
+            try { ctx.session.setIdleTimeout(java.time.Duration.ofMinutes(10)); }
+            catch (Throwable t) { log.warn("could not set ws idle timeout", t); }
             monitorClients.add(ctx);
             // Default rate = the operator-configured interval so behaviour
             // matches the pre-control baseline until the client explicitly
@@ -1365,6 +2150,18 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
 
     private void configureLogsWs(WsConfig ws) {
         ws.onConnect(ctx -> {
+            // Jetty default idle timeout is 30s — after boot the server
+            // quiets down and the WS closes silently, so the log-pill
+            // flips to "Disconnected" even though everything is healthy.
+            // 10 minutes is conservative; clients can opt to reconnect
+            // sooner. Combined with client-side auto-reconnect this
+            // covers both idle close and transient network drops.
+            try {
+                ctx.session.setIdleTimeout(java.time.Duration.ofMinutes(10));
+            } catch (Throwable t) {
+                log.warn("could not set ws idle timeout", t);
+            }
+            log.info("/ws/logs onConnect — clients now {}", logClients.size() + 1);
             logClients.add(ctx);
             // Replay buffered records so the panel populates with recent history
             // instead of starting blank.
@@ -1376,9 +2173,12 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
                 log.warn("initial log replay failed", e);
             }
         });
-        ws.onClose(ctx -> logClients.remove(ctx));
+        ws.onClose(ctx -> {
+            log.info("/ws/logs onClose status={} reason={}", ctx.status(), ctx.reason());
+            logClients.remove(ctx);
+        });
         ws.onError(ctx -> {
-            log.warn("log ws error", ctx.error());
+            log.warn("/ws/logs onError", ctx.error());
             logClients.remove(ctx);
         });
     }
