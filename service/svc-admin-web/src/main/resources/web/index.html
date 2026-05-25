@@ -344,8 +344,10 @@
                         </table>
                     </section>
 
-                    <!-- Key services — stock Mongoose plumbing filtered out. -->
-                    <section class="overview-card">
+                    <!-- Key services — stock Mongoose plumbing filtered out.
+                         Spans 2 grid columns; service FQNs are long enough
+                         that a single 22rem column wraps awkwardly. -->
+                    <section class="overview-card overview-card-double">
                         <header class="overview-card-head">
                             <h2>Services</h2>
                             <span class="overview-card-count" x-text="overviewData.services.length"></span>
@@ -1582,6 +1584,39 @@
                          origin classification (fluxtion / mongoose / user),
                          and a suggested source path the user can copy into
                          their IDE. Esc or background tap dismisses. -->
+
+                    <!-- Exported-services panel — floats bottom-left on
+                         the Graph tab. Parsed from the generated dispatcher
+                         source pre-fetched alongside the graphml. Click
+                         a row → opens source-nav scrolled to that method's
+                         @Override line. Hidden when the processor exports
+                         nothing or its source isn't on the classpath. -->
+                    <div class="proc-exports"
+                         x-show="processorGraphTab==='graph' && processorGraphExportedServices.length">
+                        <div class="proc-exports-head"
+                             @click="processorGraphExportsCollapsed = !processorGraphExportsCollapsed"
+                             :title="processorGraphExportsCollapsed ? 'Expand exported services' : 'Collapse exported services'">
+                            <span class="proc-exports-caret" x-text="processorGraphExportsCollapsed ? '▸' : '▾'"></span>
+                            <span class="proc-exports-title">Exported services</span>
+                            <span class="proc-exports-count" x-text="processorGraphExportedServices.length"></span>
+                        </div>
+                        <div class="proc-exports-body" x-show="!processorGraphExportsCollapsed">
+                            <table class="proc-exports-table">
+                                <tbody>
+                                    <template x-for="row in processorGraphExportedServices"
+                                              :key="row.interfaceName + '.' + row.methodName + ':' + row.line">
+                                        <tr class="proc-exports-row"
+                                            @click="processorGraphJumpToExport(row)"
+                                            :title="'Jump to ' + row.interfaceName + '.' + row.methodName + '() in the dispatcher'">
+                                            <td class="mono small muted" x-text="row.interfaceName"></td>
+                                            <td class="mono" x-text="row.methodName + '()'"></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
                     <div class="proc-sourcenav"
                          x-show="processorGraphSourceNav && processorGraphTab==='graph'"
                          :class="'origin-' + (processorGraphSourceNav?.origin || 'unknown')">
