@@ -1427,8 +1427,16 @@ textarea { resize: vertical; font-family: ui-monospace, Menlo, monospace; font-s
     position: absolute;
     top: 0.5rem;
     right: 0.5rem;
-    width: 22rem;
+    width: 26rem;
     max-width: calc(100% - 1rem);
+    /* User-resizable — drag the bottom-left corner to stretch the panel
+       across the canvas. CSS `resize` requires `overflow: auto` so the
+       grow handle has somewhere to anchor. */
+    resize: both;
+    overflow: auto;
+    min-width: 22rem;
+    min-height: 12rem;
+    max-height: calc(100% - 1rem);
     background: var(--surface-2);
     border: 1px solid var(--border);
     border-left-width: 3px;
@@ -1437,6 +1445,8 @@ textarea { resize: vertical; font-family: ui-monospace, Menlo, monospace; font-s
     font-size: 0.78rem;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
     z-index: 4;
+    display: flex;
+    flex-direction: column;
 }
 .proc-sourcenav.origin-user            { border-left-color: var(--ok, #16a34a); }
 .proc-sourcenav.origin-mongoose        { border-left-color: var(--accent, #2563eb); }
@@ -1518,15 +1528,18 @@ textarea { resize: vertical; font-family: ui-monospace, Menlo, monospace; font-s
 }
 .proc-sourcenav-code {
     margin: 0.45rem 0 0;
-    max-height: 28rem;
+    /* Fill the resizable parent — when the user stretches .proc-sourcenav,
+       the code viewer grows with it instead of capping at a fixed height. */
+    flex: 1 1 auto;
+    min-height: 12rem;
     overflow: auto;
     padding: 0.5rem 0.6rem;
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 4px;
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    font-size: 0.72rem;
-    line-height: 1.4;
+    font-size: 0.74rem;
+    line-height: 1.45;
     color: var(--fg);
     white-space: pre;
     tab-size: 4;
@@ -1569,12 +1582,30 @@ textarea { resize: vertical; font-family: ui-monospace, Menlo, monospace; font-s
     background: var(--accent-soft, rgba(37, 99, 235, 0.10));
     border-left-color: var(--accent, #2563eb);
 }
-.proc-sourcenav-code .j-kw   { color: var(--kw, #c678dd); font-weight: 600; }
-.proc-sourcenav-code .j-type { color: var(--type, #e5c07b); }
-.proc-sourcenav-code .j-ann  { color: var(--ann, #d19a66); font-style: italic; }
-.proc-sourcenav-code .j-str  { color: var(--str, #98c379); }
-.proc-sourcenav-code .j-num  { color: var(--num, #d19a66); }
-.proc-sourcenav-code .j-cmt  { color: var(--cmt, #7f848e); font-style: italic; }
+/* Dark theme defaults — One-Dark-ish palette. */
+.proc-sourcenav-code .j-kw   { color: #c678dd; font-weight: 600; }
+.proc-sourcenav-code .j-type { color: #e5c07b; }
+.proc-sourcenav-code .j-ann  { color: #d19a66; font-style: italic; }
+.proc-sourcenav-code .j-str  { color: #98c379; }
+.proc-sourcenav-code .j-num  { color: #d19a66; }
+.proc-sourcenav-code .j-cmt  { color: #7f848e; font-style: italic; }
+
+/* Light theme — darker, higher-contrast tokens. Pulled in line with
+   the YAML highlighter's light overrides above so the panel reads
+   consistently across themes. The bare `.proc-sourcenav-code` text
+   colour falls through to `var(--fg)` for both themes — only the
+   token spans need theme-specific overrides. */
+:root[data-theme="light"] .proc-sourcenav-code .j-kw   { color: #7c2d92; font-weight: 600; }
+:root[data-theme="light"] .proc-sourcenav-code .j-type { color: #b45309; }
+:root[data-theme="light"] .proc-sourcenav-code .j-ann  { color: #a16207; }
+:root[data-theme="light"] .proc-sourcenav-code .j-str  { color: #15803d; }
+:root[data-theme="light"] .proc-sourcenav-code .j-num  { color: #b91c1c; }
+:root[data-theme="light"] .proc-sourcenav-code .j-cmt  { color: #525964; font-style: italic; }
+:root[data-theme="light"] .proc-sourcenav-code .proc-sourcenav-line .ln { color: #6b7280; }
+:root[data-theme="light"] .proc-sourcenav-code .proc-sourcenav-line.active {
+    background: rgba(29, 78, 216, 0.12);
+    border-left-color: #1d4ed8;
+}
 
 .proc-empty {
     background: var(--surface);

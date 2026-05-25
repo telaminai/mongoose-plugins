@@ -1551,7 +1551,7 @@ document.addEventListener('alpine:init', () => {
          *  user-controlled chunk passes through escape() first. */
         _highlightJava(source, activeLine) {
             if (!source) return '';
-            const escape = (s) => s
+            const escape = (s) => String(s)
                 .replace(/&/g, '&amp;')
                 .replace(/</g, '&lt;')
                 .replace(/>/g, '&gt;');
@@ -1565,61 +1565,90 @@ document.addEventListener('alpine:init', () => {
                 'protected', 'public', 'return', 'short', 'static', 'strictfp',
                 'super', 'switch', 'synchronized', 'this', 'throw', 'throws',
                 'transient', 'try', 'void', 'volatile', 'while', 'true', 'false',
-                'null', 'var', 'yield', 'record', 'sealed', 'permits', 'non-sealed'
+                'null', 'var', 'yield', 'record', 'sealed', 'permits'
             ]);
 
-            // Pre-process: locate /* ... */ block comments at source-text
-            // level so they survive line-splitting. Mark them with sentinels
-            // we substitute back in after per-line tokenisation.
-            const blockComments = [];
-            const protectedSource = source.replace(/\/\*[\s\S]*?\*\//g, (m) => {
-                const idx = blockComments.length;
-                blockComments.push(m);
-                return 'BLK' + idx + '';
-            });
-
-            // Pre-process strings similarly so quoted text doesn't get
-            // keyword-spliced (e.g. "throw" inside a string literal).
-            const strings = [];
-            const protectedSource2 = protectedSource.replace(/"(?:[^"\\]|\\.)*"/g, (m) => {
-                const idx = strings.length;
-                strings.push(m);
-                return 'STR' + idx + '';
-            });
-
-            const lines = protectedSource2.split('\n');
-            const out = [];
-            for (let i = 0; i < lines.length; i++) {
-                let line = lines[i];
-                let html = escape(line);
-                // Line comment — take everything from // to end-of-line first
-                // so subsequent passes don't tokenise inside the comment.
-                const lineCommentRe = /(\/\/[^\n]*)/;
-                const lcMatch = html.match(lineCommentRe);
-                let trailingComment = '';
-                if (lcMatch) {
-                    trailingComment = '<span class="j-cmt">' + lcMatch[1] + '</span>';
-                    html = html.substring(0, lcMatch.index);
-                }
-                // Annotations — @Foo or @Foo.Bar.Baz
-                html = html.replace(/(@[A-Za-z_][\w.]*)/g, '<span class="j-ann">$1</span>');
-                // Identifiers — keyword check; capitalised → type colour
-                html = html.replace(/\b([A-Za-z_][\w$]*)\b/g, (m, w) => {
+            // Tokenise a single fragment that contains no block comments
+            // and no // line-comment. Strings + annotations are pulled into
+            // placeholders BEFORE the keyword/type pass so they can't be
+            // spliced (the v1 bug: keyword regex saw "class" inside the
+            // j-ann opening tag and tore the markup apart). Placeholders
+            // use the form `\u0001s\u00010\u0001` — control bytes never
+            // match the identifier regex and survive escape() unchanged.
+            const SOH = '\u0001';
+            const tokenizeCode = (codeFragment) => {
+                let h = escape(codeFragment);
+                const strings = [];
+                h = h.replace(/(&quot;(?:[^&\\]|\\.)*?&quot;)/g, (m) => {
+                    const idx = strings.length; strings.push(m);
+                    return SOH + 's' + SOH + idx + SOH;
+                });
+                const annotations = [];
+                h = h.replace(/@[A-Za-z_][\w.]*/g, (m) => {
+                    const idx = annotations.length; annotations.push(m);
+                    return SOH + 'a' + SOH + idx + SOH;
+                });
+                h = h.replace(/\b([A-Za-z_][\w$]*)\b/g, (m, w) => {
                     if (KEYWORDS.has(w)) return '<span class="j-kw">' + w + '</span>';
                     if (/^[A-Z]/.test(w)) return '<span class="j-type">' + w + '</span>';
                     return m;
                 });
-                // Number literals
-                html = html.replace(/\b(\d[\d_]*\.?\d*(?:[eE][+-]?\d+)?[fFdDlL]?)\b/g,
+                h = h.replace(/\b(\d[\d_]*\.?\d*(?:[eE][+-]?\d+)?[fFdDlL]?)\b/g,
                         '<span class="j-num">$1</span>');
-                html = html + trailingComment;
+                h = h.replace(new RegExp(SOH + 'a' + SOH + '(\\d+)' + SOH, 'g'),
+                        (_, n) => '<span class="j-ann">' + escape(annotations[+n]) + '</span>');
+                h = h.replace(new RegExp(SOH + 's' + SOH + '(\\d+)' + SOH, 'g'),
+                        (_, n) => '<span class="j-str">' + strings[+n] + '</span>');
+                return h;
+            };
 
-                // Restore protected strings + block comments
-                html = html.replace(/STR(\d+)/g,
-                        (_, n) => '<span class="j-str">' + escape(strings[+n]) + '</span>');
-                html = html.replace(/BLK(\d+)/g,
-                        (_, n) => '<span class="j-cmt">' + escape(blockComments[+n]) + '</span>');
+            // Tokenise one source line — pulls off any trailing // comment
+            // first (skipping `//` inside string literals), then runs the
+            // code-fragment tokeniser on what remains.
+            const tokenizeLine = (rawLine) => {
+                let cs = -1, inStr = false;
+                for (let j = 0; j < rawLine.length - 1; j++) {
+                    const c = rawLine[j];
+                    if (c === '\\') { j++; continue; }
+                    if (c === '"') { inStr = !inStr; continue; }
+                    if (!inStr && c === '/' && rawLine[j + 1] === '/') { cs = j; break; }
+                }
+                if (cs < 0) return tokenizeCode(rawLine);
+                return tokenizeCode(rawLine.substring(0, cs))
+                        + '<span class="j-cmt">' + escape(rawLine.substring(cs)) + '</span>';
+            };
 
+            // Per-line state machine — threads `inBlock` across line
+            // boundaries so multi-line /* ... */ blocks colour through.
+            const lines = source.split('\n');
+            const out = [];
+            let inBlock = false;
+            for (let i = 0; i < lines.length; i++) {
+                const rawLine = lines[i];
+                let html;
+                if (inBlock) {
+                    const endIdx = rawLine.indexOf('*/');
+                    if (endIdx < 0) {
+                        html = '<span class="j-cmt">' + escape(rawLine) + '</span>';
+                    } else {
+                        const commentPart = rawLine.substring(0, endIdx + 2);
+                        const rest = rawLine.substring(endIdx + 2);
+                        html = '<span class="j-cmt">' + escape(commentPart) + '</span>'
+                                + tokenizeLine(rest);
+                        inBlock = false;
+                    }
+                } else {
+                    const openIdx = rawLine.indexOf('/*');
+                    if (openIdx >= 0 && rawLine.indexOf('*/', openIdx + 2) < 0) {
+                        const codePart = rawLine.substring(0, openIdx);
+                        const commentPart = rawLine.substring(openIdx);
+                        html = tokenizeLine(codePart)
+                                + '<span class="j-cmt">' + escape(commentPart) + '</span>';
+                        inBlock = true;
+                    } else {
+                        html = tokenizeLine(rawLine);
+                    }
+                }
                 const lineNum = i + 1;
                 const activeCls = lineNum === activeLine ? ' active' : '';
                 out.push('<div class="proc-sourcenav-line' + activeCls + '" data-line="' + lineNum + '">'
@@ -1662,19 +1691,29 @@ document.addEventListener('alpine:init', () => {
          *  don't accidentally hit the equivalent dispatch inside
          *  `bufferEvent`. */
         _findInstanceofLine(source, eventSimpleName) {
-            const startIdx = source.indexOf('public void onEventInternal');
-            if (startIdx < 0) return null;
-            // Clamp the scope at the next top-level `}` (closing brace at
-            // indent 4 — Fluxtion's generated source is consistently 4-spaced).
-            const endRe = /\n {4}\}/g;
-            endRe.lastIndex = startIdx;
-            const endMatch = endRe.exec(source);
-            const endIdx = endMatch ? endMatch.index : source.length;
+            // Whitespace-tolerant match for the method declaration — Fluxtion
+            // source may or may not be google-java-formatted depending on
+            // the builder's formatSource flag, so don't assume canonical
+            // spacing.
+            const methodRe = /public\s+void\s+onEventInternal\s*\(\s*Object\s+\w+\s*\)\s*\{/;
+            const methodMatch = source.match(methodRe);
+            if (!methodMatch) return null;
+            // Brace-count from the opening `{` to find the matching close —
+            // works regardless of indent style or nested blocks.
+            const openIdx = methodMatch.index + methodMatch[0].length - 1;
+            let depth = 1;
+            let i = openIdx + 1;
+            while (i < source.length && depth > 0) {
+                const ch = source[i];
+                if (ch === '{') depth++;
+                else if (ch === '}') depth--;
+                i++;
+            }
+            const region = source.substring(openIdx, i);
             const re = new RegExp('\\binstanceof\\s+' + this._escapeForRegex(eventSimpleName) + '\\b');
-            const region = source.substring(startIdx, endIdx);
             const m = region.match(re);
             if (!m) return null;
-            const absIdx = startIdx + region.indexOf(m[0]);
+            const absIdx = openIdx + region.indexOf(m[0]);
             return source.substring(0, absIdx).split('\n').length;
         },
 
