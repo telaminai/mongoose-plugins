@@ -163,14 +163,19 @@
                 </div>
             </div>
 
-            <!-- (Dispatch-services children — Agents / Services / Feeds /
-                 Sinks / Queues — were previously sidebar items here.
-                 Removed to keep the first-load chrome quiet; the routes
-                 still exist and are reachable via the drill-down ribbon
-                 on the Topology view header, by row-click from Overview,
-                 or via direct URL. Re-add a sidebar entry only if a
-                 frequent task can't be served by drill-down — most
-                 operators land in detail from the topology canvas.) -->
+            <!-- Integration — one top-level sidebar entry that opens the
+                 5-tab surface (Agents / Services / Feeds / Sinks / Queues).
+                 Previously these were five separate sidebar items in a
+                 collapsible group; consolidated into a single nav row
+                 with a tab strip on the page so the chrome stays quiet
+                 but the routes are still discoverable. -->
+            <div class="nav-group" x-show="servicesAvailable || agentsAvailable || queuesAvailable">
+                <button class="nav-item"
+                        :class="{active: ['agents','services','queues'].includes(activeView)}"
+                        @click="go('agents')">
+                    <svg class="ico"><use href="#i-services"/></svg><span>Integration</span>
+                </button>
+            </div>
 
             <!-- Config — declarative wiring. Today: YAML viewer. Future:
                  editable YAML + drag-and-drop service / queue / sink /
@@ -211,6 +216,49 @@
 
         <!-- content -->
         <main class="content">
+
+            <!-- Integration tab strip — shared across the 5 detail views
+                 (Agents / Services / Feeds / Sinks / Queues). Lets the user
+                 switch facets without rebounding to the sidebar. Hidden on
+                 every other view so it doesn't visually intrude. -->
+            <div class="integration-tabs"
+                 x-show="['agents','services','queues'].includes(activeView)">
+                <button type="button"
+                        class="integration-tab"
+                        :class="{active: activeView==='agents'}"
+                        @click="go('agents')">
+                    Agents
+                    <span class="integration-tab-count" x-show="agents.length" x-text="agents.length"></span>
+                </button>
+                <button type="button"
+                        class="integration-tab"
+                        :class="{active: activeView==='services' && servicesTab==='service'}"
+                        @click="go('services'); servicesTab='service'">
+                    Services
+                    <span class="integration-tab-count" x-show="serviceTypeCount('service')" x-text="serviceTypeCount('service')"></span>
+                </button>
+                <button type="button"
+                        class="integration-tab"
+                        :class="{active: activeView==='services' && servicesTab==='feed'}"
+                        @click="go('services'); servicesTab='feed'">
+                    Feeds
+                    <span class="integration-tab-count" x-show="serviceTypeCount('feed')" x-text="serviceTypeCount('feed')"></span>
+                </button>
+                <button type="button"
+                        class="integration-tab"
+                        :class="{active: activeView==='services' && servicesTab==='sink'}"
+                        @click="go('services'); servicesTab='sink'">
+                    Sinks
+                    <span class="integration-tab-count" x-show="serviceTypeCount('sink')" x-text="serviceTypeCount('sink')"></span>
+                </button>
+                <button type="button"
+                        class="integration-tab"
+                        :class="{active: activeView==='queues'}"
+                        @click="go('queues')">
+                    Queues
+                    <span class="integration-tab-count" x-show="eventSources.length" x-text="eventSources.length"></span>
+                </button>
+            </div>
 
             <div class="banner banner-warn" x-show="authMode==='NONE'">
                 <svg class="ico"><use href="#i-warn"/></svg>

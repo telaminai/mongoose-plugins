@@ -2176,3 +2176,51 @@ textarea { resize: vertical; font-family: ui-monospace, Menlo, monospace; font-s
     gap: var(--sp-3);
     flex-wrap: wrap;
 }
+
+/* ─── Integration tab strip ──────────────────────────────────────────
+   Sits above the Agents / Services / Feeds / Sinks / Queues views.
+   Backed by a single sidebar entry ("Integration") — these five
+   facets used to be five sidebar items. Underline-active style so
+   the strip reads as part of the page header rather than another
+   nav block. */
+.integration-tabs {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-1);
+    margin-bottom: var(--sp-4);
+    border-bottom: 1px solid var(--border);
+}
+.integration-tab {
+    appearance: none;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--fg-muted);
+    cursor: pointer;
+    padding: var(--sp-2) var(--sp-3);
+    font: inherit;
+    font-size: var(--t-body);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-bottom: -1px;  /* overlap the strip's bottom border */
+    transition: color 0.12s, border-color 0.12s;
+}
+.integration-tab:hover { color: var(--fg); }
+.integration-tab.active {
+    color: var(--fg);
+    border-bottom-color: var(--accent);
+    font-weight: 600;
+}
+.integration-tab-count {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: var(--t-meta-sm);
+    color: var(--fg-faint);
+    background: var(--surface-2);
+    border-radius: 999px;
+    padding: 0 0.4rem;
+}
+.integration-tab.active .integration-tab-count {
+    color: var(--accent);
+    background: var(--accent-weak);
+}
