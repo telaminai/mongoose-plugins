@@ -165,6 +165,11 @@ document.addEventListener('alpine:init', () => {
         processorGraphCycleStage: 0,   // 0 cleared, 1 focus, 2 neighbours, 3 path, 4 whole graph
         processorGraphCycleFocus: null,
         processorGraphHoverTip: null,  // {x, y, lines} hover panel content
+        // Source-nav panel — populated on node tap, shows the node's class
+        // FQN, origin classification, and a suggested source path the user
+        // can paste into their IDE. Floating overlay on the Graph tab so
+        // it doesn't reflow the layout. Null when no node is focused.
+        processorGraphSourceNav: null,
         // Sibling-tab state — 'graph' shows the cytoscape canvas; 'stats'
         // shows a sortable / filterable / downloadable per-node table;
         // 'replay' steps through an audit-log file with the same canvas
@@ -1267,6 +1272,7 @@ document.addEventListener('alpine:init', () => {
             this.processorGraphCycleStage = 0;
             this.processorGraphCycleFocus = null;
             this.processorGraphHoverTip = null;
+            this.processorGraphSourceNav = null;
             this.go('processor-graph');
         },
 
@@ -1340,6 +1346,7 @@ document.addEventListener('alpine:init', () => {
             r.cy.on('tap', (evt) => {
                 if (evt.target === r.cy) {
                     self.processorGraphHoverTip = null;
+                    self.processorGraphSourceNav = null;
                     self.processorGraphFullGraph();
                 }
             });
@@ -1349,10 +1356,18 @@ document.addEventListener('alpine:init', () => {
             // the user isn't typing into an input.
             this._procGraphKeyHandler = (e) => {
                 if (this.activeView !== 'processor-graph') return;
+                const t = e.target;
+                const inField = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
+                // Esc — dismiss the source-nav panel (without nuking selection).
+                if (e.key === 'Escape' && self.processorGraphSourceNav) {
+                    if (inField) return;
+                    e.preventDefault();
+                    self.processorGraphSourceNav = null;
+                    return;
+                }
                 if (e.key !== 'f' && e.key !== 'F') return;
                 if (e.metaKey || e.ctrlKey || e.altKey) return;
-                const t = e.target;
-                if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+                if (inField) return;
                 e.preventDefault();
                 self.processorGraphApplyFilter();
             };
@@ -1372,7 +1387,53 @@ document.addEventListener('alpine:init', () => {
                     : this.processorGraphCycleStage === 3 ? 4
                     : 1;
             }
+            // Populate the source-nav panel from the tapped node's class FQN.
+            // graph-parser.js attaches `className` to every node from the
+            // `class:` line in the graphml label.
+            this.processorGraphSourceNav = this._buildSourceNav(node);
             this._applyProcessorGraphHighlight();
+        },
+
+        /** Classify a fully-qualified class name into one of:
+         *   - 'fluxtion-runtime' — com.telamin.fluxtion.runtime.*
+         *   - 'fluxtion'         — com.telamin.fluxtion.* (builder etc.)
+         *   - 'mongoose'         — com.telamin.mongoose.*
+         *   - 'user'             — everything else (project code)
+         *  Used by the source-nav panel to colour-code + decide whether the
+         *  source-path hint should be highlighted as actionable. */
+        _classifyOrigin(fqn) {
+            if (!fqn) return 'unknown';
+            if (fqn.startsWith('com.telamin.fluxtion.runtime.')) return 'fluxtion-runtime';
+            if (fqn.startsWith('com.telamin.fluxtion.')) return 'fluxtion';
+            if (fqn.startsWith('com.telamin.mongoose.')) return 'mongoose';
+            return 'user';
+        },
+
+        /** Build the data the source-nav panel renders for a tapped node. */
+        _buildSourceNav(node) {
+            const id = node.id();
+            const fqn = node.data('className') || null;
+            const origin = this._classifyOrigin(fqn);
+            const simpleName = fqn ? fqn.substring(fqn.lastIndexOf('.') + 1) : null;
+            const sourcePathHint = fqn ? fqn.replace(/\./g, '/') + '.java' : null;
+            const nodeKind = node.data('nodeKind') || null;
+            return { id, fqn, simpleName, origin, sourcePathHint, nodeKind };
+        },
+
+        /** Close button on the source-nav panel. */
+        processorGraphCloseSourceNav() {
+            this.processorGraphSourceNav = null;
+        },
+
+        /** Copy the FQN or source-path hint to the clipboard. */
+        async processorGraphCopySourceNav(value) {
+            if (!value) return;
+            try {
+                await navigator.clipboard.writeText(value);
+                this.toast('Copied ' + value);
+            } catch (_) {
+                this.toast('Copy failed');
+            }
         },
 
         _selectionIds() {

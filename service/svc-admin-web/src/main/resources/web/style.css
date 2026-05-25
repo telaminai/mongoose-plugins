@@ -1418,6 +1418,90 @@ textarea { resize: vertical; font-family: ui-monospace, Menlo, monospace; font-s
 .proc-tip-k { color: var(--fg-muted); min-width: 3.5rem; }
 .proc-tip-v { color: var(--fg); word-break: break-all; }
 
+/* ─── Source-nav panel ───────────────────────────────────────────────
+   Floating overlay anchored to the top-right of .proc-shell. Opens on
+   node tap, shows id / kind / origin / class / source-path-hint with
+   copy buttons. Left border colour-coded by origin so user-code nodes
+   pop visually against framework nodes. */
+.proc-sourcenav {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    width: 22rem;
+    max-width: calc(100% - 1rem);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-left-width: 3px;
+    border-radius: 6px;
+    padding: 0.5rem 0.65rem;
+    font-size: 0.78rem;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+    z-index: 4;
+}
+.proc-sourcenav.origin-user            { border-left-color: var(--ok, #16a34a); }
+.proc-sourcenav.origin-mongoose        { border-left-color: var(--accent, #2563eb); }
+.proc-sourcenav.origin-fluxtion        { border-left-color: var(--warn, #d97706); }
+.proc-sourcenav.origin-fluxtion-runtime{ border-left-color: var(--fg-muted); }
+.proc-sourcenav.origin-unknown         { border-left-color: var(--fg-faint); }
+
+.proc-sourcenav-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.35rem;
+}
+.proc-sourcenav-title {
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-size: 0.66rem;
+    color: var(--fg-muted);
+}
+.proc-sourcenav-close {
+    background: transparent;
+    border: none;
+    color: var(--fg-muted);
+    cursor: pointer;
+    font-size: 1rem;
+    line-height: 1;
+    padding: 0 0.25rem;
+}
+.proc-sourcenav-close:hover { color: var(--fg); }
+
+.proc-sourcenav-rows { display: flex; flex-direction: column; gap: 0.2rem; }
+.proc-sourcenav-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: baseline;
+    line-height: 1.35;
+}
+.proc-sourcenav-k {
+    color: var(--fg-muted);
+    min-width: 3.5rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-size: 0.66rem;
+}
+.proc-sourcenav-v { color: var(--fg); word-break: break-all; flex: 1; }
+.proc-sourcenav-path { font-size: 0.74rem; color: var(--fg-muted); }
+.proc-sourcenav-copy {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--fg-muted);
+    cursor: pointer;
+    padding: 0 0.3rem;
+    font-size: 0.75rem;
+    line-height: 1.4;
+}
+.proc-sourcenav-copy:hover { color: var(--fg); border-color: var(--fg-muted); }
+
+.proc-sourcenav-foot {
+    margin-top: 0.45rem;
+    padding-top: 0.4rem;
+    border-top: 1px solid var(--border);
+    font-size: 0.7rem;
+}
+
 .proc-empty {
     background: var(--surface);
     border: 1px solid var(--border);
