@@ -1998,13 +1998,21 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
                 "entries", entries));
     }
 
-    // FQN -> .java text lookup. Walks sourceRoots in declared order, returns
-    // the first hit. The fqn query param must match a strict identifier
-    // pattern (letters / digits / underscore / dot, optional `$` for inner
-    // classes) — that is the *only* gate against path traversal; we never
-    // pass user input into Path.resolve raw. After resolve+toRealPath, the
-    // resolved file is verified to live under the root (catches symlink
-    // escape). Empty sourceRoots = 404 with config hint, no FS exposure.
+    // FQN -> .java text lookup. Two-tier resolution:
+    //   1. Filesystem — walks sourceRoots in declared order, first hit wins
+    //      (live-edit dev experience beats packaged copy).
+    //   2. Classpath — ClassLoader.getResourceAsStream(<pkg>/<Class>.java).
+    //      Fluxtion 1.0.2+ packages generated source as a classpath resource
+    //      via copySourceToResourcesDirectory; this tier surfaces it when
+    //      the runtime is detached from its build tree.
+    // The fqn query param must match a strict identifier pattern (letters
+    // / digits / underscore / dot, optional `$` for inner classes) — that
+    // is the *only* gate against path traversal; we never pass user input
+    // into Path.resolve raw. After resolve+toRealPath, the resolved file
+    // is verified to live under the root (catches symlink escape). Empty
+    // sourceRoots = 404 with config hint, no FS exposure AND no classpath
+    // lookup (opt-in stays whole — operators who don't want the panel at
+    // all leave sourceRoots empty).
     private static final java.util.regex.Pattern FQN_PATTERN =
             java.util.regex.Pattern.compile("[A-Za-z_$][A-Za-z0-9_$]*(\\.[A-Za-z_$][A-Za-z0-9_$]*)+");
 
@@ -2027,6 +2035,8 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         if (dollar > 0) topLevel = topLevel.substring(0, dollar);
         String relPath = topLevel.replace('.', '/') + ".java";
 
+        // Tier 1 — filesystem sourceRoots. Filesystem first so live edits
+        // beat the packaged copy during local development.
         for (String rootSpec : sourceRoots) {
             java.nio.file.Path root;
             try {
@@ -2061,10 +2071,39 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
                     "source", text));
             return;
         }
+        // Tier 2 — classpath fallback. Fluxtion 1.0.2+ packages generated
+        // .java alongside the .graphml via FluxtionCompilerConfig's
+        // copySourceToResourcesDirectory flag (default on). That source
+        // travels inside the shaded jar as a classpath resource at the
+        // package-mirrored path. This branch makes the lookup work when
+        // the runtime is detached from its build tree — containers, prod
+        // deployments, downloaded uber-jars moved elsewhere.
+        ClassLoader cl = Thread.currentThread().getContextClassLoader();
+        if (cl == null) cl = WebAdminService.class.getClassLoader();
+        try (java.io.InputStream in = cl.getResourceAsStream(relPath)) {
+            if (in != null) {
+                java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
+                byte[] chunk = new byte[8 * 1024];
+                int n;
+                while ((n = in.read(chunk)) > 0) buf.write(chunk, 0, n);
+                String text = new String(buf.toByteArray(), StandardCharsets.UTF_8);
+                ctx.json(Map.of(
+                        "fqn", fqn,
+                        "path", relPath,
+                        "root", "classpath:",
+                        "source", text));
+                return;
+            }
+        } catch (java.io.IOException io) {
+            ctx.status(HttpStatus.INTERNAL_SERVER_ERROR);
+            ctx.json(Map.of("err", "classpath read failed: " + io.getMessage()));
+            return;
+        }
         ctx.status(HttpStatus.NOT_FOUND);
         ctx.json(Map.of(
                 "err", "no source found for " + fqn,
                 "searched", sourceRoots,
+                "classpathChecked", true,
                 "relPath", relPath));
     }
 
