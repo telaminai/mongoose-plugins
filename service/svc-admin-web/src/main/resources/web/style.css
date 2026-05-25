@@ -1538,6 +1538,44 @@ textarea { resize: vertical; font-family: ui-monospace, Menlo, monospace; font-s
     font: inherit;
 }
 
+/* Java syntax tokens — sober palette tuned to the YAML highlighter so
+   the panel reads consistently in light + dark themes. Themes pick up
+   the CSS variables when defined; the fallbacks keep generic terminals
+   readable. */
+.proc-sourcenav-code .proc-sourcenav-line {
+    display: flex;
+    align-items: baseline;
+    gap: 0.65rem;
+    line-height: 1.45;
+    padding: 0 0.15rem;
+    border-left: 2px solid transparent;
+    /* Reserve gutter space so highlighted lines don't reflow horizontally
+       when the active border kicks in. */
+}
+.proc-sourcenav-code .proc-sourcenav-line .ln {
+    display: inline-block;
+    width: 2.4rem;
+    text-align: right;
+    color: var(--fg-faint, #8e8e93);
+    user-select: none;
+    flex: 0 0 auto;
+    font-size: 0.66rem;
+}
+.proc-sourcenav-code .proc-sourcenav-line .src {
+    flex: 1 1 auto;
+    white-space: pre;
+}
+.proc-sourcenav-code .proc-sourcenav-line.active {
+    background: var(--accent-soft, rgba(37, 99, 235, 0.10));
+    border-left-color: var(--accent, #2563eb);
+}
+.proc-sourcenav-code .j-kw   { color: var(--kw, #c678dd); font-weight: 600; }
+.proc-sourcenav-code .j-type { color: var(--type, #e5c07b); }
+.proc-sourcenav-code .j-ann  { color: var(--ann, #d19a66); font-style: italic; }
+.proc-sourcenav-code .j-str  { color: var(--str, #98c379); }
+.proc-sourcenav-code .j-num  { color: var(--num, #d19a66); }
+.proc-sourcenav-code .j-cmt  { color: var(--cmt, #7f848e); font-style: italic; }
+
 .proc-empty {
     background: var(--surface);
     border: 1px solid var(--border);

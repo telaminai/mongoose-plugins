@@ -1467,8 +1467,15 @@
                              x-show="processorGraphSourceNav?.sourceState === 'loading'">
                             Loading source…
                         </div>
+                        <!-- sourceHtml is line-wrapped + syntax-highlighted
+                             by _highlightJava (hand-rolled, mirrors the
+                             YAML highlighter pattern); every interpolated
+                             chunk passes through HTML-escape first so
+                             x-html is safe. The .proc-sourcenav-line rows
+                             carry data-line for scroll-to-line. -->
                         <pre class="proc-sourcenav-code"
-                             x-show="processorGraphSourceNav?.sourceState === 'loaded'"><code x-text="processorGraphSourceNav?.sourceText"></code></pre>
+                             x-show="processorGraphSourceNav?.sourceState === 'loaded'"
+                             x-html="processorGraphSourceNav?.sourceHtml"></pre>
                         <div class="proc-sourcenav-foot muted small"
                              x-show="processorGraphSourceNav?.sourceState === 'loaded'">
                             Served from configured sourceRoots.

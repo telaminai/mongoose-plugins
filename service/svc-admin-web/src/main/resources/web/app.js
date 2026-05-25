@@ -1398,18 +1398,54 @@ document.addEventListener('alpine:init', () => {
                     : this.processorGraphCycleStage === 3 ? 4
                     : 1;
             }
-            // Populate the source-nav panel from the tapped node's class FQN.
-            // graph-parser.js attaches `className` to every node from the
-            // `class:` line in the graphml label.
-            this.processorGraphSourceNav = this._buildSourceNav(node);
-            const fqn = this.processorGraphSourceNav.fqn;
-            if (fqn) {
-                // Kick off the async source fetch — panel renders metadata
-                // immediately and the code area appears when the fetch
-                // resolves. Loading / notfound / error states all render
-                // inline in the panel; no toast spam on the common case
-                // (framework classes that the server has no sources for).
-                this._fetchSourceFor(fqn);
+            // Route the source-nav panel based on what kind of node was
+            // tapped. graph-parser.js attaches nodeKind from the graphml
+            // <Style properties="..."/> attribute.
+            //
+            //   EVENT          → load the PROCESSOR's generated source and
+            //                    scroll to `instanceof <SimpleName>` inside
+            //                    the onEventInternal dispatch table. The
+            //                    event class itself rarely has interesting
+            //                    behaviour — what the user wants to see is
+            //                    the dispatch case.
+            //   EXPORTSERVICE  → load the processor source and scroll to
+            //                    the @Override block for that interface in
+            //                    EXPORTED SERVICE FUNCTIONS.
+            //   other          → load the node's own class source.
+            const nodeKind = node.data('nodeKind') || null;
+            const nodeFqn  = node.data('className') || null;
+            if ((nodeKind === 'EVENT' || nodeKind === 'EXPORTSERVICE')
+                    && this.processorGraphProcessorFqn) {
+                const simple = nodeFqn
+                        ? nodeFqn.substring(nodeFqn.lastIndexOf('.') + 1)
+                        : node.id();
+                const procFqn = this.processorGraphProcessorFqn;
+                const procSimple = procFqn.substring(procFqn.lastIndexOf('.') + 1);
+                const procOrigin = this._classifyOrigin(procFqn);
+                this.processorGraphSourceNav = {
+                    id: simple,
+                    fqn: procFqn,
+                    simpleName: procSimple,
+                    origin: procOrigin,
+                    sourcePathHint: procFqn.replace(/\./g, '/') + '.java',
+                    nodeKind: nodeKind === 'EVENT'
+                            ? 'dispatch:' + simple
+                            : 'export:'   + simple,
+                    jumpHint: (nodeKind === 'EVENT' ? 'event:' : 'exportservice:') + simple,
+                    sourceState: 'idle',
+                    sourceText: null,
+                    sourceHtml: null,
+                    sourceFoundPath: null,
+                    sourceErr: null,
+                    targetLine: null
+                };
+                this._fetchSourceFor(procFqn);
+            } else {
+                this.processorGraphSourceNav = this._buildSourceNav(node);
+                const fqn = this.processorGraphSourceNav.fqn;
+                if (fqn) {
+                    this._fetchSourceFor(fqn);
+                }
             }
             this._applyProcessorGraphHighlight();
         },
@@ -1441,14 +1477,22 @@ document.addEventListener('alpine:init', () => {
             // Panel HTML branches on this without needing per-state booleans.
             return {
                 id, fqn, simpleName, origin, sourcePathHint, nodeKind,
-                sourceState: 'idle', sourceText: null, sourceFoundPath: null, sourceErr: null
+                sourceState: 'idle',
+                sourceText: null,
+                sourceHtml: null,
+                sourceFoundPath: null,
+                sourceErr: null,
+                jumpHint: null,
+                targetLine: null
             };
         },
 
         /** Fetch .java text for a tapped node's FQN from /api/source. Updates
          *  the active sourceNav object in-place so the panel re-renders.
          *  Guards against late responses from a previous tap by comparing
-         *  fqn before mutating state. */
+         *  fqn before mutating state. Also computes the highlighted HTML
+         *  (line-wrapped) and resolves any jump-to-line target the caller
+         *  attached to the sourceNav object before kicking the fetch. */
         async _fetchSourceFor(fqn) {
             if (!fqn) return;
             const sn = this.processorGraphSourceNav;
@@ -1470,7 +1514,21 @@ document.addEventListener('alpine:init', () => {
                 const data = await res.json();
                 live.sourceText = data.source ?? '';
                 live.sourceFoundPath = data.path ?? null;
+                // Resolve any jumpHint into a 1-indexed line number now that we
+                // have the source text. jumpHint is set by the caller before
+                // the fetch (event-node tap → 'event:<SimpleName>',
+                // exportservice tap → 'exportservice:<InterfaceSimpleName>').
+                if (live.jumpHint) {
+                    live.targetLine = this._resolveJumpHint(live.sourceText, live.jumpHint);
+                }
+                live.sourceHtml = this._highlightJava(live.sourceText, live.targetLine);
                 live.sourceState = 'loaded';
+                // Defer the scroll until Alpine re-renders the panel with the
+                // new sourceHtml. requestAnimationFrame is enough — Alpine
+                // flushes reactive bindings before the next paint.
+                if (live.targetLine) {
+                    requestAnimationFrame(() => this._scrollSourceToTargetLine());
+                }
             } catch (e) {
                 const live = this.processorGraphSourceNav;
                 if (live && live.fqn === fqn) {
@@ -1478,6 +1536,190 @@ document.addEventListener('alpine:init', () => {
                     live.sourceErr = String(e);
                 }
             }
+        },
+
+        // ── Java source highlighter + nav helpers ─────────────────────────
+        // Hand-rolled to match the YAML highlighter pattern (no external
+        // dep). The output is line-wrapped so we can scroll to any 1-indexed
+        // line via querySelector('.proc-sourcenav-line[data-line="N"]').
+
+        /** Hand-rolled Java syntax highlighter. Tokenises keywords, type
+         *  identifiers (heuristic — capitalised), strings, line + block
+         *  comments, annotations, and numbers. Each line gets a wrapper
+         *  div with `data-line` so the panel can scroll-to-line and
+         *  highlight an `active` row. Safe to inject via x-html — every
+         *  user-controlled chunk passes through escape() first. */
+        _highlightJava(source, activeLine) {
+            if (!source) return '';
+            const escape = (s) => s
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+
+            const KEYWORDS = new Set([
+                'abstract', 'assert', 'boolean', 'break', 'byte', 'case', 'catch',
+                'char', 'class', 'const', 'continue', 'default', 'do', 'double',
+                'else', 'enum', 'extends', 'final', 'finally', 'float', 'for',
+                'goto', 'if', 'implements', 'import', 'instanceof', 'int',
+                'interface', 'long', 'native', 'new', 'package', 'private',
+                'protected', 'public', 'return', 'short', 'static', 'strictfp',
+                'super', 'switch', 'synchronized', 'this', 'throw', 'throws',
+                'transient', 'try', 'void', 'volatile', 'while', 'true', 'false',
+                'null', 'var', 'yield', 'record', 'sealed', 'permits', 'non-sealed'
+            ]);
+
+            // Pre-process: locate /* ... */ block comments at source-text
+            // level so they survive line-splitting. Mark them with sentinels
+            // we substitute back in after per-line tokenisation.
+            const blockComments = [];
+            const protectedSource = source.replace(/\/\*[\s\S]*?\*\//g, (m) => {
+                const idx = blockComments.length;
+                blockComments.push(m);
+                return 'BLK' + idx + '';
+            });
+
+            // Pre-process strings similarly so quoted text doesn't get
+            // keyword-spliced (e.g. "throw" inside a string literal).
+            const strings = [];
+            const protectedSource2 = protectedSource.replace(/"(?:[^"\\]|\\.)*"/g, (m) => {
+                const idx = strings.length;
+                strings.push(m);
+                return 'STR' + idx + '';
+            });
+
+            const lines = protectedSource2.split('\n');
+            const out = [];
+            for (let i = 0; i < lines.length; i++) {
+                let line = lines[i];
+                let html = escape(line);
+                // Line comment — take everything from // to end-of-line first
+                // so subsequent passes don't tokenise inside the comment.
+                const lineCommentRe = /(\/\/[^\n]*)/;
+                const lcMatch = html.match(lineCommentRe);
+                let trailingComment = '';
+                if (lcMatch) {
+                    trailingComment = '<span class="j-cmt">' + lcMatch[1] + '</span>';
+                    html = html.substring(0, lcMatch.index);
+                }
+                // Annotations — @Foo or @Foo.Bar.Baz
+                html = html.replace(/(@[A-Za-z_][\w.]*)/g, '<span class="j-ann">$1</span>');
+                // Identifiers — keyword check; capitalised → type colour
+                html = html.replace(/\b([A-Za-z_][\w$]*)\b/g, (m, w) => {
+                    if (KEYWORDS.has(w)) return '<span class="j-kw">' + w + '</span>';
+                    if (/^[A-Z]/.test(w)) return '<span class="j-type">' + w + '</span>';
+                    return m;
+                });
+                // Number literals
+                html = html.replace(/\b(\d[\d_]*\.?\d*(?:[eE][+-]?\d+)?[fFdDlL]?)\b/g,
+                        '<span class="j-num">$1</span>');
+                html = html + trailingComment;
+
+                // Restore protected strings + block comments
+                html = html.replace(/STR(\d+)/g,
+                        (_, n) => '<span class="j-str">' + escape(strings[+n]) + '</span>');
+                html = html.replace(/BLK(\d+)/g,
+                        (_, n) => '<span class="j-cmt">' + escape(blockComments[+n]) + '</span>');
+
+                const lineNum = i + 1;
+                const activeCls = lineNum === activeLine ? ' active' : '';
+                out.push('<div class="proc-sourcenav-line' + activeCls + '" data-line="' + lineNum + '">'
+                        + '<span class="ln">' + lineNum + '</span>'
+                        + '<span class="src">' + (html || '&nbsp;') + '</span>'
+                        + '</div>');
+            }
+            return out.join('');
+        },
+
+        /** Resolve a jumpHint payload to a 1-indexed line number in the
+         *  generated source. Two prefixes:
+         *   - `event:<SimpleName>`         → first `instanceof <SimpleName>`
+         *                                    inside the onEventInternal block
+         *   - `exportservice:<Interface>`  → first @Override in EXPORTED
+         *                                    SERVICE FUNCTIONS whose
+         *                                    beforeServiceCall string names
+         *                                    `<Interface>.<method>`
+         *  Returns null when the marker isn't found — the source still
+         *  loads, just without auto-scroll. */
+        _resolveJumpHint(source, hint) {
+            if (!source || !hint) return null;
+            const colon = hint.indexOf(':');
+            if (colon < 0) return null;
+            const kind = hint.substring(0, colon);
+            const arg  = hint.substring(colon + 1);
+            if (!arg) return null;
+            if (kind === 'event') {
+                return this._findInstanceofLine(source, arg);
+            }
+            if (kind === 'exportservice') {
+                return this._findExportServiceLine(source, arg);
+            }
+            return null;
+        },
+
+        /** Find the line of `instanceof <SimpleName>` inside the
+         *  `public void onEventInternal(Object event)` method. Scoped to
+         *  that method body (clamped to the next `}` at indent 4) so we
+         *  don't accidentally hit the equivalent dispatch inside
+         *  `bufferEvent`. */
+        _findInstanceofLine(source, eventSimpleName) {
+            const startIdx = source.indexOf('public void onEventInternal');
+            if (startIdx < 0) return null;
+            // Clamp the scope at the next top-level `}` (closing brace at
+            // indent 4 — Fluxtion's generated source is consistently 4-spaced).
+            const endRe = /\n {4}\}/g;
+            endRe.lastIndex = startIdx;
+            const endMatch = endRe.exec(source);
+            const endIdx = endMatch ? endMatch.index : source.length;
+            const re = new RegExp('\\binstanceof\\s+' + this._escapeForRegex(eventSimpleName) + '\\b');
+            const region = source.substring(startIdx, endIdx);
+            const m = region.match(re);
+            if (!m) return null;
+            const absIdx = startIdx + region.indexOf(m[0]);
+            return source.substring(0, absIdx).split('\n').length;
+        },
+
+        /** Find the @Override line in the //EXPORTED SERVICE FUNCTIONS
+         *  block whose beforeServiceCall("...") names the given interface
+         *  simple-name. Mirrors fluxtion-web/repl/nav-lookup.ts
+         *  parseExportedServiceMethods. */
+        _findExportServiceLine(source, interfaceSimpleName) {
+            const startIdx = source.indexOf('//EXPORTED SERVICE FUNCTIONS - START');
+            if (startIdx < 0) return null;
+            const endIdx = source.indexOf('//EXPORTED SERVICE FUNCTIONS - END', startIdx);
+            if (endIdx < 0) return null;
+            const region = source.substring(startIdx, endIdx);
+            const re = new RegExp(
+                '@Override\\b([\\s\\S]*?)beforeServiceCall\\s*\\(\\s*"[^"]*?\\.'
+                + this._escapeForRegex(interfaceSimpleName) + '\\.[A-Za-z_$]\\w*\\s*\\(',
+                'g'
+            );
+            const m = re.exec(region);
+            if (!m) return null;
+            const absIdx = startIdx + m.index;
+            return source.substring(0, absIdx).split('\n').length;
+        },
+
+        _escapeForRegex(s) {
+            return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        },
+
+        /** Scroll the source viewer to the line marked `active` (or to
+         *  data-line === targetLine on the active sourceNav). Centres the
+         *  line in the viewport when possible — gives the user surrounding
+         *  context above + below the target. */
+        _scrollSourceToTargetLine() {
+            const sn = this.processorGraphSourceNav;
+            if (!sn || !sn.targetLine) return;
+            // The code block is the only .proc-sourcenav-code on the page —
+            // single panel, single instance.
+            const pre = document.querySelector('.proc-sourcenav-code');
+            if (!pre) return;
+            const target = pre.querySelector('.proc-sourcenav-line[data-line="' + sn.targetLine + '"]');
+            if (!target) return;
+            // Centre rather than top-align so the user sees a few lines of
+            // dispatch context above the highlighted case.
+            const preMid = pre.clientHeight / 2;
+            pre.scrollTop = Math.max(0, target.offsetTop - preMid + target.offsetHeight / 2);
         },
 
         /** Open the source-nav panel on the live processor's own class
@@ -1505,8 +1747,11 @@ document.addEventListener('alpine:init', () => {
                 nodeKind: 'generated-processor',
                 sourceState: 'idle',
                 sourceText: null,
+                sourceHtml: null,
                 sourceFoundPath: null,
-                sourceErr: null
+                sourceErr: null,
+                jumpHint: null,
+                targetLine: null
             };
             this._fetchSourceFor(fqn);
         },
