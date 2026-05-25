@@ -233,6 +233,17 @@ document.addEventListener('alpine:init', () => {
         replayRecording: false,       // whether the audit-capture service reports our processor recording
         replayPayloadTab: 'logical',  // 'logical' | 'text' — node payload presentation
         replayCopyState: '',          // transient status for the Copy button on Text view
+        // Event-type filter — Set of event types currently HIDDEN (empty
+        // = all visible). Driven by chip clicks on the records column
+        // header. Filter is applied to the records list rendering but
+        // does NOT advance replayRecordIndex past hidden rows — clicking
+        // a chip is for visual decluttering, not for skipping playback.
+        replayHiddenTypes: new Set(),
+        // Auto-assigned palette for event-type chips. Same colour for
+        // the same type across the session; computed on first sight.
+        // Palette is theme-neutral (works in both light and dark).
+        _replayTypeColors: new Map(),
+        _replayPaletteIdx: 0,
         replaySideWidthPx: (() => {
             // Persist user-adjusted side-column width across sessions.
             try {
@@ -2594,6 +2605,52 @@ document.addEventListener('alpine:init', () => {
 
         // Rows for the picker: every registered processor with its
         // group + audit state. Sorted so live captures float to the top.
+        // ── Replay event-type colouring + filtering ─────────────────────
+        // A small auto-palette so each event type gets a consistent chip
+        // colour for the session. Colours are picked from a fixed wheel
+        // sized to work in both light + dark themes; once a type has
+        // been seen the assignment is stable.
+        _replayPalette: [
+            '#0d8f82', '#2563eb', '#d97706', '#16a34a', '#a855f7',
+            '#dc2626', '#0891b2', '#65a30d', '#db2777', '#7c3aed',
+            '#ea580c', '#0284c7'
+        ],
+        replayColorForType(type) {
+            if (!type) return 'var(--fg-muted)';
+            const cached = this._replayTypeColors.get(type);
+            if (cached) return cached;
+            const palette = this._replayPalette;
+            const c = palette[this._replayPaletteIdx % palette.length];
+            this._replayPaletteIdx++;
+            this._replayTypeColors.set(type, c);
+            return c;
+        },
+        /** Unique event types in the loaded record set (in first-seen
+         *  order — keeps chip layout stable as the user steps through). */
+        replayDistinctEventTypes() {
+            const seen = new Set();
+            const out = [];
+            for (const r of this.replayRecords) {
+                const t = r.eventType || '';
+                if (!t || seen.has(t)) continue;
+                seen.add(t);
+                out.push(t);
+            }
+            return out;
+        },
+        /** Toggle a type's visibility — clicking a chip hides/shows its
+         *  records in the list. Index pointer is left untouched. */
+        replayToggleType(type) {
+            // Need a NEW Set so Alpine's reactive equality sees a change.
+            const next = new Set(this.replayHiddenTypes);
+            if (next.has(type)) next.delete(type);
+            else next.add(type);
+            this.replayHiddenTypes = next;
+        },
+        replayTypeVisible(type) {
+            return !this.replayHiddenTypes.has(type || '');
+        },
+
         replayProcessorRows() {
             const rows = [];
             const auditByName = new Map();

@@ -163,38 +163,14 @@
                 </div>
             </div>
 
-            <!-- Dispatch services — the wiring of mongoose's event pipeline. -->
-            <div class="nav-group" x-show="servicesAvailable || agentsAvailable || queuesAvailable">
-                <button type="button" class="nav-group-head" @click="navToggle('dispatch')">
-                    <span class="nav-caret" x-text="navExpanded.dispatch ? '▾' : '▸'"></span>
-                    <span class="nav-label">Dispatch services</span>
-                </button>
-                <div x-show="navExpanded.dispatch" x-cloak>
-                    <button class="nav-item" :class="{active: activeView==='agents'}" @click="go('agents')" x-show="agentsAvailable">
-                        <svg class="ico"><use href="#i-agents"/></svg><span>Agents</span>
-                        <span class="nav-count" x-show="agents.length" x-text="agents.length"></span>
-                    </button>
-                    <button class="nav-item" :class="{active: activeView==='services' && servicesTab==='service'}"
-                            @click="go('services'); servicesTab='service'" x-show="servicesAvailable">
-                        <svg class="ico"><use href="#i-services"/></svg><span>Services</span>
-                        <span class="nav-count" x-show="serviceTypeCount('service')" x-text="serviceTypeCount('service')"></span>
-                    </button>
-                    <button class="nav-item" :class="{active: activeView==='services' && servicesTab==='feed'}"
-                            @click="go('services'); servicesTab='feed'" x-show="servicesAvailable">
-                        <svg class="ico"><use href="#i-services"/></svg><span>Feeds</span>
-                        <span class="nav-count" x-show="serviceTypeCount('feed')" x-text="serviceTypeCount('feed')"></span>
-                    </button>
-                    <button class="nav-item" :class="{active: activeView==='services' && servicesTab==='sink'}"
-                            @click="go('services'); servicesTab='sink'" x-show="servicesAvailable">
-                        <svg class="ico"><use href="#i-services"/></svg><span>Sinks</span>
-                        <span class="nav-count" x-show="serviceTypeCount('sink')" x-text="serviceTypeCount('sink')"></span>
-                    </button>
-                    <button class="nav-item" :class="{active: activeView==='queues'}" @click="go('queues')" x-show="queuesAvailable">
-                        <svg class="ico"><use href="#i-queues"/></svg><span>Queues</span>
-                        <span class="nav-count" x-show="eventSources.length" x-text="eventSources.length"></span>
-                    </button>
-                </div>
-            </div>
+            <!-- (Dispatch-services children — Agents / Services / Feeds /
+                 Sinks / Queues — were previously sidebar items here.
+                 Removed to keep the first-load chrome quiet; the routes
+                 still exist and are reachable via the drill-down ribbon
+                 on the Topology view header, by row-click from Overview,
+                 or via direct URL. Re-add a sidebar entry only if a
+                 frequent task can't be served by drill-down — most
+                 operators land in detail from the topology canvas.) -->
 
             <!-- Config — declarative wiring. Today: YAML viewer. Future:
                  editable YAML + drag-and-drop service / queue / sink /
@@ -1411,6 +1387,33 @@
                         <button class="btn btn-ghost btn-sm" @click="topologyRefit()" title="Re-fit graph">Fit</button>
                     </div>
                 </div>
+                <!-- Drill-down ribbon — opens the detail views that used to
+                     live in the sidebar's Dispatch-services group. Counts
+                     come from the same data the topology renders, so they
+                     stay in sync without an extra fetch. -->
+                <div class="topology-drill" x-show="agentsAvailable || servicesAvailable || queuesAvailable">
+                    <span class="topology-drill-label muted small">Detail:</span>
+                    <button type="button" class="topology-drill-btn"
+                            @click="go('agents')" x-show="agentsAvailable">
+                        Agents <span class="topology-drill-count" x-show="agents.length" x-text="agents.length"></span>
+                    </button>
+                    <button type="button" class="topology-drill-btn"
+                            @click="go('services'); servicesTab='service'" x-show="servicesAvailable">
+                        Services <span class="topology-drill-count" x-show="serviceTypeCount('service')" x-text="serviceTypeCount('service')"></span>
+                    </button>
+                    <button type="button" class="topology-drill-btn"
+                            @click="go('services'); servicesTab='feed'" x-show="servicesAvailable">
+                        Feeds <span class="topology-drill-count" x-show="serviceTypeCount('feed')" x-text="serviceTypeCount('feed')"></span>
+                    </button>
+                    <button type="button" class="topology-drill-btn"
+                            @click="go('services'); servicesTab='sink'" x-show="servicesAvailable">
+                        Sinks <span class="topology-drill-count" x-show="serviceTypeCount('sink')" x-text="serviceTypeCount('sink')"></span>
+                    </button>
+                    <button type="button" class="topology-drill-btn"
+                            @click="go('queues')" x-show="queuesAvailable">
+                        Queues <span class="topology-drill-count" x-show="eventSources.length" x-text="eventSources.length"></span>
+                    </button>
+                </div>
                 <div class="topology-shell">
                     <div class="topology-canvas" x-ref="topologyCanvas"></div>
                     <!-- Floating hover tooltip — positioned over the canvas via inline style derived from topologyTip.x/y. -->
@@ -1707,8 +1710,28 @@
                 <!-- ─── Replay tab — record list + node payload panel ─── -->
                 <div class="proc-replay-shell" x-show="processorGraphTab==='replay'">
                     <div class="replay-status muted small" x-show="replayError" x-text="replayError" style="color: var(--bad);"></div>
-                    <div class="replay-empty" x-show="!replayHasRecords && !replayError">
-                        <p class="muted small">No audit file loaded. Hit <strong>⏺ Record</strong> to start a live capture for <span class="mono" x-text="processorGraphTarget?.name"></span>, or pick an existing file from the dropdown above.</p>
+                    <div class="replay-empty-card" x-show="!replayHasRecords && !replayError">
+                        <div class="replay-empty-icon">⏺</div>
+                        <h2 class="replay-empty-title">No replay data yet</h2>
+                        <p class="replay-empty-body">
+                            Stream events into <span class="mono strong" x-text="processorGraphTarget?.name"></span>
+                            and replay them step-by-step here. Each record lights up the dispatch path on the graph above.
+                        </p>
+                        <div class="replay-empty-actions">
+                            <button type="button" class="btn btn-primary btn-sm"
+                                    @click="replayToggleRecord()"
+                                    x-show="!replayRecording">
+                                ⏺ Start recording
+                            </button>
+                            <button type="button" class="btn btn-ghost btn-sm"
+                                    @click="replayToggleRecord()"
+                                    x-show="replayRecording">
+                                ⏹ Stop recording
+                            </button>
+                            <span class="muted small" x-show="replayFiles && replayFiles.length">
+                                or pick an existing file from the dropdown above.
+                            </span>
+                        </div>
                     </div>
 
                     <!-- Scrub slider — drag to move the current event. Slider
@@ -1728,12 +1751,35 @@
                     <div class="replay-grid" x-show="replayHasRecords"
                          :style="`grid-template-columns: ${replaySplitPct}% 6px 1fr;`">
                         <div class="replay-records">
-                            <div class="card-head"><h2>Events</h2><span class="card-meta" x-text="replayRecordCount + ' record(s)'"></span></div>
+                            <div class="card-head">
+                                <h2>Events</h2>
+                                <span class="card-meta" x-text="replayRecordCount + ' record(s)'"></span>
+                            </div>
+                            <!-- Event-type filter chips — click to hide/show
+                                 that type in the list. Colour-coded so the
+                                 row dots match the chips. Empty when only
+                                 one event type is present (no filter to
+                                 offer). -->
+                            <div class="replay-type-filter" x-show="replayDistinctEventTypes().length > 1">
+                                <template x-for="t in replayDistinctEventTypes()" :key="t">
+                                    <button type="button"
+                                            class="replay-type-chip"
+                                            :class="{ inactive: !replayTypeVisible(t) }"
+                                            :style="`--chip-color: ${replayColorForType(t)};`"
+                                            @click="replayToggleType(t)"
+                                            :title="(replayTypeVisible(t) ? 'Hide ' : 'Show ') + t">
+                                        <span class="replay-type-dot"></span>
+                                        <span class="replay-type-label mono" x-text="t"></span>
+                                    </button>
+                                </template>
+                            </div>
                             <ol class="replay-record-list" x-ref="replayList">
                                 <template x-for="(r, idx) in replayRecords" :key="idx">
-                                    <li :class="{ active: idx === replayRecordIndex }"
+                                    <li :class="{ active: idx === replayRecordIndex, hidden: !replayTypeVisible(r.eventType) }"
                                         :data-replay-idx="idx"
                                         @click="replaySetRecord(idx)">
+                                        <span class="replay-row-dot"
+                                              :style="`background: ${replayColorForType(r.eventType)};`"></span>
                                         <span class="muted mono small replay-row-idx" x-text="(idx+1).toString().padStart(4, ' ')"></span>
                                         <span class="mono small replay-row-time" x-text="formatReplayTime(r.eventTime) || '—'"></span>
                                         <span class="mono small strong replay-row-type" x-text="r.eventType || '—'"></span>
