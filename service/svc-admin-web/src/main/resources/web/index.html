@@ -108,20 +108,27 @@
                     aria-label="toggle navigation">
                 <span x-text="navCollapsed ? '»' : '«'"></span>
             </button>
-            <!-- Home — single top-level item, no category header. -->
+            <!-- Overview — landing summary: processors / feeds / sinks /
+                 key services / audit state. Default view on load. -->
             <div class="nav-group">
-                <button class="nav-item" :class="{active: activeView==='dashboard'}" @click="go('dashboard')">
-                    <svg class="ico"><use href="#i-dashboard"/></svg><span>Home</span>
+                <button class="nav-item" :class="{active: activeView==='overview'}" @click="go('overview')">
+                    <svg class="ico"><use href="#i-dashboard"/></svg><span>Overview</span>
                 </button>
             </div>
 
-            <!-- Monitor — observability surfaces. -->
+            <!-- Monitor — observability surfaces (VM gauges, logs,
+                 performance, topology). The VM dashboard used to live as
+                 "Home"; demoted to a Monitor child now that Overview
+                 owns the landing surface. -->
             <div class="nav-group">
                 <button type="button" class="nav-group-head" @click="navToggle('monitor')">
                     <span class="nav-caret" x-text="navExpanded.monitor ? '▾' : '▸'"></span>
                     <span class="nav-label">Monitor</span>
                 </button>
                 <div x-show="navExpanded.monitor" x-cloak>
+                    <button class="nav-item" :class="{active: activeView==='dashboard'}" @click="go('dashboard')">
+                        <svg class="ico"><use href="#i-dashboard"/></svg><span>VM</span>
+                    </button>
                     <button class="nav-item" :class="{active: activeView==='logs'}" @click="go('logs')">
                         <svg class="ico"><use href="#i-logs"/></svg><span>Logs</span>
                         <span class="nav-dot" :class="logsStatus==='live' ? 'on' : ''"></span>
@@ -156,37 +163,18 @@
                 </div>
             </div>
 
-            <!-- Dispatch services — the wiring of mongoose's event pipeline. -->
+            <!-- Integration — one top-level sidebar entry that opens the
+                 5-tab surface (Agents / Services / Feeds / Sinks / Queues).
+                 Previously these were five separate sidebar items in a
+                 collapsible group; consolidated into a single nav row
+                 with a tab strip on the page so the chrome stays quiet
+                 but the routes are still discoverable. -->
             <div class="nav-group" x-show="servicesAvailable || agentsAvailable || queuesAvailable">
-                <button type="button" class="nav-group-head" @click="navToggle('dispatch')">
-                    <span class="nav-caret" x-text="navExpanded.dispatch ? '▾' : '▸'"></span>
-                    <span class="nav-label">Dispatch services</span>
+                <button class="nav-item"
+                        :class="{active: ['agents','services','queues'].includes(activeView)}"
+                        @click="go('agents')">
+                    <svg class="ico"><use href="#i-services"/></svg><span>Integration</span>
                 </button>
-                <div x-show="navExpanded.dispatch" x-cloak>
-                    <button class="nav-item" :class="{active: activeView==='agents'}" @click="go('agents')" x-show="agentsAvailable">
-                        <svg class="ico"><use href="#i-agents"/></svg><span>Agents</span>
-                        <span class="nav-count" x-show="agents.length" x-text="agents.length"></span>
-                    </button>
-                    <button class="nav-item" :class="{active: activeView==='services' && servicesTab==='service'}"
-                            @click="go('services'); servicesTab='service'" x-show="servicesAvailable">
-                        <svg class="ico"><use href="#i-services"/></svg><span>Services</span>
-                        <span class="nav-count" x-show="serviceTypeCount('service')" x-text="serviceTypeCount('service')"></span>
-                    </button>
-                    <button class="nav-item" :class="{active: activeView==='services' && servicesTab==='feed'}"
-                            @click="go('services'); servicesTab='feed'" x-show="servicesAvailable">
-                        <svg class="ico"><use href="#i-services"/></svg><span>Feeds</span>
-                        <span class="nav-count" x-show="serviceTypeCount('feed')" x-text="serviceTypeCount('feed')"></span>
-                    </button>
-                    <button class="nav-item" :class="{active: activeView==='services' && servicesTab==='sink'}"
-                            @click="go('services'); servicesTab='sink'" x-show="servicesAvailable">
-                        <svg class="ico"><use href="#i-services"/></svg><span>Sinks</span>
-                        <span class="nav-count" x-show="serviceTypeCount('sink')" x-text="serviceTypeCount('sink')"></span>
-                    </button>
-                    <button class="nav-item" :class="{active: activeView==='queues'}" @click="go('queues')" x-show="queuesAvailable">
-                        <svg class="ico"><use href="#i-queues"/></svg><span>Queues</span>
-                        <span class="nav-count" x-show="eventSources.length" x-text="eventSources.length"></span>
-                    </button>
-                </div>
             </div>
 
             <!-- Config — declarative wiring. Today: YAML viewer. Future:
@@ -229,10 +217,210 @@
         <!-- content -->
         <main class="content">
 
+            <!-- Integration tab strip — shared across the 5 detail views
+                 (Agents / Services / Feeds / Sinks / Queues). Lets the user
+                 switch facets without rebounding to the sidebar. Hidden on
+                 every other view so it doesn't visually intrude. -->
+            <div class="integration-tabs"
+                 x-show="['agents','services','queues'].includes(activeView)">
+                <button type="button"
+                        class="integration-tab"
+                        :class="{active: activeView==='agents'}"
+                        @click="go('agents')">
+                    Agents
+                    <span class="integration-tab-count" x-show="agents.length" x-text="agents.length"></span>
+                </button>
+                <button type="button"
+                        class="integration-tab"
+                        :class="{active: activeView==='services' && servicesTab==='service'}"
+                        @click="go('services'); servicesTab='service'">
+                    Services
+                    <span class="integration-tab-count" x-show="serviceTypeCount('service')" x-text="serviceTypeCount('service')"></span>
+                </button>
+                <button type="button"
+                        class="integration-tab"
+                        :class="{active: activeView==='services' && servicesTab==='feed'}"
+                        @click="go('services'); servicesTab='feed'">
+                    Feeds
+                    <span class="integration-tab-count" x-show="serviceTypeCount('feed')" x-text="serviceTypeCount('feed')"></span>
+                </button>
+                <button type="button"
+                        class="integration-tab"
+                        :class="{active: activeView==='services' && servicesTab==='sink'}"
+                        @click="go('services'); servicesTab='sink'">
+                    Sinks
+                    <span class="integration-tab-count" x-show="serviceTypeCount('sink')" x-text="serviceTypeCount('sink')"></span>
+                </button>
+                <button type="button"
+                        class="integration-tab"
+                        :class="{active: activeView==='queues'}"
+                        @click="go('queues')">
+                    Queues
+                    <span class="integration-tab-count" x-show="eventSources.length" x-text="eventSources.length"></span>
+                </button>
+            </div>
+
             <div class="banner banner-warn" x-show="authMode==='NONE'">
                 <svg class="ico"><use href="#i-warn"/></svg>
                 <span><strong>Authentication is disabled.</strong> This console is unprotected — intended for local development only.</span>
             </div>
+
+            <!-- ─── Overview — server-summary homepage ──────────────────────
+                 Five-card landing surface: processors / feeds / sinks /
+                 key services (stock-class denylist applied client-side) /
+                 audit state. Each card is independently scrollable so a
+                 server with many processors doesn't crowd out the sinks.
+                 Refetches on every visit; cheap because all three backing
+                 endpoints are in-memory. -->
+            <section class="view" x-show="activeView==='overview'">
+                <header class="overview-header">
+                    <div>
+                        <h1 class="overview-title">Server overview</h1>
+                        <div class="overview-sub mono small muted"
+                             x-text="(server?.runtime || 'Mongoose') + ' · ' + (overviewData.processors.length) + ' processors, ' + (overviewData.feeds.length) + ' feeds, ' + (overviewData.sinks.length) + ' sinks'"></div>
+                    </div>
+                    <button class="btn btn-ghost btn-sm" @click="fetchOverview()" :disabled="overviewData.loading">
+                        <span x-show="!overviewData.loading">Refresh</span>
+                        <span x-show="overviewData.loading">Loading…</span>
+                    </button>
+                </header>
+
+                <div class="overview-banner banner-err" x-show="overviewData.loadError"
+                     x-text="overviewData.loadError"></div>
+
+                <div class="overview-grid">
+                    <!-- Processors -->
+                    <section class="overview-card">
+                        <header class="overview-card-head">
+                            <h2>Processors</h2>
+                            <span class="overview-card-count" x-text="overviewData.processors.length"></span>
+                        </header>
+                        <div class="overview-empty muted small"
+                             x-show="!overviewData.loading && overviewData.processors.length === 0">
+                            No processors registered.
+                        </div>
+                        <table class="overview-table" x-show="overviewData.processors.length">
+                            <thead><tr>
+                                <th>Name</th><th>Agent</th><th>Audit</th><th>Class</th>
+                            </tr></thead>
+                            <tbody>
+                                <template x-for="p in overviewData.processors" :key="p.group + ':' + p.name">
+                                    <tr class="overview-row-click" @click="overviewOpenProcessor(p)" :title="'Open processor graph for ' + p.name">
+                                        <td class="mono" x-text="p.name"></td>
+                                        <td class="muted small" x-text="p.group"></td>
+                                        <td>
+                                            <span class="pill" :class="p.auditing ? 'pill-ok' : 'pill-muted'"
+                                                  x-text="p.auditing ? 'recording' : 'off'"></span>
+                                        </td>
+                                        <td class="mono small muted" :title="p.classFqn"
+                                            x-text="simpleClassName(p.classFqn)"></td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </section>
+
+                    <!-- Feeds -->
+                    <section class="overview-card">
+                        <header class="overview-card-head">
+                            <h2>Feeds</h2>
+                            <span class="overview-card-count" x-text="overviewData.feeds.length"></span>
+                        </header>
+                        <div class="overview-empty muted small"
+                             x-show="!overviewData.loading && overviewData.feeds.length === 0">
+                            No feeds registered.
+                        </div>
+                        <table class="overview-table" x-show="overviewData.feeds.length">
+                            <thead><tr><th>Name</th><th>Class</th></tr></thead>
+                            <tbody>
+                                <template x-for="f in overviewData.feeds" :key="f.name">
+                                    <tr>
+                                        <td class="mono" x-text="f.name"></td>
+                                        <td class="mono small muted" :title="f.classFqn"
+                                            x-text="simpleClassName(f.classFqn)"></td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </section>
+
+                    <!-- Sinks -->
+                    <section class="overview-card">
+                        <header class="overview-card-head">
+                            <h2>Sinks</h2>
+                            <span class="overview-card-count" x-text="overviewData.sinks.length"></span>
+                        </header>
+                        <div class="overview-empty muted small"
+                             x-show="!overviewData.loading && overviewData.sinks.length === 0">
+                            No sinks registered.
+                        </div>
+                        <table class="overview-table" x-show="overviewData.sinks.length">
+                            <thead><tr><th>Name</th><th>Class</th></tr></thead>
+                            <tbody>
+                                <template x-for="s in overviewData.sinks" :key="s.name">
+                                    <tr>
+                                        <td class="mono" x-text="s.name"></td>
+                                        <td class="mono small muted" :title="s.classFqn"
+                                            x-text="simpleClassName(s.classFqn)"></td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </section>
+
+                    <!-- Key services — stock Mongoose plumbing filtered out.
+                         Spans 2 grid columns; service FQNs are long enough
+                         that a single 22rem column wraps awkwardly. -->
+                    <section class="overview-card overview-card-double">
+                        <header class="overview-card-head">
+                            <h2>Services</h2>
+                            <span class="overview-card-count" x-text="overviewData.services.length"></span>
+                        </header>
+                        <div class="overview-empty muted small"
+                             x-show="!overviewData.loading && overviewData.services.length === 0">
+                            No operator-installed services — stock Mongoose plumbing is filtered out. See the dedicated <a href="#" @click.prevent="go('services'); servicesTab='service'">Services</a> view for the full list.
+                        </div>
+                        <table class="overview-table" x-show="overviewData.services.length">
+                            <thead><tr><th>Name</th><th>Class</th></tr></thead>
+                            <tbody>
+                                <template x-for="svc in overviewData.services" :key="svc.name">
+                                    <tr>
+                                        <td class="mono" x-text="svc.name"></td>
+                                        <td class="mono small muted" :title="svc.classFqn"
+                                            x-text="simpleClassName(svc.classFqn)"></td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </section>
+
+                    <!-- Audit state — capture enabled, what's recording,
+                         and how much it's written. Single card spanning
+                         the row at the bottom of the grid. -->
+                    <section class="overview-card overview-card-wide">
+                        <header class="overview-card-head">
+                            <h2>Audit capture</h2>
+                            <span class="pill" :class="overviewData.audit.enabled ? 'pill-ok' : 'pill-muted'"
+                                  x-text="overviewData.audit.enabled ? 'enabled' : 'disabled'"></span>
+                        </header>
+                        <div class="overview-audit">
+                            <div class="overview-audit-stat">
+                                <div class="muted small">Recording</div>
+                                <div class="mono" x-text="overviewData.audit.recordingProcessors.length + ' processor(s)'"></div>
+                                <div class="mono small muted" x-text="overviewData.audit.recordingProcessors.join(', ') || '—'"></div>
+                            </div>
+                            <div class="overview-audit-stat">
+                                <div class="muted small">Files on disk</div>
+                                <div class="mono" x-text="overviewData.audit.fileCount"></div>
+                            </div>
+                            <div class="overview-audit-stat">
+                                <div class="muted small">Actions</div>
+                                <button class="btn btn-ghost btn-sm" @click="go('replay')">Open replay</button>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+            </section>
 
             <!-- ─── Dashboard ──────────────────────────────────────────── -->
             <section class="view" x-show="activeView==='dashboard'">
@@ -1247,6 +1435,33 @@
                         <button class="btn btn-ghost btn-sm" @click="topologyRefit()" title="Re-fit graph">Fit</button>
                     </div>
                 </div>
+                <!-- Drill-down ribbon — opens the detail views that used to
+                     live in the sidebar's Dispatch-services group. Counts
+                     come from the same data the topology renders, so they
+                     stay in sync without an extra fetch. -->
+                <div class="topology-drill" x-show="agentsAvailable || servicesAvailable || queuesAvailable">
+                    <span class="topology-drill-label muted small">Detail:</span>
+                    <button type="button" class="topology-drill-btn"
+                            @click="go('agents')" x-show="agentsAvailable">
+                        Agents <span class="topology-drill-count" x-show="agents.length" x-text="agents.length"></span>
+                    </button>
+                    <button type="button" class="topology-drill-btn"
+                            @click="go('services'); servicesTab='service'" x-show="servicesAvailable">
+                        Services <span class="topology-drill-count" x-show="serviceTypeCount('service')" x-text="serviceTypeCount('service')"></span>
+                    </button>
+                    <button type="button" class="topology-drill-btn"
+                            @click="go('services'); servicesTab='feed'" x-show="servicesAvailable">
+                        Feeds <span class="topology-drill-count" x-show="serviceTypeCount('feed')" x-text="serviceTypeCount('feed')"></span>
+                    </button>
+                    <button type="button" class="topology-drill-btn"
+                            @click="go('services'); servicesTab='sink'" x-show="servicesAvailable">
+                        Sinks <span class="topology-drill-count" x-show="serviceTypeCount('sink')" x-text="serviceTypeCount('sink')"></span>
+                    </button>
+                    <button type="button" class="topology-drill-btn"
+                            @click="go('queues')" x-show="queuesAvailable">
+                        Queues <span class="topology-drill-count" x-show="eventSources.length" x-text="eventSources.length"></span>
+                    </button>
+                </div>
                 <div class="topology-shell">
                     <div class="topology-canvas" x-ref="topologyCanvas"></div>
                     <!-- Floating hover tooltip — positioned over the canvas via inline style derived from topologyTip.x/y. -->
@@ -1339,6 +1554,9 @@
                     <button class="btn btn-ghost btn-sm" @click="processorGraphFullGraph()"
                             :disabled="processorGraphCycleStage === 0 && !processorGraphFilterApplied"
                             title="Clear selection + restore the full graph">Full graph</button>
+                    <button class="btn btn-ghost btn-sm" @click="processorGraphShowProcessorSource()"
+                            :disabled="!processorGraphProcessorFqn"
+                            title="Open the generated processor class's own source (handleEvent dispatch table, exported service stubs, bufferEvent buffer-dispatch)">Processor source</button>
                 </div>
 
                 <!-- Sibling tab bar: graph canvas vs per-node stats table.
@@ -1411,6 +1629,122 @@
                             </div>
                         </template>
                     </div>
+
+                    <!-- Source-nav panel — opens when a node is tapped on
+                         the Graph tab. Shows the node id, its class FQN,
+                         origin classification (fluxtion / mongoose / user),
+                         and a suggested source path the user can copy into
+                         their IDE. Esc or background tap dismisses. -->
+
+                    <!-- Exported-services panel — floats bottom-left on
+                         the Graph tab. Parsed from the generated dispatcher
+                         source pre-fetched alongside the graphml. Click
+                         a row → opens source-nav scrolled to that method's
+                         @Override line. Hidden when the processor exports
+                         nothing or its source isn't on the classpath. -->
+                    <div class="proc-exports"
+                         x-show="processorGraphTab==='graph' && processorGraphExportedServices.length">
+                        <div class="proc-exports-head"
+                             @click="processorGraphExportsCollapsed = !processorGraphExportsCollapsed"
+                             :title="processorGraphExportsCollapsed ? 'Expand exported services' : 'Collapse exported services'">
+                            <span class="proc-exports-caret" x-text="processorGraphExportsCollapsed ? '▸' : '▾'"></span>
+                            <span class="proc-exports-title">Exported services</span>
+                            <span class="proc-exports-count" x-text="processorGraphExportedServices.length"></span>
+                        </div>
+                        <div class="proc-exports-body" x-show="!processorGraphExportsCollapsed">
+                            <table class="proc-exports-table">
+                                <tbody>
+                                    <template x-for="row in processorGraphExportedServices"
+                                              :key="row.interfaceName + '.' + row.methodName + ':' + row.line">
+                                        <tr class="proc-exports-row"
+                                            @click="processorGraphJumpToExport(row)"
+                                            :title="'Jump to ' + row.interfaceName + '.' + row.methodName + '() in the dispatcher'">
+                                            <td class="mono small muted" x-text="row.interfaceName"></td>
+                                            <td class="mono" x-text="row.methodName + '()'"></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="proc-sourcenav"
+                         x-show="processorGraphSourceNav && processorGraphTab==='graph'"
+                         :class="'origin-' + (processorGraphSourceNav?.origin || 'unknown')">
+                        <div class="proc-sourcenav-head">
+                            <span class="proc-sourcenav-title">Node source</span>
+                            <button type="button" class="proc-sourcenav-close"
+                                    @click="processorGraphCloseSourceNav()"
+                                    title="Close (Esc)">×</button>
+                        </div>
+                        <div class="proc-sourcenav-rows">
+                            <div class="proc-sourcenav-row">
+                                <span class="proc-sourcenav-k">id</span>
+                                <span class="proc-sourcenav-v mono" x-text="processorGraphSourceNav?.id"></span>
+                            </div>
+                            <div class="proc-sourcenav-row" x-show="processorGraphSourceNav?.nodeKind">
+                                <span class="proc-sourcenav-k">kind</span>
+                                <span class="proc-sourcenav-v mono" x-text="processorGraphSourceNav?.nodeKind"></span>
+                            </div>
+                            <div class="proc-sourcenav-row">
+                                <span class="proc-sourcenav-k">origin</span>
+                                <span class="proc-sourcenav-v" x-text="processorGraphSourceNav?.origin"></span>
+                            </div>
+                            <div class="proc-sourcenav-row" x-show="processorGraphSourceNav?.fqn">
+                                <span class="proc-sourcenav-k">class</span>
+                                <span class="proc-sourcenav-v mono"
+                                      :title="processorGraphSourceNav?.fqn"
+                                      x-text="processorGraphSourceNav?.simpleName"></span>
+                                <button type="button" class="proc-sourcenav-copy"
+                                        @click="processorGraphCopySourceNav(processorGraphSourceNav?.fqn)"
+                                        title="Copy FQN">⧉</button>
+                            </div>
+                            <div class="proc-sourcenav-row" x-show="processorGraphSourceNav?.sourcePathHint">
+                                <span class="proc-sourcenav-k">source</span>
+                                <span class="proc-sourcenav-v mono proc-sourcenav-path"
+                                      x-text="processorGraphSourceNav?.sourceFoundPath || processorGraphSourceNav?.sourcePathHint"></span>
+                                <button type="button" class="proc-sourcenav-copy"
+                                        @click="processorGraphCopySourceNav(processorGraphSourceNav?.sourceFoundPath || processorGraphSourceNav?.sourcePathHint)"
+                                        title="Copy path">⧉</button>
+                            </div>
+                        </div>
+                        <!-- Source-text viewer. Visible only once /api/source
+                             returns a 200 — keeps the panel compact for
+                             framework classes the server has no sources for. -->
+                        <div class="proc-sourcenav-status muted small"
+                             x-show="processorGraphSourceNav?.sourceState === 'loading'">
+                            Loading source…
+                        </div>
+                        <!-- sourceHtml is line-wrapped + syntax-highlighted
+                             by _highlightJava (hand-rolled, mirrors the
+                             YAML highlighter pattern); every interpolated
+                             chunk passes through HTML-escape first so
+                             x-html is safe. The .proc-sourcenav-line rows
+                             carry data-line for scroll-to-line. -->
+                        <pre class="proc-sourcenav-code"
+                             x-show="processorGraphSourceNav?.sourceState === 'loaded'"
+                             x-html="processorGraphSourceNav?.sourceHtml"></pre>
+                        <div class="proc-sourcenav-foot muted small"
+                             x-show="processorGraphSourceNav?.sourceState === 'loaded'">
+                            Served from configured sourceRoots.
+                        </div>
+                        <!-- Hint footers — shown only when no source was loaded
+                             (state idle/loading/notfound/error). The 'loaded'
+                             branch above replaces them. -->
+                        <div class="proc-sourcenav-foot muted small"
+                             x-show="processorGraphSourceNav?.sourceState !== 'loaded' && processorGraphSourceNav?.origin === 'user'">
+                            <span x-show="processorGraphSourceNav?.sourceState === 'notfound'">
+                                Source not found in sourceRoots — open this file in your IDE.
+                            </span>
+                            <span x-show="processorGraphSourceNav?.sourceState === 'idle' || processorGraphSourceNav?.sourceState === 'error'">
+                                Open this file in your IDE to view the implementation.
+                            </span>
+                        </div>
+                        <div class="proc-sourcenav-foot muted small"
+                             x-show="processorGraphSourceNav?.sourceState !== 'loaded' && processorGraphSourceNav?.origin !== 'user' && processorGraphSourceNav?.origin !== 'unknown'">
+                            Framework class — generated by Fluxtion / wired by Mongoose.
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Vertical splitter — drag to resize the side column.
@@ -1424,8 +1758,28 @@
                 <!-- ─── Replay tab — record list + node payload panel ─── -->
                 <div class="proc-replay-shell" x-show="processorGraphTab==='replay'">
                     <div class="replay-status muted small" x-show="replayError" x-text="replayError" style="color: var(--bad);"></div>
-                    <div class="replay-empty" x-show="!replayHasRecords && !replayError">
-                        <p class="muted small">No audit file loaded. Hit <strong>⏺ Record</strong> to start a live capture for <span class="mono" x-text="processorGraphTarget?.name"></span>, or pick an existing file from the dropdown above.</p>
+                    <div class="replay-empty-card" x-show="!replayHasRecords && !replayError">
+                        <div class="replay-empty-icon">⏺</div>
+                        <h2 class="replay-empty-title">No replay data yet</h2>
+                        <p class="replay-empty-body">
+                            Stream events into <span class="mono strong" x-text="processorGraphTarget?.name"></span>
+                            and replay them step-by-step here. Each record lights up the dispatch path on the graph above.
+                        </p>
+                        <div class="replay-empty-actions">
+                            <button type="button" class="btn btn-primary btn-sm"
+                                    @click="replayToggleRecord()"
+                                    x-show="!replayRecording">
+                                ⏺ Start recording
+                            </button>
+                            <button type="button" class="btn btn-ghost btn-sm"
+                                    @click="replayToggleRecord()"
+                                    x-show="replayRecording">
+                                ⏹ Stop recording
+                            </button>
+                            <span class="muted small" x-show="replayFiles && replayFiles.length">
+                                or pick an existing file from the dropdown above.
+                            </span>
+                        </div>
                     </div>
 
                     <!-- Scrub slider — drag to move the current event. Slider
@@ -1445,12 +1799,35 @@
                     <div class="replay-grid" x-show="replayHasRecords"
                          :style="`grid-template-columns: ${replaySplitPct}% 6px 1fr;`">
                         <div class="replay-records">
-                            <div class="card-head"><h2>Events</h2><span class="card-meta" x-text="replayRecordCount + ' record(s)'"></span></div>
+                            <div class="card-head">
+                                <h2>Events</h2>
+                                <span class="card-meta" x-text="replayRecordCount + ' record(s)'"></span>
+                            </div>
+                            <!-- Event-type filter chips — click to hide/show
+                                 that type in the list. Colour-coded so the
+                                 row dots match the chips. Empty when only
+                                 one event type is present (no filter to
+                                 offer). -->
+                            <div class="replay-type-filter" x-show="replayDistinctEventTypes().length > 1">
+                                <template x-for="t in replayDistinctEventTypes()" :key="t">
+                                    <button type="button"
+                                            class="replay-type-chip"
+                                            :class="{ inactive: !replayTypeVisible(t) }"
+                                            :style="`--chip-color: ${replayColorForType(t)};`"
+                                            @click="replayToggleType(t)"
+                                            :title="(replayTypeVisible(t) ? 'Hide ' : 'Show ') + t">
+                                        <span class="replay-type-dot"></span>
+                                        <span class="replay-type-label mono" x-text="t"></span>
+                                    </button>
+                                </template>
+                            </div>
                             <ol class="replay-record-list" x-ref="replayList">
                                 <template x-for="(r, idx) in replayRecords" :key="idx">
-                                    <li :class="{ active: idx === replayRecordIndex }"
+                                    <li :class="{ active: idx === replayRecordIndex, hidden: !replayTypeVisible(r.eventType) }"
                                         :data-replay-idx="idx"
                                         @click="replaySetRecord(idx)">
+                                        <span class="replay-row-dot"
+                                              :style="`background: ${replayColorForType(r.eventType)};`"></span>
                                         <span class="muted mono small replay-row-idx" x-text="(idx+1).toString().padStart(4, ' ')"></span>
                                         <span class="mono small replay-row-time" x-text="formatReplayTime(r.eventTime) || '—'"></span>
                                         <span class="mono small strong replay-row-type" x-text="r.eventType || '—'"></span>

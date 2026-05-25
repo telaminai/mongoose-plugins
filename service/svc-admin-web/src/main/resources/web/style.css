@@ -5,6 +5,37 @@
  * inline script in index.html) and toggled at runtime by app.js.
  */
 
+/* ─── Canonical type + spacing scale ──────────────────────────────────
+   Defined at the top of :root so every rule below pulls from a single
+   source. Themes (light + dark) inherit identical sizes — only colours
+   differ. Pick variables (not raw rems) when adding new rules so the
+   scale stays consistent. */
+:root {
+    /* Type — driven from the existing .view-head h1 + .card-head h2
+       canonical sizes; everywhere else now uses these variables. */
+    --t-h1:        1.35rem;
+    --t-h1-wt:     680;
+    --t-h2:        0.95rem;
+    --t-h2-wt:     640;
+    /* Section-label header for cards on the overview — uppercase, tight
+       letter-spacing. Distinct from .card-head h2 by case + weight. */
+    --t-section:   0.72rem;
+    --t-section-ls: 0.08em;
+    --t-body:      0.875rem;
+    --t-meta:      0.78rem;
+    --t-meta-sm:   0.72rem;
+    --t-mono:      0.82rem;
+    --t-mono-sm:   0.74rem;
+
+    /* Spacing — a tight 4-step ladder. 1=0.25rem, 4=1rem, 6=2rem. */
+    --sp-1:        0.25rem;
+    --sp-2:        0.5rem;
+    --sp-3:        0.75rem;
+    --sp-4:        1rem;
+    --sp-5:        1.5rem;
+    --sp-6:        2rem;
+}
+
 :root,
 :root[data-theme="light"] {
     --bg:          #eef1f5;
@@ -268,8 +299,8 @@ code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
     gap: 1rem;
     margin-bottom: 1.25rem;
 }
-.view-head h1 { margin: 0; font-size: 1.35rem; font-weight: 680; letter-spacing: -0.02em; }
-.view-sub { margin: 0.2rem 0 0; color: var(--fg-muted); font-size: 0.86rem; }
+.view-head h1 { margin: 0; font-size: var(--t-h1); font-weight: var(--t-h1-wt); letter-spacing: -0.02em; }
+.view-sub { margin: 0.2rem 0 0; color: var(--fg-muted); font-size: var(--t-body); }
 .view-sub code { background: var(--code-bg); padding: 0.05rem 0.3rem; border-radius: 4px; font-size: 0.85em; }
 
 /* ─── cards ──────────────────────────────────────────────────────────── */
@@ -289,9 +320,9 @@ code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
     gap: 1rem;
     margin-bottom: 0.85rem;
 }
-.card-head h2 { margin: 0; font-size: 0.95rem; font-weight: 640; }
-.card-meta { font-size: 0.76rem; color: var(--fg-faint); }
-.card h2 { font-size: 0.95rem; font-weight: 640; }
+.card-head h2 { margin: 0; font-size: var(--t-h2); font-weight: var(--t-h2-wt); }
+.card-meta { font-size: var(--t-meta); color: var(--fg-faint); }
+.card h2 { font-size: var(--t-h2); font-weight: var(--t-h2-wt); }
 
 /* ─── stat grid ──────────────────────────────────────────────────────── */
 .stat-grid {
@@ -1260,6 +1291,17 @@ textarea { resize: vertical; font-family: ui-monospace, Menlo, monospace; font-s
    the available real estate. The side-column width is driven by a CSS
    variable updated by the vertical splitter drag.
 */
+/* Base layout — applies on both Graph and Replay tabs. Pass the
+   flex height through from .view-fill so the .proc-shell inside
+   (graphml canvas) can claim the remaining vertical space. Without
+   this rule the wrapper collapses to its intrinsic content height
+   and the canvas hits only its 400px min-height fallback. */
+.proc-replay-layout {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
 .proc-replay-layout.replay-mode {
     --replay-side-width: 32rem;     /* default; user-adjustable via splitter */
     display: flex;
@@ -1406,6 +1448,195 @@ textarea { resize: vertical; font-family: ui-monospace, Menlo, monospace; font-s
 .proc-tip-row { display: flex; gap: 0.45rem; align-items: baseline; line-height: 1.35; }
 .proc-tip-k { color: var(--fg-muted); min-width: 3.5rem; }
 .proc-tip-v { color: var(--fg); word-break: break-all; }
+
+/* ─── Source-nav panel ───────────────────────────────────────────────
+   Floating overlay anchored to the top-right of .proc-shell. Opens on
+   node tap, shows id / kind / origin / class / source-path-hint with
+   copy buttons. Left border colour-coded by origin so user-code nodes
+   pop visually against framework nodes. */
+.proc-sourcenav {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    width: 26rem;
+    max-width: calc(100% - 1rem);
+    /* User-resizable — drag the bottom-left corner to stretch the panel
+       across the canvas. CSS `resize` requires `overflow: auto` so the
+       grow handle has somewhere to anchor. */
+    resize: both;
+    overflow: auto;
+    min-width: 22rem;
+    min-height: 12rem;
+    max-height: calc(100% - 1rem);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-left-width: 3px;
+    border-radius: 6px;
+    padding: 0.5rem 0.65rem;
+    font-size: 0.78rem;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+    z-index: 4;
+    display: flex;
+    flex-direction: column;
+}
+.proc-sourcenav.origin-user            { border-left-color: var(--ok, #16a34a); }
+.proc-sourcenav.origin-mongoose        { border-left-color: var(--accent, #2563eb); }
+.proc-sourcenav.origin-fluxtion        { border-left-color: var(--warn, #d97706); }
+.proc-sourcenav.origin-fluxtion-runtime{ border-left-color: var(--fg-muted); }
+.proc-sourcenav.origin-unknown         { border-left-color: var(--fg-faint); }
+
+.proc-sourcenav-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.35rem;
+}
+.proc-sourcenav-title {
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-size: 0.66rem;
+    color: var(--fg-muted);
+}
+.proc-sourcenav-close {
+    background: transparent;
+    border: none;
+    color: var(--fg-muted);
+    cursor: pointer;
+    font-size: 1rem;
+    line-height: 1;
+    padding: 0 0.25rem;
+}
+.proc-sourcenav-close:hover { color: var(--fg); }
+
+.proc-sourcenav-rows { display: flex; flex-direction: column; gap: 0.2rem; }
+.proc-sourcenav-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: baseline;
+    line-height: 1.35;
+}
+.proc-sourcenav-k {
+    color: var(--fg-muted);
+    min-width: 3.5rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-size: 0.66rem;
+}
+.proc-sourcenav-v { color: var(--fg); word-break: break-all; flex: 1; }
+.proc-sourcenav-path { font-size: 0.74rem; color: var(--fg-muted); }
+.proc-sourcenav-copy {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--fg-muted);
+    cursor: pointer;
+    padding: 0 0.3rem;
+    font-size: 0.75rem;
+    line-height: 1.4;
+}
+.proc-sourcenav-copy:hover { color: var(--fg); border-color: var(--fg-muted); }
+
+.proc-sourcenav-foot {
+    margin-top: 0.45rem;
+    padding-top: 0.4rem;
+    border-top: 1px solid var(--border);
+    font-size: 0.7rem;
+}
+
+/* Source-text viewer — visible only when /api/source returns 200. The
+   panel grows wider + the canvas accommodates by shifting graph layout
+   left. Code block scrolls vertically; horizontal overflow scrolls too
+   so long lines aren't hard-wrapped. */
+.proc-sourcenav:has(.proc-sourcenav-code[style*="display: block"]),
+.proc-sourcenav:has(.proc-sourcenav-code:not([style*="display: none"])) {
+    width: 38rem;
+}
+.proc-sourcenav-status {
+    margin-top: 0.45rem;
+    padding-top: 0.4rem;
+    border-top: 1px solid var(--border);
+    font-size: 0.7rem;
+}
+.proc-sourcenav-code {
+    margin: 0.45rem 0 0;
+    /* Fill the resizable parent — when the user stretches .proc-sourcenav,
+       the code viewer grows with it instead of capping at a fixed height. */
+    flex: 1 1 auto;
+    min-height: 12rem;
+    overflow: auto;
+    padding: 0.5rem 0.6rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.74rem;
+    line-height: 1.45;
+    color: var(--fg);
+    white-space: pre;
+    tab-size: 4;
+}
+.proc-sourcenav-code code {
+    background: transparent;
+    padding: 0;
+    color: inherit;
+    font: inherit;
+}
+
+/* Java syntax tokens — sober palette tuned to the YAML highlighter so
+   the panel reads consistently in light + dark themes. Themes pick up
+   the CSS variables when defined; the fallbacks keep generic terminals
+   readable. */
+.proc-sourcenav-code .proc-sourcenav-line {
+    display: flex;
+    align-items: baseline;
+    gap: 0.65rem;
+    line-height: 1.45;
+    padding: 0 0.15rem;
+    border-left: 2px solid transparent;
+    /* Reserve gutter space so highlighted lines don't reflow horizontally
+       when the active border kicks in. */
+}
+.proc-sourcenav-code .proc-sourcenav-line .ln {
+    display: inline-block;
+    width: 2.4rem;
+    text-align: right;
+    color: var(--fg-faint, #8e8e93);
+    user-select: none;
+    flex: 0 0 auto;
+    font-size: 0.66rem;
+}
+.proc-sourcenav-code .proc-sourcenav-line .src {
+    flex: 1 1 auto;
+    white-space: pre;
+}
+.proc-sourcenav-code .proc-sourcenav-line.active {
+    background: var(--accent-soft, rgba(37, 99, 235, 0.10));
+    border-left-color: var(--accent, #2563eb);
+}
+/* Dark theme defaults — One-Dark-ish palette. */
+.proc-sourcenav-code .j-kw   { color: #c678dd; font-weight: 600; }
+.proc-sourcenav-code .j-type { color: #e5c07b; }
+.proc-sourcenav-code .j-ann  { color: #d19a66; font-style: italic; }
+.proc-sourcenav-code .j-str  { color: #98c379; }
+.proc-sourcenav-code .j-num  { color: #d19a66; }
+.proc-sourcenav-code .j-cmt  { color: #7f848e; font-style: italic; }
+
+/* Light theme — darker, higher-contrast tokens. Pulled in line with
+   the YAML highlighter's light overrides above so the panel reads
+   consistently across themes. The bare `.proc-sourcenav-code` text
+   colour falls through to `var(--fg)` for both themes — only the
+   token spans need theme-specific overrides. */
+:root[data-theme="light"] .proc-sourcenav-code .j-kw   { color: #7c2d92; font-weight: 600; }
+:root[data-theme="light"] .proc-sourcenav-code .j-type { color: #b45309; }
+:root[data-theme="light"] .proc-sourcenav-code .j-ann  { color: #a16207; }
+:root[data-theme="light"] .proc-sourcenav-code .j-str  { color: #15803d; }
+:root[data-theme="light"] .proc-sourcenav-code .j-num  { color: #b91c1c; }
+:root[data-theme="light"] .proc-sourcenav-code .j-cmt  { color: #525964; font-style: italic; }
+:root[data-theme="light"] .proc-sourcenav-code .proc-sourcenav-line .ln { color: #6b7280; }
+:root[data-theme="light"] .proc-sourcenav-code .proc-sourcenav-line.active {
+    background: rgba(29, 78, 216, 0.12);
+    border-left-color: #1d4ed8;
+}
 
 .proc-empty {
     background: var(--surface);
@@ -1611,3 +1842,385 @@ textarea { resize: vertical; font-family: ui-monospace, Menlo, monospace; font-s
 :root[data-theme="light"] .yaml-string  { color: #166534; }
 :root[data-theme="light"] .yaml-num,
 :root[data-theme="light"] .yaml-bool    { color: #c2410c; }
+
+/* ─── Overview homepage ──────────────────────────────────────────────
+   Landing summary surface: five cards in a responsive grid. Cards keep
+   their own scroll independent of the page so a server with many
+   processors doesn't push the audit card off-screen. */
+/* Overview header — uses the canonical .view-head pattern but sits on
+   the page edge with a subtle divider underneath. Matches the type
+   scale used by every other view's h1 / view-sub pair. */
+.overview-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--sp-4);
+    margin-bottom: var(--sp-5);
+    padding-bottom: var(--sp-3);
+    border-bottom: 1px solid var(--border);
+}
+.overview-title {
+    margin: 0;
+    font-size: var(--t-h1);
+    font-weight: var(--t-h1-wt);
+    letter-spacing: -0.02em;
+    color: var(--fg);
+}
+.overview-sub { margin-top: var(--sp-1); color: var(--fg-muted); }
+.overview-banner {
+    margin: 0 0 1rem;
+    padding: 0.5rem 0.8rem;
+    border-radius: 4px;
+    font-size: 0.85rem;
+}
+
+.overview-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr));
+    gap: 1rem;
+}
+.overview-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.85rem 1rem 0.75rem;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+.overview-card-wide { grid-column: 1 / -1; }
+/* Two-column-wide variant — Services has long class FQNs that wrap
+   uncomfortably in a single 22rem column. Spans 2 columns when the
+   grid has at least 2; degrades to 1 on narrow viewports. */
+.overview-card-double { grid-column: span 2; }
+/* Card heads on the Overview — match the canonical .card-head pattern
+   for legibility consistency, with a count pill on the right. */
+.overview-card-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--sp-3);
+    margin-bottom: var(--sp-3);
+    padding-bottom: var(--sp-2);
+    border-bottom: 1px solid var(--border);
+}
+.overview-card-head h2 {
+    margin: 0;
+    font-size: var(--t-h2);
+    font-weight: var(--t-h2-wt);
+}
+.overview-card-count {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: var(--t-meta);
+    color: var(--fg-muted);
+    background: var(--surface-2);
+    border-radius: 999px;
+    padding: 0.05rem 0.55rem;
+    min-width: 1.8rem;
+    text-align: center;
+}
+.overview-empty {
+    padding: 0.6rem 0;
+}
+.overview-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--t-body);
+}
+.overview-table thead th {
+    text-align: left;
+    font-weight: 500;
+    font-size: var(--t-meta-sm);
+    text-transform: uppercase;
+    letter-spacing: var(--t-section-ls);
+    color: var(--fg-muted);
+    padding: var(--sp-1) var(--sp-2);
+    border-bottom: 1px solid var(--border);
+}
+.overview-table tbody td {
+    padding: var(--sp-2) var(--sp-2);
+    border-bottom: 1px solid var(--border);
+    vertical-align: baseline;
+}
+.overview-table tbody tr:last-child td { border-bottom: none; }
+.overview-table tbody tr.overview-row-click { cursor: pointer; }
+.overview-table tbody tr.overview-row-click:hover {
+    background: var(--surface-2);
+}
+
+.overview-audit {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2rem;
+    padding: 0.25rem 0 0;
+}
+.overview-audit-stat { min-width: 12rem; }
+.overview-audit-stat > div + div { margin-top: 0.2rem; }
+
+.pill-muted {
+    background: var(--surface-2);
+    color: var(--fg-muted);
+    border: 1px solid var(--border);
+}
+
+/* ─── Processor graph: exported-services panel ────────────────────────
+   Floats bottom-left on the Graph tab. Parsed client-side from the
+   pre-fetched generated dispatcher source — one row per @Override in
+   //EXPORTED SERVICE FUNCTIONS. Click → opens the source-nav panel
+   scrolled to that method's @Override line. */
+.proc-exports {
+    position: absolute;
+    left: 0.5rem;
+    bottom: 0.5rem;
+    width: 18rem;
+    max-width: calc(100% - 1rem);
+    max-height: 50%;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+    z-index: 4;
+    display: flex;
+    flex-direction: column;
+    font-size: 0.78rem;
+}
+.proc-exports-head {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.4rem 0.65rem;
+    cursor: pointer;
+    user-select: none;
+    border-bottom: 1px solid var(--border);
+}
+.proc-exports-caret { font-size: 0.7rem; color: var(--fg-muted); }
+.proc-exports-title {
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-size: 0.66rem;
+    color: var(--fg-muted);
+    flex: 1 1 auto;
+}
+.proc-exports-count {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.72rem;
+    color: var(--fg-muted);
+    background: var(--surface);
+    border-radius: 999px;
+    padding: 0 0.5rem;
+    min-width: 1.5rem;
+    text-align: center;
+}
+.proc-exports-body {
+    overflow: auto;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+.proc-exports-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+.proc-exports-table .proc-exports-row {
+    cursor: pointer;
+}
+.proc-exports-table .proc-exports-row:hover {
+    background: var(--surface);
+}
+.proc-exports-table .proc-exports-row td {
+    padding: 0.3rem 0.65rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: baseline;
+    line-height: 1.3;
+}
+.proc-exports-table .proc-exports-row:last-child td { border-bottom: none; }
+
+/* ─── Topology drill-down ribbon ──────────────────────────────────────
+   Replaces the previous Dispatch-services sidebar group. Sits below
+   the Topology view header so the routes (Agents / Services / Feeds /
+   Sinks / Queues) are reachable without bloating the sidebar. */
+.topology-drill {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--sp-2);
+    margin: calc(-1 * var(--sp-3)) 0 var(--sp-3);
+    padding: var(--sp-2) 0 var(--sp-3);
+    border-bottom: 1px solid var(--border);
+}
+.topology-drill-label {
+    text-transform: uppercase;
+    letter-spacing: var(--t-section-ls);
+    margin-right: var(--sp-1);
+}
+.topology-drill-btn {
+    appearance: none;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--fg);
+    cursor: pointer;
+    padding: 0.2rem 0.6rem;
+    font: inherit;
+    font-size: var(--t-body);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    transition: background 0.12s, border-color 0.12s;
+}
+.topology-drill-btn:hover {
+    background: var(--surface-2);
+    border-color: var(--border-strong);
+}
+.topology-drill-count {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: var(--t-meta-sm);
+    color: var(--fg-muted);
+    background: var(--surface-2);
+    border-radius: 999px;
+    padding: 0 0.4rem;
+}
+
+/* ─── Audit Replay refresh ────────────────────────────────────────────
+   Event-type chips (colour-coded filter), per-row colour dots, polished
+   empty state. The dot + chip pair makes the records list scannable at
+   speed (event-type cardinality is usually 5-15 in practice). */
+.replay-type-filter {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sp-1);
+    padding: var(--sp-2) var(--sp-2) var(--sp-3);
+    border-bottom: 1px solid var(--border);
+}
+.replay-type-chip {
+    appearance: none;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--fg);
+    cursor: pointer;
+    padding: 0.15rem 0.55rem 0.15rem 0.4rem;
+    font: inherit;
+    font-size: var(--t-meta-sm);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    line-height: 1.4;
+    transition: opacity 0.12s, background 0.12s;
+}
+.replay-type-chip:hover { background: var(--surface-2); }
+.replay-type-chip.inactive {
+    opacity: 0.45;
+    text-decoration: line-through;
+}
+.replay-type-dot {
+    display: inline-block;
+    width: 0.6rem;
+    height: 0.6rem;
+    border-radius: 50%;
+    background: var(--chip-color, var(--fg-muted));
+    flex: 0 0 auto;
+}
+.replay-type-label { color: inherit; }
+
+/* Per-row coloured dot — matches the chip colour for the row's event
+   type. Sits left of the index in the records list. */
+.replay-row-dot {
+    display: inline-block;
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    flex: 0 0 auto;
+    margin-right: 0.4rem;
+}
+/* Hidden rows — when a type chip is toggled off, its rows fade out
+   rather than vanish (keeps row indices stable + tells the user the
+   data is still there). */
+.replay-record-list li.hidden {
+    opacity: 0.25;
+    pointer-events: none;
+}
+
+/* Polished empty state — replaces the bare paragraph that read "No
+   audit file loaded." */
+.replay-empty-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: var(--sp-6) var(--sp-5);
+    text-align: center;
+    max-width: 36rem;
+    margin: var(--sp-5) auto;
+}
+.replay-empty-icon {
+    font-size: 2rem;
+    color: var(--accent);
+    margin-bottom: var(--sp-2);
+    line-height: 1;
+}
+.replay-empty-title {
+    margin: 0 0 var(--sp-2);
+    font-size: var(--t-h1);
+    font-weight: var(--t-h1-wt);
+    color: var(--fg);
+}
+.replay-empty-body {
+    margin: 0 0 var(--sp-4);
+    font-size: var(--t-body);
+    color: var(--fg-muted);
+    line-height: 1.5;
+}
+.replay-empty-actions {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--sp-3);
+    flex-wrap: wrap;
+}
+
+/* ─── Integration tab strip ──────────────────────────────────────────
+   Sits above the Agents / Services / Feeds / Sinks / Queues views.
+   Backed by a single sidebar entry ("Integration") — these five
+   facets used to be five sidebar items. Underline-active style so
+   the strip reads as part of the page header rather than another
+   nav block. */
+.integration-tabs {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-1);
+    margin-bottom: var(--sp-4);
+    border-bottom: 1px solid var(--border);
+}
+.integration-tab {
+    appearance: none;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--fg-muted);
+    cursor: pointer;
+    padding: var(--sp-2) var(--sp-3);
+    font: inherit;
+    font-size: var(--t-body);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-bottom: -1px;  /* overlap the strip's bottom border */
+    transition: color 0.12s, border-color 0.12s;
+}
+.integration-tab:hover { color: var(--fg); }
+.integration-tab.active {
+    color: var(--fg);
+    border-bottom-color: var(--accent);
+    font-weight: 600;
+}
+.integration-tab-count {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: var(--t-meta-sm);
+    color: var(--fg-faint);
+    background: var(--surface-2);
+    border-radius: 999px;
+    padding: 0 0.4rem;
+}
+.integration-tab.active .integration-tab-count {
+    color: var(--accent);
+    background: var(--accent-weak);
+}

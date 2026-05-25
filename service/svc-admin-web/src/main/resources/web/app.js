@@ -20,7 +20,24 @@ const DEFAULT_MONITOR_RATE_MS = 1000;
 document.addEventListener('alpine:init', () => {
     Alpine.data('adminApp', () => ({
         // ── shell ──
-        activeView: 'dashboard',
+        activeView: 'overview',
+
+        // Overview homepage — single landing surface that summarises the
+        // running server. Aggregates /api/services + /api/agents + the
+        // audit-files list into one view-model. Loaded lazily on first
+        // nav into 'overview' and re-fetched per visit (cheap; the
+        // server endpoints are sub-100ms in practice). Stock Mongoose
+        // services are hidden from the Services panel via a hard-coded
+        // FQN denylist below — only operator-installed services surface.
+        overviewData: {
+            loading: false,
+            loadError: null,
+            processors: [],   // {name, group, classFqn, auditing}
+            feeds: [],        // {name, classFqn}
+            sinks: [],        // {name, classFqn}
+            services: [],     // {name, classFqn} — filtered by denylist
+            audit: { enabled: false, recordingProcessors: [], fileCount: 0 }
+        },
 
         // Left-nav category expand/collapse state. Persisted to
         // localStorage so the user's collapse pattern survives reload.
@@ -165,6 +182,30 @@ document.addEventListener('alpine:init', () => {
         processorGraphCycleStage: 0,   // 0 cleared, 1 focus, 2 neighbours, 3 path, 4 whole graph
         processorGraphCycleFocus: null,
         processorGraphHoverTip: null,  // {x, y, lines} hover panel content
+        // Source-nav panel — populated on node tap, shows the node's class
+        // FQN, origin classification, and a suggested source path the user
+        // can paste into their IDE. Floating overlay on the Graph tab so
+        // it doesn't reflow the layout. Null when no node is focused.
+        processorGraphSourceNav: null,
+        // FQN of the live processor instance, captured from the graphml
+        // fetch response's X-Processor-Class header. Feeds the "View
+        // processor source" button so the panel can open on the
+        // generated dispatcher class (which is NOT a node inside its
+        // own graph). Null until graphml has loaded.
+        processorGraphProcessorFqn: null,
+        // Cached generated-source text for the live processor (fetched
+        // alongside the graphml so the exported-services list + future
+        // dispatch-table tooling can parse it without a second
+        // round-trip). null = not yet loaded / unavailable.
+        processorGraphSource: null,
+        // Parsed exported-services panel — one row per @Override method
+        // in the dispatcher's //EXPORTED SERVICE FUNCTIONS block.
+        // Populated by _parseExportedServices when processorGraphSource
+        // arrives. Each row: {interfaceName, methodName, line}.
+        processorGraphExportedServices: [],
+        // Collapse state for the floating exports panel — persisted
+        // across taps but not across page loads.
+        processorGraphExportsCollapsed: false,
         // Sibling-tab state — 'graph' shows the cytoscape canvas; 'stats'
         // shows a sortable / filterable / downloadable per-node table;
         // 'replay' steps through an audit-log file with the same canvas
@@ -192,6 +233,17 @@ document.addEventListener('alpine:init', () => {
         replayRecording: false,       // whether the audit-capture service reports our processor recording
         replayPayloadTab: 'logical',  // 'logical' | 'text' — node payload presentation
         replayCopyState: '',          // transient status for the Copy button on Text view
+        // Event-type filter — Set of event types currently HIDDEN (empty
+        // = all visible). Driven by chip clicks on the records column
+        // header. Filter is applied to the records list rendering but
+        // does NOT advance replayRecordIndex past hidden rows — clicking
+        // a chip is for visual decluttering, not for skipping playback.
+        replayHiddenTypes: new Set(),
+        // Auto-assigned palette for event-type chips. Same colour for
+        // the same type across the session; computed on first sight.
+        // Palette is theme-neutral (works in both light and dark).
+        _replayTypeColors: new Map(),
+        _replayPaletteIdx: 0,
         replaySideWidthPx: (() => {
             // Persist user-adjusted side-column width across sessions.
             try {
@@ -285,6 +337,11 @@ document.addEventListener('alpine:init', () => {
             this.openLogsWs();
             await this.probeLoaderBaseDir();
             await this.loadIntrospection();
+            // Overview is the default landing view — kick its initial
+            // load so the page isn't blank on first paint after auth.
+            if (this.activeView === 'overview') {
+                this.fetchOverview();
+            }
         },
 
         // ── view + theme ──
@@ -322,7 +379,133 @@ document.addEventListener('alpine:init', () => {
                 // they want to see it; the explicit "View YAML" button was
                 // friction.
                 this.loadConfig();
+            } else if (view === 'overview') {
+                // Overview pulls a fresh snapshot every visit — running
+                // server state (audit recording flags, registered processors)
+                // can change between visits, and the fetch is cheap.
+                this.fetchOverview();
             }
+        },
+
+        // ── Overview homepage ─────────────────────────────────────────────
+        // Hard-coded denylist of stock Mongoose service FQNs — keeps the
+        // "Services" panel focused on operator-installed surfaces. Stock
+        // entries are still reachable from the dedicated Services view.
+        _stockServiceFqns: new Set([
+            'com.telamin.mongoose.service.admin.AdminCommandRegistry',
+            'com.telamin.mongoose.service.admin.impl.AdminCommandProcessor',
+            'com.telamin.mongoose.service.servercontrol.MongooseServerAdmin',
+            'com.telamin.mongoose.service.servercontrol.MongooseServerController',
+            'com.telamin.mongoose.plugin.svc.adminweb.WebAdminService',
+            'com.telamin.mongoose.service.audit.MongooseAuditCaptureService',
+            'com.telamin.mongoose.service.audit.AuditIntrospection',
+            'com.telamin.mongoose.service.counters.MongooseCountersService',
+            'com.telamin.mongoose.service.counters.MongooseLatencyService',
+            'com.telamin.mongoose.service.introspection.MongooseIntrospectionService',
+            'com.telamin.mongoose.service.scheduler.SchedulerService',
+            'com.telamin.mongoose.internal.NoOpAuditCaptureService',
+            'com.telamin.mongoose.internal.NoOpCountersService',
+            'com.telamin.mongoose.internal.NoOpLatencyService',
+            'com.telamin.mongoose.internal.AgronaCountersService',
+            'com.telamin.mongoose.internal.AgronaLatencyService'
+        ]),
+
+        async fetchOverview() {
+            this.overviewData.loading = true;
+            this.overviewData.loadError = null;
+            try {
+                // Parallel fetch — three independent endpoints, no
+                // dependencies between them. /api/audit/files often 404s
+                // (audit capture optional); treat that as "no audit".
+                const opts = { credentials: 'same-origin' };
+                const [svcRes, agentsRes, auditRes] = await Promise.all([
+                    fetch('/api/services', opts),
+                    fetch('/api/agents', opts),
+                    fetch('/api/audit/files', opts)
+                ]);
+
+                const services = svcRes.ok ? (await svcRes.json()).services ?? [] : [];
+                const agents   = agentsRes.ok ? (await agentsRes.json()).agents ?? [] : [];
+                const audit    = auditRes.ok ? await auditRes.json() : null;
+
+                const feeds = [];
+                const sinks = [];
+                const otherSvcs = [];
+                for (const s of services) {
+                    if (s.type === 'feed') feeds.push({ name: s.name, classFqn: s.className });
+                    else if (s.type === 'sink') sinks.push({ name: s.name, classFqn: s.className });
+                    else if (!this._stockServiceFqns.has(s.className)) {
+                        otherSvcs.push({ name: s.name, classFqn: s.className });
+                    }
+                }
+
+                // Audit-files response shape: { files: [{processor, ...}], serviceState: 'operational'|... }.
+                // 'Recording processors' = the unique set of processor names
+                // that have at least one open / live audit file.
+                const recording = new Set();
+                let fileCount = 0;
+                let auditEnabled = false;
+                if (audit) {
+                    auditEnabled = audit.serviceState
+                            ? audit.serviceState !== 'noop'
+                            : true;
+                    const files = audit.files || [];
+                    fileCount = files.length;
+                    for (const f of files) {
+                        if (f.processor) recording.add(f.processor);
+                    }
+                }
+
+                // /api/agents response shape (verified against the handler):
+                //   { agents: [ { group, type, members: [{name, kind, className}], feeds: […] } ] }
+                // — `group` not `name`, `members` not `processors`. My first
+                // cut had it wrong; that's why the homepage showed 0 procs.
+                const processors = [];
+                for (const a of agents) {
+                    const groupName = a.group || a.name || '';
+                    const members = a.members || a.processors || [];
+                    for (const p of members) {
+                        if (p.kind && p.kind !== 'processor') continue;
+                        processors.push({
+                            name: p.name,
+                            group: groupName,
+                            classFqn: p.className || p.class || '',
+                            auditing: recording.has(p.name)
+                        });
+                    }
+                }
+
+                this.overviewData.processors = processors;
+                this.overviewData.feeds = feeds;
+                this.overviewData.sinks = sinks;
+                this.overviewData.services = otherSvcs;
+                this.overviewData.audit = {
+                    enabled: auditEnabled,
+                    recordingProcessors: [...recording],
+                    fileCount
+                };
+            } catch (e) {
+                this.overviewData.loadError = String(e.message || e);
+            } finally {
+                this.overviewData.loading = false;
+            }
+        },
+
+        /** Friendly short name for an FQN — "PnlSummaryCalc" from
+         *  "com.example.pnl.PnlSummaryCalc". Used by overview tables to
+         *  keep rows tight without losing the qualified name (full FQN
+         *  available via title attribute for hover). */
+        simpleClassName(fqn) {
+            if (!fqn) return '';
+            const dot = fqn.lastIndexOf('.');
+            return dot >= 0 ? fqn.substring(dot + 1) : fqn;
+        },
+
+        /** Click handler for an overview processor row — jumps into the
+         *  full Processor-graph view scoped to that processor. */
+        overviewOpenProcessor(p) {
+            this.processorGraphTarget = { group: p.group, name: p.name };
+            this.go('processor-graph');
         },
 
         toggleTheme() {
@@ -1267,6 +1450,13 @@ document.addEventListener('alpine:init', () => {
             this.processorGraphCycleStage = 0;
             this.processorGraphCycleFocus = null;
             this.processorGraphHoverTip = null;
+            this.processorGraphSourceNav = null;
+            // Wipe stale exports / cached source — they belong to the
+            // previously-viewed processor and would mis-link if the new
+            // graph load fails to refresh them.
+            this.processorGraphProcessorFqn = null;
+            this.processorGraphSource = null;
+            this.processorGraphExportedServices = [];
             this.go('processor-graph');
         },
 
@@ -1311,7 +1501,19 @@ document.addEventListener('alpine:init', () => {
                     this.processorGraphError = 'graphml fetch failed (HTTP ' + r.status + ').';
                     return;
                 }
+                // Server surfaces the live processor's FQN via X-Processor-Class
+                // so the "View processor source" button has an FQN to feed
+                // /api/source — the generated dispatcher class doesn't appear
+                // as a node inside its own graph.
+                this.processorGraphProcessorFqn = r.headers.get('X-Processor-Class') || null;
                 this.processorGraphRaw = await r.text();
+                // Background-fetch the generated processor source so the
+                // exported-services panel can render immediately. Cheap and
+                // non-blocking — the graph still renders even if this
+                // 404s (framework processor without source on classpath).
+                if (this.processorGraphProcessorFqn) {
+                    this._prefetchProcessorSource(this.processorGraphProcessorFqn);
+                }
             } catch (e) {
                 this.processorGraphError = String(e.message || e);
                 return;
@@ -1338,10 +1540,28 @@ document.addEventListener('alpine:init', () => {
             r.on('tap', 'node', (evt) => self._onProcessorGraphNodeTap(evt.target));
             // Background tap on the core (no element target) clears selection.
             r.cy.on('tap', (evt) => {
-                if (evt.target === r.cy) {
-                    self.processorGraphHoverTip = null;
-                    self.processorGraphFullGraph();
-                }
+                // Reset on ANY tap that isn't a node — background AND edge
+                // taps both qualify. Cytoscape's edge picking has a fuzzy
+                // hit radius, so users who "tap empty space" near an edge
+                // were silently hitting the edge and the bg branch was
+                // never firing. Treating non-node taps uniformly fixes
+                // that.
+                const t = evt.target;
+                const isNodeTap = t && t !== r.cy
+                        && typeof t.isNode === 'function' && t.isNode();
+                if (isNodeTap) return;
+                // Clear selection state + visual classes IN PLACE. No
+                // setGraph/runLayout — the user wants the layout to stay
+                // put; only the highlight should disappear.
+                self.processorGraphCycleStage = 0;
+                self.processorGraphCycleFocus = null;
+                self.processorGraphFilterApplied = false;
+                self.processorGraphHoverTip = null;
+                self.processorGraphSourceNav = null;
+                if (r.clearHighlighting) r.clearHighlighting();
+                if (r.clearCtrlSelection) r.clearCtrlSelection();
+                if (r.setActiveNodes) r.setActiveNodes(null);
+                try { r.cy.elements().unselect(); } catch (_) {}
             });
             r.on('mouseover', 'node', (evt) => self._showProcessorGraphTip(evt));
             r.on('mouseout',  'node', () => { self.processorGraphHoverTip = null; });
@@ -1349,10 +1569,18 @@ document.addEventListener('alpine:init', () => {
             // the user isn't typing into an input.
             this._procGraphKeyHandler = (e) => {
                 if (this.activeView !== 'processor-graph') return;
+                const t = e.target;
+                const inField = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
+                // Esc — dismiss the source-nav panel (without nuking selection).
+                if (e.key === 'Escape' && self.processorGraphSourceNav) {
+                    if (inField) return;
+                    e.preventDefault();
+                    self.processorGraphSourceNav = null;
+                    return;
+                }
                 if (e.key !== 'f' && e.key !== 'F') return;
                 if (e.metaKey || e.ctrlKey || e.altKey) return;
-                const t = e.target;
-                if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+                if (inField) return;
                 e.preventDefault();
                 self.processorGraphApplyFilter();
             };
@@ -1372,7 +1600,563 @@ document.addEventListener('alpine:init', () => {
                     : this.processorGraphCycleStage === 3 ? 4
                     : 1;
             }
+            // Route the source-nav panel based on what kind of node was
+            // tapped. graph-parser.js attaches nodeKind from the graphml
+            // <Style properties="..."/> attribute.
+            //
+            //   EVENT          → load the PROCESSOR's generated source and
+            //                    scroll to `instanceof <SimpleName>` inside
+            //                    the onEventInternal dispatch table. The
+            //                    event class itself rarely has interesting
+            //                    behaviour — what the user wants to see is
+            //                    the dispatch case.
+            //   EXPORTSERVICE  → load the processor source and scroll to
+            //                    the @Override block for that interface in
+            //                    EXPORTED SERVICE FUNCTIONS.
+            //   other          → load the node's own class source.
+            const nodeKind = node.data('nodeKind') || null;
+            const nodeFqn  = node.data('className') || null;
+            if ((nodeKind === 'EVENT' || nodeKind === 'EXPORTSERVICE')
+                    && this.processorGraphProcessorFqn) {
+                // Strip both the package (chars up to the last '.') AND the
+                // outer-class prefix (chars up to the last '$') — Fluxtion's
+                // generated dispatcher imports inner classes by their bare
+                // simple name (e.g. `instanceof InstanceCallbackEvent_0`,
+                // not `Outer$Inner`). Without this, inner-class event nodes
+                // like ClockStrategy$ClockStrategyEvent never resolved.
+                let simple = node.id();
+                if (nodeFqn) {
+                    const afterPkg = nodeFqn.substring(nodeFqn.lastIndexOf('.') + 1);
+                    const dollar = afterPkg.lastIndexOf('$');
+                    simple = dollar >= 0 ? afterPkg.substring(dollar + 1) : afterPkg;
+                }
+                const procFqn = this.processorGraphProcessorFqn;
+                const procSimple = procFqn.substring(procFqn.lastIndexOf('.') + 1);
+                const procOrigin = this._classifyOrigin(procFqn);
+                this.processorGraphSourceNav = {
+                    id: simple,
+                    fqn: procFqn,
+                    simpleName: procSimple,
+                    origin: procOrigin,
+                    sourcePathHint: procFqn.replace(/\./g, '/') + '.java',
+                    nodeKind: nodeKind === 'EVENT'
+                            ? 'dispatch:' + simple
+                            : 'export:'   + simple,
+                    jumpHint: (nodeKind === 'EVENT' ? 'event:' : 'exportservice:') + simple,
+                    sourceState: 'idle',
+                    sourceText: null,
+                    sourceHtml: null,
+                    sourceFoundPath: null,
+                    sourceErr: null,
+                    targetLine: null
+                };
+                this._fetchSourceFor(procFqn);
+            } else {
+                this.processorGraphSourceNav = this._buildSourceNav(node);
+                const fqn = this.processorGraphSourceNav.fqn;
+                if (fqn) {
+                    this._fetchSourceFor(fqn);
+                }
+            }
             this._applyProcessorGraphHighlight();
+        },
+
+        /** Classify a fully-qualified class name into one of:
+         *   - 'fluxtion-runtime' — com.telamin.fluxtion.runtime.*
+         *   - 'fluxtion'         — com.telamin.fluxtion.* (builder etc.)
+         *   - 'mongoose'         — com.telamin.mongoose.*
+         *   - 'user'             — everything else (project code)
+         *  Used by the source-nav panel to colour-code + decide whether the
+         *  source-path hint should be highlighted as actionable. */
+        _classifyOrigin(fqn) {
+            if (!fqn) return 'unknown';
+            if (fqn.startsWith('com.telamin.fluxtion.runtime.')) return 'fluxtion-runtime';
+            if (fqn.startsWith('com.telamin.fluxtion.')) return 'fluxtion';
+            if (fqn.startsWith('com.telamin.mongoose.')) return 'mongoose';
+            return 'user';
+        },
+
+        /** Build the data the source-nav panel renders for a tapped node. */
+        _buildSourceNav(node) {
+            const id = node.id();
+            const fqn = node.data('className') || null;
+            const origin = this._classifyOrigin(fqn);
+            // Inner classes (`pkg.Outer$Inner`) display as the bare inner
+            // name and the source-path hint resolves to the outer class's
+            // .java file — Java stores inner classes inside the outer
+            // file, not a sibling `Outer$Inner.java`.
+            let simpleName = null;
+            let sourcePathHint = null;
+            if (fqn) {
+                const afterPkg = fqn.substring(fqn.lastIndexOf('.') + 1);
+                const dollarLast = afterPkg.lastIndexOf('$');
+                simpleName = dollarLast >= 0 ? afterPkg.substring(dollarLast + 1) : afterPkg;
+                const dollarFirst = fqn.indexOf('$');
+                const outerFqn = dollarFirst >= 0 ? fqn.substring(0, dollarFirst) : fqn;
+                sourcePathHint = outerFqn.replace(/\./g, '/') + '.java';
+            }
+            const nodeKind = node.data('nodeKind') || null;
+            // sourceState transitions: idle -> loading -> loaded | notfound | error.
+            // Panel HTML branches on this without needing per-state booleans.
+            return {
+                id, fqn, simpleName, origin, sourcePathHint, nodeKind,
+                sourceState: 'idle',
+                sourceText: null,
+                sourceHtml: null,
+                sourceFoundPath: null,
+                sourceErr: null,
+                jumpHint: null,
+                targetLine: null
+            };
+        },
+
+        /** Fetch .java text for a tapped node's FQN from /api/source. Updates
+         *  the active sourceNav object in-place so the panel re-renders.
+         *  Guards against late responses from a previous tap by comparing
+         *  fqn before mutating state. Also computes the highlighted HTML
+         *  (line-wrapped) and resolves any jump-to-line target the caller
+         *  attached to the sourceNav object before kicking the fetch. */
+        async _fetchSourceFor(fqn) {
+            if (!fqn) return;
+            const sn = this.processorGraphSourceNav;
+            if (!sn || sn.fqn !== fqn) return;
+            sn.sourceState = 'loading';
+            try {
+                const res = await fetch('/api/source?fqn=' + encodeURIComponent(fqn), { credentials: 'same-origin' });
+                const live = this.processorGraphSourceNav;
+                if (!live || live.fqn !== fqn) return; // user already tapped elsewhere
+                if (res.status === 404) {
+                    live.sourceState = 'notfound';
+                    return;
+                }
+                if (!res.ok) {
+                    live.sourceState = 'error';
+                    live.sourceErr = 'HTTP ' + res.status;
+                    return;
+                }
+                const data = await res.json();
+                live.sourceText = data.source ?? '';
+                live.sourceFoundPath = data.path ?? null;
+                // Resolve any jumpHint into a 1-indexed line number now that we
+                // have the source text. jumpHint is set by the caller before
+                // the fetch (event-node tap → 'event:<SimpleName>',
+                // exportservice tap → 'exportservice:<InterfaceSimpleName>').
+                if (live.jumpHint) {
+                    live.targetLine = this._resolveJumpHint(live.sourceText, live.jumpHint);
+                }
+                live.sourceHtml = this._highlightJava(live.sourceText, live.targetLine);
+                live.sourceState = 'loaded';
+                // Defer the scroll until Alpine re-renders the panel with the
+                // new sourceHtml. requestAnimationFrame is enough — Alpine
+                // flushes reactive bindings before the next paint.
+                if (live.targetLine) {
+                    requestAnimationFrame(() => this._scrollSourceToTargetLine());
+                }
+            } catch (e) {
+                const live = this.processorGraphSourceNav;
+                if (live && live.fqn === fqn) {
+                    live.sourceState = 'error';
+                    live.sourceErr = String(e);
+                }
+            }
+        },
+
+        // ── Java source highlighter + nav helpers ─────────────────────────
+        // Hand-rolled to match the YAML highlighter pattern (no external
+        // dep). The output is line-wrapped so we can scroll to any 1-indexed
+        // line via querySelector('.proc-sourcenav-line[data-line="N"]').
+
+        /** Hand-rolled Java syntax highlighter. Tokenises keywords, type
+         *  identifiers (heuristic — capitalised), strings, line + block
+         *  comments, annotations, and numbers. Each line gets a wrapper
+         *  div with `data-line` so the panel can scroll-to-line and
+         *  highlight an `active` row. Safe to inject via x-html — every
+         *  user-controlled chunk passes through escape() first. */
+        _highlightJava(source, activeLine) {
+            if (!source) return '';
+            // Escape `"` too so the string-literal regex below can find
+            // `&quot;...&quot;` regions — without this, the keyword /
+            // annotation passes ran across string content and the
+            // ANNOTATION inside `"@Override\npublic void ..."` ended up
+            // placeholdered. Combined with the index-tokenisation fix
+            // below, this makes string literals fully opaque to the
+            // other token passes.
+            const escape = (s) => String(s)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+
+            const KEYWORDS = new Set([
+                'abstract', 'assert', 'boolean', 'break', 'byte', 'case', 'catch',
+                'char', 'class', 'const', 'continue', 'default', 'do', 'double',
+                'else', 'enum', 'extends', 'final', 'finally', 'float', 'for',
+                'goto', 'if', 'implements', 'import', 'instanceof', 'int',
+                'interface', 'long', 'native', 'new', 'package', 'private',
+                'protected', 'public', 'return', 'short', 'static', 'strictfp',
+                'super', 'switch', 'synchronized', 'this', 'throw', 'throws',
+                'transient', 'try', 'void', 'volatile', 'while', 'true', 'false',
+                'null', 'var', 'yield', 'record', 'sealed', 'permits'
+            ]);
+
+            // Tokenise a single fragment that contains no block comments
+            // and no // line-comment. Strings + annotations are pulled into
+            // placeholders BEFORE the keyword/type pass so they can't be
+            // spliced (the v1 bug: keyword regex saw "class" inside the
+            // j-ann opening tag and tore the markup apart). Placeholders
+            // use the form `\u0001s\u00010\u0001` — control bytes never
+            // match the identifier regex and survive escape() unchanged.
+            const SOH = '\u0001';
+            const tokenizeCode = (codeFragment) => {
+                let h = escape(codeFragment);
+                // Placeholder shape: `\x01<letter><digits>\x01` (e.g. `\x01a0\x01`).
+                // The letter sits adjacent to the digit so `\b\d` finds no
+                // boundary before the index — the number regex pass below
+                // skips the placeholder cleanly. The previous form had a
+                // SOH between letter and digit, which DID create a
+                // boundary; the number pass wrapped the index in a span
+                // and broke the annotation restore — `@Override` rendered
+                // as literal `a0`.
+                const strings = [];
+                h = h.replace(/(&quot;(?:[^&\\]|\\.)*?&quot;)/g, (m) => {
+                    const idx = strings.length; strings.push(m);
+                    return SOH + 's' + idx + SOH;
+                });
+                const annotations = [];
+                h = h.replace(/@[A-Za-z_][\w.]*/g, (m) => {
+                    const idx = annotations.length; annotations.push(m);
+                    return SOH + 'a' + idx + SOH;
+                });
+                h = h.replace(/\b([A-Za-z_][\w$]*)\b/g, (m, w) => {
+                    if (KEYWORDS.has(w)) return '<span class="j-kw">' + w + '</span>';
+                    if (/^[A-Z]/.test(w)) return '<span class="j-type">' + w + '</span>';
+                    return m;
+                });
+                h = h.replace(/\b(\d[\d_]*\.?\d*(?:[eE][+-]?\d+)?[fFdDlL]?)\b/g,
+                        '<span class="j-num">$1</span>');
+                h = h.replace(new RegExp(SOH + 'a(\\d+)' + SOH, 'g'),
+                        (_, n) => '<span class="j-ann">' + escape(annotations[+n]) + '</span>');
+                h = h.replace(new RegExp(SOH + 's(\\d+)' + SOH, 'g'),
+                        (_, n) => '<span class="j-str">' + strings[+n] + '</span>');
+                return h;
+            };
+
+            // Tokenise one source line — pulls off any trailing // comment
+            // first (skipping `//` inside string literals), then runs the
+            // code-fragment tokeniser on what remains.
+            const tokenizeLine = (rawLine) => {
+                let cs = -1, inStr = false;
+                for (let j = 0; j < rawLine.length - 1; j++) {
+                    const c = rawLine[j];
+                    if (c === '\\') { j++; continue; }
+                    if (c === '"') { inStr = !inStr; continue; }
+                    if (!inStr && c === '/' && rawLine[j + 1] === '/') { cs = j; break; }
+                }
+                if (cs < 0) return tokenizeCode(rawLine);
+                return tokenizeCode(rawLine.substring(0, cs))
+                        + '<span class="j-cmt">' + escape(rawLine.substring(cs)) + '</span>';
+            };
+
+            // Per-line state machine — threads `inBlock` across line
+            // boundaries so multi-line /* ... */ blocks colour through.
+            const lines = source.split('\n');
+            const out = [];
+            let inBlock = false;
+            for (let i = 0; i < lines.length; i++) {
+                const rawLine = lines[i];
+                let html;
+                if (inBlock) {
+                    const endIdx = rawLine.indexOf('*/');
+                    if (endIdx < 0) {
+                        html = '<span class="j-cmt">' + escape(rawLine) + '</span>';
+                    } else {
+                        const commentPart = rawLine.substring(0, endIdx + 2);
+                        const rest = rawLine.substring(endIdx + 2);
+                        html = '<span class="j-cmt">' + escape(commentPart) + '</span>'
+                                + tokenizeLine(rest);
+                        inBlock = false;
+                    }
+                } else {
+                    const openIdx = rawLine.indexOf('/*');
+                    if (openIdx >= 0 && rawLine.indexOf('*/', openIdx + 2) < 0) {
+                        const codePart = rawLine.substring(0, openIdx);
+                        const commentPart = rawLine.substring(openIdx);
+                        html = tokenizeLine(codePart)
+                                + '<span class="j-cmt">' + escape(commentPart) + '</span>';
+                        inBlock = true;
+                    } else {
+                        html = tokenizeLine(rawLine);
+                    }
+                }
+                const lineNum = i + 1;
+                const activeCls = lineNum === activeLine ? ' active' : '';
+                out.push('<div class="proc-sourcenav-line' + activeCls + '" data-line="' + lineNum + '">'
+                        + '<span class="ln">' + lineNum + '</span>'
+                        + '<span class="src">' + (html || '&nbsp;') + '</span>'
+                        + '</div>');
+            }
+            return out.join('');
+        },
+
+        /** Resolve a jumpHint payload to a 1-indexed line number in the
+         *  generated source. Two prefixes:
+         *   - `event:<SimpleName>`         → first `instanceof <SimpleName>`
+         *                                    inside the onEventInternal block
+         *   - `exportservice:<Interface>`  → first @Override in EXPORTED
+         *                                    SERVICE FUNCTIONS whose
+         *                                    beforeServiceCall string names
+         *                                    `<Interface>.<method>`
+         *  Returns null when the marker isn't found — the source still
+         *  loads, just without auto-scroll. */
+        _resolveJumpHint(source, hint) {
+            if (!source || !hint) return null;
+            const colon = hint.indexOf(':');
+            if (colon < 0) return null;
+            const kind = hint.substring(0, colon);
+            const arg  = hint.substring(colon + 1);
+            if (!arg) return null;
+            if (kind === 'event') {
+                return this._findInstanceofLine(source, arg);
+            }
+            if (kind === 'exportservice') {
+                return this._findExportServiceLine(source, arg);
+            }
+            return null;
+        },
+
+        /** Find the line of `instanceof <SimpleName>` inside the
+         *  `public void onEventInternal(Object event)` method. Scoped to
+         *  that method body (clamped to the next `}` at indent 4) so we
+         *  don't accidentally hit the equivalent dispatch inside
+         *  `bufferEvent`. */
+        _findInstanceofLine(source, eventSimpleName) {
+            // Jump target: the strongly-typed handler overload
+            // `public void handleEvent(<EventType> typedEvent)` — that's
+            // where the user actually wants to land (the per-event method
+            // body), not the brittle `instanceof` line inside the
+            // onEventInternal dispatch table. Mirrors the playground's
+            // findHandleEventLine pattern (nav-lookup.ts:69).
+            const re = new RegExp(
+                '\\bhandleEvent\\s*\\(\\s*' + this._escapeForRegex(eventSimpleName) + '\\s+\\w+\\s*\\)'
+            );
+            const m = source.match(re);
+            if (!m) return null;
+            return source.substring(0, m.index).split('\n').length;
+        },
+
+        /** Find the @Override line in the //EXPORTED SERVICE FUNCTIONS
+         *  block whose beforeServiceCall("...") names the given interface
+         *  simple-name. Mirrors fluxtion-web/repl/nav-lookup.ts
+         *  parseExportedServiceMethods. */
+        _findExportServiceLine(source, interfaceSimpleName) {
+            const startIdx = source.indexOf('//EXPORTED SERVICE FUNCTIONS - START');
+            if (startIdx < 0) return null;
+            const endIdx = source.indexOf('//EXPORTED SERVICE FUNCTIONS - END', startIdx);
+            if (endIdx < 0) return null;
+            const region = source.substring(startIdx, endIdx);
+            const re = new RegExp(
+                '@Override\\b([\\s\\S]*?)beforeServiceCall\\s*\\(\\s*"[^"]*?\\.'
+                + this._escapeForRegex(interfaceSimpleName) + '\\.[A-Za-z_$]\\w*\\s*\\(',
+                'g'
+            );
+            const m = re.exec(region);
+            if (!m) return null;
+            const absIdx = startIdx + m.index;
+            return source.substring(0, absIdx).split('\n').length;
+        },
+
+        _escapeForRegex(s) {
+            return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        },
+
+        /** Scroll the source viewer to the line marked `active` (or to
+         *  data-line === targetLine on the active sourceNav). Centres the
+         *  line in the viewport.
+         *
+         *  Timing is tricky: when the panel was previously hidden (e.g.
+         *  first event-node tap of the session), x-show flips display
+         *  from none → block in the SAME Alpine reactive tick that sets
+         *  sourceHtml. The first RAF can fire before the browser has
+         *  laid out the newly-visible element — target.offsetParent is
+         *  still null at that point and scrollIntoView is a no-op.
+         *  Retry up to 8 frames waiting for layout. */
+        _scrollSourceToTargetLine(retries) {
+            if (retries === undefined) retries = 8;
+            const sn = this.processorGraphSourceNav;
+            if (!sn || !sn.targetLine) return;
+            const pre = document.querySelector('.proc-sourcenav-code');
+            if (!pre) return;
+            const target = pre.querySelector('.proc-sourcenav-line[data-line="' + sn.targetLine + '"]');
+            if (!target) return;
+            // offsetParent is null when the element (or any ancestor) has
+            // display:none. Layout hasn't settled yet — wait a frame.
+            if (target.offsetParent === null && retries > 0) {
+                requestAnimationFrame(() => this._scrollSourceToTargetLine(retries - 1));
+                return;
+            }
+            // scrollIntoView handles the parent scroll-container plumbing
+            // for us (works even when the .proc-sourcenav wrapper is also
+            // a scroll container — block:'center' resolves against the
+            // nearest scrollable ancestor). Use 'auto' (instant) rather
+            // than 'smooth' so the user sees the dispatch case
+            // immediately rather than watching the editor animate.
+            try {
+                target.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'auto' });
+            } catch (_) {
+                // Older browsers: fall back to direct scrollTop math.
+                const preMid = pre.clientHeight / 2;
+                pre.scrollTop = Math.max(0, target.offsetTop - preMid + target.offsetHeight / 2);
+            }
+        },
+
+        /** Background-fetch + cache the live processor's generated source.
+         *  Drives the exported-services panel (parses the EXPORTED SERVICE
+         *  FUNCTIONS block on arrival) and warms the cache so the
+         *  "Processor source" button opens instantly. Silent on 404 — a
+         *  processor whose source isn't on the classpath simply gets no
+         *  exports panel. */
+        async _prefetchProcessorSource(fqn) {
+            try {
+                const res = await fetch('/api/source?fqn=' + encodeURIComponent(fqn),
+                        { credentials: 'same-origin' });
+                if (!res.ok) {
+                    this.processorGraphSource = null;
+                    this.processorGraphExportedServices = [];
+                    return;
+                }
+                const data = await res.json();
+                this.processorGraphSource = data.source || null;
+                this.processorGraphExportedServices = this._parseExportedServices(this.processorGraphSource);
+            } catch (_) {
+                this.processorGraphSource = null;
+                this.processorGraphExportedServices = [];
+            }
+        },
+
+        /** Parse the //EXPORTED SERVICE FUNCTIONS - START/END block into
+         *  one row per @Override method declaration. Returns
+         *  [{interfaceName, methodName, line}] where interfaceName is
+         *  derived heuristically from the `@ExportService` implements
+         *  block — Mongoose-generated source doesn't carry the
+         *  `.InterfaceName.method(` audit string the playground's
+         *  parser relied on, so we read the method declaration itself
+         *  (@Override + signature) and bucket by exported interface.
+         *  Returns [] when the block is absent (processor exports
+         *  nothing). */
+        _parseExportedServices(source) {
+            if (!source) return [];
+            const startIdx = source.indexOf('//EXPORTED SERVICE FUNCTIONS - START');
+            if (startIdx < 0) return [];
+            const endIdx = source.indexOf('//EXPORTED SERVICE FUNCTIONS - END', startIdx);
+            if (endIdx < 0) return [];
+            const block = source.substring(startIdx, endIdx);
+            // Heuristic interface lookup — the implements clause has
+            // either `@ExportService Interface` (one-line form) or a
+            // bracketed `/*--- @ExportService start ---*/ Interface, … */`
+            // block. Collect every `@ExportService` follow-on token —
+            // those are the exported interface simple-names.
+            const exportedIfaces = [];
+            const ifaceRe = /@ExportService\s+([A-Za-z_$][\w$]*)/g;
+            let im;
+            while ((im = ifaceRe.exec(source)) !== null) {
+                exportedIfaces.push(im[1]);
+            }
+            const defaultIface = exportedIfaces.length === 1
+                    ? exportedIfaces[0]
+                    : (exportedIfaces[0] || 'ExportedService');
+
+            // Method declarations — `@Override\n public <ret> name(`.
+            // Accepts generic return types via the optional `<...>`.
+            const methodRe = /@Override\b\s*public\s+(?:final\s+|static\s+)?[\w$.<>?,\s]+?\s+([A-Za-z_$][\w$]*)\s*\(/g;
+            const linesBeforeStart = source.substring(0, startIdx).split('\n').length;
+            const out = [];
+            let m;
+            while ((m = methodRe.exec(block)) !== null) {
+                const overrideIdx = m.index;
+                const linesIntoBlock = block.substring(0, overrideIdx).split('\n').length - 1;
+                out.push({
+                    interfaceName: defaultIface,
+                    methodName: m[1],
+                    line: linesBeforeStart + linesIntoBlock
+                });
+            }
+            return out;
+        },
+
+        /** Click handler for an exported-services row — opens the
+         *  source-nav panel on the processor's own FQN and scrolls to
+         *  the method's @Override line. */
+        processorGraphJumpToExport(row) {
+            const procFqn = this.processorGraphProcessorFqn;
+            if (!procFqn) return;
+            const procSimple = procFqn.substring(procFqn.lastIndexOf('.') + 1);
+            this.processorGraphSourceNav = {
+                id: row.interfaceName + '.' + row.methodName,
+                fqn: procFqn,
+                simpleName: procSimple,
+                origin: this._classifyOrigin(procFqn),
+                sourcePathHint: procFqn.replace(/\./g, '/') + '.java',
+                nodeKind: 'export:' + row.interfaceName + '.' + row.methodName,
+                sourceState: 'idle',
+                sourceText: null,
+                sourceHtml: null,
+                sourceFoundPath: null,
+                sourceErr: null,
+                jumpHint: null,
+                // Skip the hint resolution — we already know the exact line.
+                targetLine: row.line
+            };
+            this._fetchSourceFor(procFqn);
+        },
+
+        /** Open the source-nav panel on the live processor's own class
+         *  (the generated dispatcher — its handleEvent dispatch table,
+         *  bufferEvent buffer dispatch, exported service stubs, etc).
+         *  The processor never appears as a node inside its own graph,
+         *  so node-tap can't reach it; this is the dedicated entry. The
+         *  FQN comes from the X-Processor-Class header set by the
+         *  graphml endpoint, captured at fetch time. */
+        processorGraphShowProcessorSource() {
+            const fqn = this.processorGraphProcessorFqn;
+            if (!fqn) {
+                this.toast('No processor class FQN available — reload the graph');
+                return;
+            }
+            const simpleName = fqn.substring(fqn.lastIndexOf('.') + 1);
+            const sourcePathHint = fqn.replace(/\./g, '/') + '.java';
+            const origin = this._classifyOrigin(fqn);
+            this.processorGraphSourceNav = {
+                id: simpleName,
+                fqn,
+                simpleName,
+                origin,
+                sourcePathHint,
+                nodeKind: 'generated-processor',
+                sourceState: 'idle',
+                sourceText: null,
+                sourceHtml: null,
+                sourceFoundPath: null,
+                sourceErr: null,
+                jumpHint: null,
+                targetLine: null
+            };
+            this._fetchSourceFor(fqn);
+        },
+
+        /** Close button on the source-nav panel. */
+        processorGraphCloseSourceNav() {
+            this.processorGraphSourceNav = null;
+        },
+
+        /** Copy the FQN or source-path hint to the clipboard. */
+        async processorGraphCopySourceNav(value) {
+            if (!value) return;
+            try {
+                await navigator.clipboard.writeText(value);
+                this.toast('Copied ' + value);
+            } catch (_) {
+                this.toast('Copy failed');
+            }
         },
 
         _selectionIds() {
@@ -1821,6 +2605,52 @@ document.addEventListener('alpine:init', () => {
 
         // Rows for the picker: every registered processor with its
         // group + audit state. Sorted so live captures float to the top.
+        // ── Replay event-type colouring + filtering ─────────────────────
+        // A small auto-palette so each event type gets a consistent chip
+        // colour for the session. Colours are picked from a fixed wheel
+        // sized to work in both light + dark themes; once a type has
+        // been seen the assignment is stable.
+        _replayPalette: [
+            '#0d8f82', '#2563eb', '#d97706', '#16a34a', '#a855f7',
+            '#dc2626', '#0891b2', '#65a30d', '#db2777', '#7c3aed',
+            '#ea580c', '#0284c7'
+        ],
+        replayColorForType(type) {
+            if (!type) return 'var(--fg-muted)';
+            const cached = this._replayTypeColors.get(type);
+            if (cached) return cached;
+            const palette = this._replayPalette;
+            const c = palette[this._replayPaletteIdx % palette.length];
+            this._replayPaletteIdx++;
+            this._replayTypeColors.set(type, c);
+            return c;
+        },
+        /** Unique event types in the loaded record set (in first-seen
+         *  order — keeps chip layout stable as the user steps through). */
+        replayDistinctEventTypes() {
+            const seen = new Set();
+            const out = [];
+            for (const r of this.replayRecords) {
+                const t = r.eventType || '';
+                if (!t || seen.has(t)) continue;
+                seen.add(t);
+                out.push(t);
+            }
+            return out;
+        },
+        /** Toggle a type's visibility — clicking a chip hides/shows its
+         *  records in the list. Index pointer is left untouched. */
+        replayToggleType(type) {
+            // Need a NEW Set so Alpine's reactive equality sees a change.
+            const next = new Set(this.replayHiddenTypes);
+            if (next.has(type)) next.delete(type);
+            else next.add(type);
+            this.replayHiddenTypes = next;
+        },
+        replayTypeVisible(type) {
+            return !this.replayHiddenTypes.has(type || '');
+        },
+
         replayProcessorRows() {
             const rows = [];
             const auditByName = new Map();
