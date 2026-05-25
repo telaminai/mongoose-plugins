@@ -1502,6 +1502,42 @@ textarea { resize: vertical; font-family: ui-monospace, Menlo, monospace; font-s
     font-size: 0.7rem;
 }
 
+/* Source-text viewer — visible only when /api/source returns 200. The
+   panel grows wider + the canvas accommodates by shifting graph layout
+   left. Code block scrolls vertically; horizontal overflow scrolls too
+   so long lines aren't hard-wrapped. */
+.proc-sourcenav:has(.proc-sourcenav-code[style*="display: block"]),
+.proc-sourcenav:has(.proc-sourcenav-code:not([style*="display: none"])) {
+    width: 38rem;
+}
+.proc-sourcenav-status {
+    margin-top: 0.45rem;
+    padding-top: 0.4rem;
+    border-top: 1px solid var(--border);
+    font-size: 0.7rem;
+}
+.proc-sourcenav-code {
+    margin: 0.45rem 0 0;
+    max-height: 28rem;
+    overflow: auto;
+    padding: 0.5rem 0.6rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.72rem;
+    line-height: 1.4;
+    color: var(--fg);
+    white-space: pre;
+    tab-size: 4;
+}
+.proc-sourcenav-code code {
+    background: transparent;
+    padding: 0;
+    color: inherit;
+    font: inherit;
+}
+
 .proc-empty {
     background: var(--surface);
     border: 1px solid var(--border);

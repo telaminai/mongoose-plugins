@@ -102,6 +102,14 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
     @Getter @Setter private int    logTailBuffer     = 500;
     @Getter @Setter private String loaderBaseDir;
 
+    // source-navigation config — directories searched (in order) when the
+    // Processor graph node-tap panel resolves a class FQN to its .java
+    // source for the side viewer. Empty = endpoint returns 404 with a
+    // configuration hint (feature is opt-in; never exposes the FS unless
+    // an operator names a root). Typical: ["src/main/java"], or for the
+    // playground download additionally "target/generated-sources/fluxtion".
+    @Getter @Setter private List<String> sourceRoots = new ArrayList<>();
+
     // session config
     @Setter         private String sessionSecret;
     @Getter @Setter private int    sessionMinutes = 60;
@@ -256,6 +264,13 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         // Conditional file picker for loader forms. Always mounted, but returns
         // 404 when loaderBaseDir is unset so the UI hides the tab automatically.
         javalin.get("/api/files", this::handleListFiles);
+
+        // Source-navigation lookup. Resolves a class FQN to .java text by
+        // walking the configured sourceRoots in order, first hit wins.
+        // Returns 404 with a clear message when sourceRoots is empty or
+        // the class is not found — the Processor graph panel degrades to
+        // metadata-only without erroring.
+        javalin.get("/api/source", this::handleSourceLookup);
 
         // WebSocket auth filter MUST be registered before any ws() route so
         // it applies to all of them (Javalin only matches before() filters
@@ -1981,6 +1996,76 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         ctx.json(Map.of(
                 "cwd", relForResp,
                 "entries", entries));
+    }
+
+    // FQN -> .java text lookup. Walks sourceRoots in declared order, returns
+    // the first hit. The fqn query param must match a strict identifier
+    // pattern (letters / digits / underscore / dot, optional `$` for inner
+    // classes) — that is the *only* gate against path traversal; we never
+    // pass user input into Path.resolve raw. After resolve+toRealPath, the
+    // resolved file is verified to live under the root (catches symlink
+    // escape). Empty sourceRoots = 404 with config hint, no FS exposure.
+    private static final java.util.regex.Pattern FQN_PATTERN =
+            java.util.regex.Pattern.compile("[A-Za-z_$][A-Za-z0-9_$]*(\\.[A-Za-z_$][A-Za-z0-9_$]*)+");
+
+    private void handleSourceLookup(Context ctx) {
+        if (sourceRoots == null || sourceRoots.isEmpty()) {
+            ctx.status(HttpStatus.NOT_FOUND);
+            ctx.json(Map.of("err", "source lookup disabled: WebAdminService.sourceRoots is not configured"));
+            return;
+        }
+        String fqn = ctx.queryParam("fqn");
+        if (fqn == null || !FQN_PATTERN.matcher(fqn).matches()) {
+            ctx.status(HttpStatus.BAD_REQUEST);
+            ctx.json(Map.of("err", "fqn missing or not a valid class name"));
+            return;
+        }
+        // Inner classes (`Outer$Inner`) live in the Outer.java file — strip
+        // anything from the first `$` so the path matches the source file.
+        String topLevel = fqn;
+        int dollar = topLevel.indexOf('$');
+        if (dollar > 0) topLevel = topLevel.substring(0, dollar);
+        String relPath = topLevel.replace('.', '/') + ".java";
+
+        for (String rootSpec : sourceRoots) {
+            java.nio.file.Path root;
+            try {
+                root = java.nio.file.Paths.get(rootSpec).toRealPath();
+            } catch (java.io.IOException missing) {
+                continue; // configured root doesn't exist — skip silently
+            }
+            java.nio.file.Path candidate;
+            try {
+                candidate = root.resolve(relPath).toRealPath();
+            } catch (java.io.IOException missing) {
+                continue;
+            }
+            if (!candidate.startsWith(root)) {
+                continue; // symlink escape
+            }
+            if (!java.nio.file.Files.isRegularFile(candidate)) {
+                continue;
+            }
+            String text;
+            try {
+                text = new String(java.nio.file.Files.readAllBytes(candidate), StandardCharsets.UTF_8);
+            } catch (java.io.IOException io) {
+                ctx.status(HttpStatus.INTERNAL_SERVER_ERROR);
+                ctx.json(Map.of("err", "read failed: " + io.getMessage()));
+                return;
+            }
+            ctx.json(Map.of(
+                    "fqn", fqn,
+                    "path", relPath,
+                    "root", rootSpec,
+                    "source", text));
+            return;
+        }
+        ctx.status(HttpStatus.NOT_FOUND);
+        ctx.json(Map.of(
+                "err", "no source found for " + fqn,
+                "searched", sourceRoots,
+                "relPath", relPath));
     }
 
     // -------- WebSocket monitor --------

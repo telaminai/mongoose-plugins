@@ -30,7 +30,7 @@ A nav-rail console with a light/dark theme toggle — one view at a time, live W
 
   ![Topology — feed → agent group → processor DAG](docs/screenshots/topology.png)
 
-- **Processor graph** — full Fluxtion-style graphml viewer for a single processor: layout switcher, font + spacing sliders, **Hide scaffolding** toggle, click-to-cycle selection (focus → 1-hop neighbours → execution path → whole graph), **Filter (F)** to redraw on the current selection, **Full graph** to clear. Tapping a node also opens a **Source-nav** panel (top-right of the canvas) showing the node id, kind, origin classification (`user` / `mongoose` / `fluxtion` / `fluxtion-runtime`), the class FQN, and a suggested source-path hint (e.g. `com/example/PnlSummaryCalc.java`) — both copyable, so you can paste straight into your IDE's open-file dialog. Esc or background-tap dismisses the panel. The left border is colour-coded by origin so your code stands out from framework nodes. When a `PerformanceMonitorAudit` is bound to the processor at build time, the sub-detail panel shows a **Per-node invocations** table — every node in the generated SEP with its live invocation count. The graphml is loaded from `<class-FQN-with-/>.graphml` on the processor's classloader; a structured "expected `<path>` — copy it into `src/main/resources/...`" panel guides plugin authors when the resource is missing.
+- **Processor graph** — full Fluxtion-style graphml viewer for a single processor: layout switcher, font + spacing sliders, **Hide scaffolding** toggle, click-to-cycle selection (focus → 1-hop neighbours → execution path → whole graph), **Filter (F)** to redraw on the current selection, **Full graph** to clear. Tapping a node opens a **Source-nav** panel (top-right of the canvas) showing the node id, kind, origin classification (`user` / `mongoose` / `fluxtion` / `fluxtion-runtime`), the class FQN, and the source path. When `WebAdminService.sourceRoots` is configured (see *Source navigation* below), the panel also fetches `.java` text from those roots and renders it inline in a scrollable code viewer; without sourceRoots, the FQN + path-hint are still shown and copyable so you can jump to the file manually in your IDE. The left border is colour-coded by origin so your code stands out from framework nodes. Esc or background-tap dismisses the panel. When a `PerformanceMonitorAudit` is bound to the processor at build time, the sub-detail panel shows a **Per-node invocations** table — every node in the generated SEP with its live invocation count. The graphml is loaded from `<class-FQN-with-/>.graphml` on the processor's classloader; a structured "expected `<path>` — copy it into `src/main/resources/...`" panel guides plugin authors when the resource is missing.
 
   ![Processor graph — compiled graphml viewer with scaffolding hidden](docs/screenshots/processor-graph.png)
 - **Cache panel** (conditional) — when `cache.*` commands are present, surfaces `cache.list`, `cache.{name}.keys`, `cache.{name}.get` as inline forms.
@@ -127,6 +127,24 @@ CSRF on WebSocket upgrades is carried as `?csrf=...` query param (browsers canno
 | `metricsIntervalMs` | `1000`             | Sampler period (clamped ≥ 250 ms)                              |
 | `logTailBuffer`     | `500`              | Max retained log records                                       |
 | `loaderBaseDir`     | _unset_            | Root for the file picker. Unset → `/api/files` returns `404` and the "browse…" button hides. |
+| `sourceRoots`       | _empty_            | Directories searched (in order) by `/api/source` to resolve a class FQN → `.java` text for the Processor graph node panel. Empty list = endpoint returns `404` and the panel degrades to metadata + copy buttons. Paths resolve against the server's working directory. |
+
+### Source navigation
+
+The Processor graph's node-tap panel can fetch and render `.java` text inline when `sourceRoots` is configured. Wire it in your YAML descriptor:
+
+```yaml
+services:
+  - name: adminWebService
+    service: !!com.telamin.mongoose.plugin.svc.adminweb.WebAdminService
+      host: 127.0.0.1
+      listenPort: 8182
+      sourceRoots:
+        - src/main/java
+        - target/generated-sources/fluxtion   # optional, if AOT writes here
+```
+
+`GET /api/source?fqn=<fully.qualified.Class>` resolves the FQN to `<fqn-as-path>.java`, walks `sourceRoots` in order, and returns `{fqn, path, root, source}` on the first hit. Inner classes (`Outer$Inner`) are mapped to `Outer.java`. Returns `404` when `sourceRoots` is empty (with config-hint message), when the FQN doesn't match a strict `[A-Za-z_$][A-Za-z0-9_$]*(\.…)+` pattern, or when no root contains the file. Path-traversal is gated by the regex + `toRealPath() + startsWith(root)` symlink-escape check.
 
 ## Security model
 

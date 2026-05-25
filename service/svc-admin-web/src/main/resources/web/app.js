@@ -1391,6 +1391,15 @@ document.addEventListener('alpine:init', () => {
             // graph-parser.js attaches `className` to every node from the
             // `class:` line in the graphml label.
             this.processorGraphSourceNav = this._buildSourceNav(node);
+            const fqn = this.processorGraphSourceNav.fqn;
+            if (fqn) {
+                // Kick off the async source fetch — panel renders metadata
+                // immediately and the code area appears when the fetch
+                // resolves. Loading / notfound / error states all render
+                // inline in the panel; no toast spam on the common case
+                // (framework classes that the server has no sources for).
+                this._fetchSourceFor(fqn);
+            }
             this._applyProcessorGraphHighlight();
         },
 
@@ -1417,7 +1426,47 @@ document.addEventListener('alpine:init', () => {
             const simpleName = fqn ? fqn.substring(fqn.lastIndexOf('.') + 1) : null;
             const sourcePathHint = fqn ? fqn.replace(/\./g, '/') + '.java' : null;
             const nodeKind = node.data('nodeKind') || null;
-            return { id, fqn, simpleName, origin, sourcePathHint, nodeKind };
+            // sourceState transitions: idle -> loading -> loaded | notfound | error.
+            // Panel HTML branches on this without needing per-state booleans.
+            return {
+                id, fqn, simpleName, origin, sourcePathHint, nodeKind,
+                sourceState: 'idle', sourceText: null, sourceFoundPath: null, sourceErr: null
+            };
+        },
+
+        /** Fetch .java text for a tapped node's FQN from /api/source. Updates
+         *  the active sourceNav object in-place so the panel re-renders.
+         *  Guards against late responses from a previous tap by comparing
+         *  fqn before mutating state. */
+        async _fetchSourceFor(fqn) {
+            if (!fqn) return;
+            const sn = this.processorGraphSourceNav;
+            if (!sn || sn.fqn !== fqn) return;
+            sn.sourceState = 'loading';
+            try {
+                const res = await fetch('/api/source?fqn=' + encodeURIComponent(fqn), { credentials: 'same-origin' });
+                const live = this.processorGraphSourceNav;
+                if (!live || live.fqn !== fqn) return; // user already tapped elsewhere
+                if (res.status === 404) {
+                    live.sourceState = 'notfound';
+                    return;
+                }
+                if (!res.ok) {
+                    live.sourceState = 'error';
+                    live.sourceErr = 'HTTP ' + res.status;
+                    return;
+                }
+                const data = await res.json();
+                live.sourceText = data.source ?? '';
+                live.sourceFoundPath = data.path ?? null;
+                live.sourceState = 'loaded';
+            } catch (e) {
+                const live = this.processorGraphSourceNav;
+                if (live && live.fqn === fqn) {
+                    live.sourceState = 'error';
+                    live.sourceErr = String(e);
+                }
+            }
         },
 
         /** Close button on the source-nav panel. */
