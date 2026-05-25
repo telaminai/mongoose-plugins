@@ -1260,6 +1260,17 @@ textarea { resize: vertical; font-family: ui-monospace, Menlo, monospace; font-s
    the available real estate. The side-column width is driven by a CSS
    variable updated by the vertical splitter drag.
 */
+/* Base layout — applies on both Graph and Replay tabs. Pass the
+   flex height through from .view-fill so the .proc-shell inside
+   (graphml canvas) can claim the remaining vertical space. Without
+   this rule the wrapper collapses to its intrinsic content height
+   and the canvas hits only its 400px min-height fallback. */
+.proc-replay-layout {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
 .proc-replay-layout.replay-mode {
     --replay-side-width: 32rem;     /* default; user-adjustable via splitter */
     display: flex;
