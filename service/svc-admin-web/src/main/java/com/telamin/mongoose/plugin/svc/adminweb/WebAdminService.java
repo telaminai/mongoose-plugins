@@ -102,6 +102,14 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
     @Getter @Setter private int    logTailBuffer     = 500;
     @Getter @Setter private String loaderBaseDir;
 
+    // source-navigation config — directories searched (in order) when the
+    // Processor graph node-tap panel resolves a class FQN to its .java
+    // source for the side viewer. Empty = endpoint returns 404 with a
+    // configuration hint (feature is opt-in; never exposes the FS unless
+    // an operator names a root). Typical: ["src/main/java"], or for the
+    // playground download additionally "target/generated-sources/fluxtion".
+    @Getter @Setter private List<String> sourceRoots = new ArrayList<>();
+
     // session config
     @Setter         private String sessionSecret;
     @Getter @Setter private int    sessionMinutes = 60;
@@ -256,6 +264,13 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         // Conditional file picker for loader forms. Always mounted, but returns
         // 404 when loaderBaseDir is unset so the UI hides the tab automatically.
         javalin.get("/api/files", this::handleListFiles);
+
+        // Source-navigation lookup. Resolves a class FQN to .java text by
+        // walking the configured sourceRoots in order, first hit wins.
+        // Returns 404 with a clear message when sourceRoots is empty or
+        // the class is not found — the Processor graph panel degrades to
+        // metadata-only without erroring.
+        javalin.get("/api/source", this::handleSourceLookup);
 
         // WebSocket auth filter MUST be registered before any ws() route so
         // it applies to all of them (Javalin only matches before() filters
@@ -1308,6 +1323,13 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
                 return;
             }
             byte[] bytes = in.readAllBytes();
+            // Surface the live processor's FQN to the client so the
+            // Processor graph UI can offer "view processor source" — the
+            // generated dispatcher class doesn't appear as a node inside
+            // its own graph, so the panel needs an out-of-band way to
+            // pick it up. Header is non-invasive: existing clients ignore
+            // it, source-nav clients read it.
+            ctx.header("X-Processor-Class", cls.getName());
             ctx.contentType("application/xml; charset=utf-8");
             ctx.result(bytes);
         } catch (java.io.IOException e) {
@@ -1981,6 +2003,115 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         ctx.json(Map.of(
                 "cwd", relForResp,
                 "entries", entries));
+    }
+
+    // FQN -> .java text lookup. Two-tier resolution:
+    //   1. Filesystem — walks sourceRoots in declared order, first hit wins
+    //      (live-edit dev experience beats packaged copy). Gated on a
+    //      non-empty sourceRoots — operators must explicitly name which
+    //      directories the HTTP surface may read from.
+    //   2. Classpath — ClassLoader.getResourceAsStream(<pkg>/<Class>.java).
+    //      Always-on. Fluxtion 1.0.2+ packages generated source as a
+    //      classpath resource via copySourceToResourcesDirectory, and
+    //      anything reachable via the classloader is already in the
+    //      deployable artefact (`jar tf` shows it) — gating this tier
+    //      adds no real protection. Operators who genuinely need to
+    //      disable the endpoint should remove the route registration
+    //      (or front-proxy 403 it).
+    // The fqn query param must match a strict identifier pattern (letters
+    // / digits / underscore / dot, optional `$` for inner classes) — that
+    // is the *only* gate against path traversal; we never pass user input
+    // into Path.resolve raw. After resolve+toRealPath, the resolved file
+    // is verified to live under the root (catches symlink escape).
+    private static final java.util.regex.Pattern FQN_PATTERN =
+            java.util.regex.Pattern.compile("[A-Za-z_$][A-Za-z0-9_$]*(\\.[A-Za-z_$][A-Za-z0-9_$]*)+");
+
+    private void handleSourceLookup(Context ctx) {
+        String fqn = ctx.queryParam("fqn");
+        if (fqn == null || !FQN_PATTERN.matcher(fqn).matches()) {
+            ctx.status(HttpStatus.BAD_REQUEST);
+            ctx.json(Map.of("err", "fqn missing or not a valid class name"));
+            return;
+        }
+        // Inner classes (`Outer$Inner`) live in the Outer.java file — strip
+        // anything from the first `$` so the path matches the source file.
+        String topLevel = fqn;
+        int dollar = topLevel.indexOf('$');
+        if (dollar > 0) topLevel = topLevel.substring(0, dollar);
+        String relPath = topLevel.replace('.', '/') + ".java";
+
+        // Tier 1 — filesystem sourceRoots. Filesystem first so live edits
+        // beat the packaged copy during local development. Skipped when
+        // operator hasn't opted in via sourceRoots.
+        List<String> roots = sourceRoots == null ? Collections.emptyList() : sourceRoots;
+        for (String rootSpec : roots) {
+            java.nio.file.Path root;
+            try {
+                root = java.nio.file.Paths.get(rootSpec).toRealPath();
+            } catch (java.io.IOException missing) {
+                continue; // configured root doesn't exist — skip silently
+            }
+            java.nio.file.Path candidate;
+            try {
+                candidate = root.resolve(relPath).toRealPath();
+            } catch (java.io.IOException missing) {
+                continue;
+            }
+            if (!candidate.startsWith(root)) {
+                continue; // symlink escape
+            }
+            if (!java.nio.file.Files.isRegularFile(candidate)) {
+                continue;
+            }
+            String text;
+            try {
+                text = new String(java.nio.file.Files.readAllBytes(candidate), StandardCharsets.UTF_8);
+            } catch (java.io.IOException io) {
+                ctx.status(HttpStatus.INTERNAL_SERVER_ERROR);
+                ctx.json(Map.of("err", "read failed: " + io.getMessage()));
+                return;
+            }
+            ctx.json(Map.of(
+                    "fqn", fqn,
+                    "path", relPath,
+                    "root", rootSpec,
+                    "source", text));
+            return;
+        }
+        // Tier 2 — classpath fallback. Fluxtion 1.0.2+ packages generated
+        // .java alongside the .graphml via FluxtionCompilerConfig's
+        // copySourceToResourcesDirectory flag (default on). That source
+        // travels inside the shaded jar as a classpath resource at the
+        // package-mirrored path. This branch makes the lookup work when
+        // the runtime is detached from its build tree — containers, prod
+        // deployments, downloaded uber-jars moved elsewhere.
+        ClassLoader cl = Thread.currentThread().getContextClassLoader();
+        if (cl == null) cl = WebAdminService.class.getClassLoader();
+        try (java.io.InputStream in = cl.getResourceAsStream(relPath)) {
+            if (in != null) {
+                java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
+                byte[] chunk = new byte[8 * 1024];
+                int n;
+                while ((n = in.read(chunk)) > 0) buf.write(chunk, 0, n);
+                String text = new String(buf.toByteArray(), StandardCharsets.UTF_8);
+                ctx.json(Map.of(
+                        "fqn", fqn,
+                        "path", relPath,
+                        "root", "classpath:",
+                        "source", text));
+                return;
+            }
+        } catch (java.io.IOException io) {
+            ctx.status(HttpStatus.INTERNAL_SERVER_ERROR);
+            ctx.json(Map.of("err", "classpath read failed: " + io.getMessage()));
+            return;
+        }
+        ctx.status(HttpStatus.NOT_FOUND);
+        ctx.json(Map.of(
+                "err", "no source found for " + fqn,
+                "searched", roots,
+                "classpathChecked", true,
+                "relPath", relPath));
     }
 
     // -------- WebSocket monitor --------

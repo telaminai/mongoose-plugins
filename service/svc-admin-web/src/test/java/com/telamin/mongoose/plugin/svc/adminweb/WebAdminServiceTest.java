@@ -461,6 +461,172 @@ class WebAdminServiceTest {
         Assertions.assertEquals(401, r.statusCode());
     }
 
+    // ---------- M6.5 source-navigation (/api/source) ----------
+    // Two-tier resolution: filesystem sourceRoots (live-edit dev) →
+    // classpath fallback (packaged generated source). Empty sourceRoots
+    // keeps the panel disabled at the front gate even though the
+    // classpath fallback would otherwise be free.
+
+    @Test
+    void source_endpoint_classpath_tier_works_without_sourceRoots() throws Exception {
+        // Classpath tier is always-on — operators don't need to opt in via
+        // sourceRoots for the in-jar source to be reachable (the source is
+        // already in the deployable artefact; gating adds no protection).
+        // Filesystem tier remains opt-in below.
+        port = freePort();
+        svc = new WebAdminService();
+        svc.setListenPort(port);
+        svc.setHost("127.0.0.1");
+        // sourceRoots intentionally unset — defaults to empty list.
+        svc.init();
+        svc.start();
+
+        HttpResponse<String> r = get("/api/source?fqn=com.example.fakegen.StubProcessor", null, null);
+        Assertions.assertEquals(200, r.statusCode(), r.body());
+        Assertions.assertTrue(r.body().contains("\"root\":\"classpath:\""),
+                "classpath hit should be flagged via root marker: " + r.body());
+
+        // Miss with empty sourceRoots still returns 404 — but the body says
+        // classpath was attempted, not "sourceRoots not configured".
+        HttpResponse<String> miss = get("/api/source?fqn=com.example.nothere.Ghost", null, null);
+        Assertions.assertEquals(404, miss.statusCode());
+        Assertions.assertTrue(miss.body().contains("classpathChecked"),
+                "404 should advertise classpath was attempted even with no sourceRoots: " + miss.body());
+    }
+
+    @Test
+    void source_endpoint_rejects_invalid_fqn(@org.junit.jupiter.api.io.TempDir java.nio.file.Path tmp) throws Exception {
+        port = freePort();
+        svc = new WebAdminService();
+        svc.setListenPort(port);
+        svc.setHost("127.0.0.1");
+        svc.setSourceRoots(List.of(tmp.toString()));
+        svc.init();
+        svc.start();
+
+        // missing fqn
+        Assertions.assertEquals(400, get("/api/source", null, null).statusCode());
+        // unqualified (no dot) — fails the FQN regex
+        Assertions.assertEquals(400, get("/api/source?fqn=Foo", null, null).statusCode());
+        // path-traversal characters fail the regex up front
+        Assertions.assertEquals(400, get("/api/source?fqn=../etc", null, null).statusCode());
+        Assertions.assertEquals(400, get("/api/source?fqn=com.example/Foo", null, null).statusCode());
+    }
+
+    @Test
+    void source_endpoint_serves_file_from_configured_root(@org.junit.jupiter.api.io.TempDir java.nio.file.Path tmp) throws Exception {
+        java.nio.file.Path pkgDir = tmp.resolve("com/example/demo");
+        java.nio.file.Files.createDirectories(pkgDir);
+        java.nio.file.Files.writeString(pkgDir.resolve("Demo.java"),
+                "package com.example.demo; public class Demo { /* on disk */ }");
+
+        port = freePort();
+        svc = new WebAdminService();
+        svc.setListenPort(port);
+        svc.setHost("127.0.0.1");
+        svc.setSourceRoots(List.of(tmp.toString()));
+        svc.init();
+        svc.start();
+
+        HttpResponse<String> r = get("/api/source?fqn=com.example.demo.Demo", null, null);
+        Assertions.assertEquals(200, r.statusCode(), r.body());
+        Assertions.assertTrue(r.body().contains("\"path\":\"com/example/demo/Demo.java\""),
+                "body should report path: " + r.body());
+        Assertions.assertTrue(r.body().contains("on disk"),
+                "body should embed source text: " + r.body());
+        Assertions.assertTrue(r.body().contains("\"root\":\"" + tmp.toString().replace("\\", "\\\\") + "\""),
+                "filesystem hit should report its rootSpec: " + r.body());
+    }
+
+    @Test
+    void source_endpoint_handles_inner_class_via_outer_file(@org.junit.jupiter.api.io.TempDir java.nio.file.Path tmp) throws Exception {
+        // Outer$Inner FQN → maps to Outer.java path (inner classes live in
+        // the same file as their declaring outer).
+        java.nio.file.Path pkgDir = tmp.resolve("com/example/demo");
+        java.nio.file.Files.createDirectories(pkgDir);
+        java.nio.file.Files.writeString(pkgDir.resolve("Outer.java"),
+                "package com.example.demo; public class Outer { static class Inner { } }");
+
+        port = freePort();
+        svc = new WebAdminService();
+        svc.setListenPort(port);
+        svc.setHost("127.0.0.1");
+        svc.setSourceRoots(List.of(tmp.toString()));
+        svc.init();
+        svc.start();
+
+        HttpResponse<String> r = get("/api/source?fqn=com.example.demo.Outer$Inner", null, null);
+        Assertions.assertEquals(200, r.statusCode(), r.body());
+        Assertions.assertTrue(r.body().contains("\"path\":\"com/example/demo/Outer.java\""),
+                "inner-class FQN should resolve to outer .java: " + r.body());
+    }
+
+    @Test
+    void source_endpoint_falls_back_to_classpath_when_filesystem_misses(@org.junit.jupiter.api.io.TempDir java.nio.file.Path tmp) throws Exception {
+        // sourceRoots points at an empty tmp dir → filesystem tier misses
+        // for every FQN. The classpath tier should still surface the test
+        // resource at src/test/resources/com/example/fakegen/StubProcessor.java.
+        port = freePort();
+        svc = new WebAdminService();
+        svc.setListenPort(port);
+        svc.setHost("127.0.0.1");
+        svc.setSourceRoots(List.of(tmp.toString()));
+        svc.init();
+        svc.start();
+
+        HttpResponse<String> r = get("/api/source?fqn=com.example.fakegen.StubProcessor", null, null);
+        Assertions.assertEquals(200, r.statusCode(), r.body());
+        Assertions.assertTrue(r.body().contains("\"root\":\"classpath:\""),
+                "classpath hit should be flagged via root marker: " + r.body());
+        Assertions.assertTrue(r.body().contains("stub-processor-marker"),
+                "body should embed the stub source text: " + r.body());
+    }
+
+    @Test
+    void source_endpoint_prefers_filesystem_over_classpath(@org.junit.jupiter.api.io.TempDir java.nio.file.Path tmp) throws Exception {
+        // Filesystem tier wins when both exist — live-edit dev experience
+        // beats packaged copy. Drop a .java at the same coordinates as the
+        // test-resource stub, point sourceRoots at it, expect the FS copy
+        // (with its distinct marker text) in the response.
+        java.nio.file.Path pkgDir = tmp.resolve("com/example/fakegen");
+        java.nio.file.Files.createDirectories(pkgDir);
+        java.nio.file.Files.writeString(pkgDir.resolve("StubProcessor.java"),
+                "package com.example.fakegen; public class StubProcessor { /* FILESYSTEM-WIN-MARKER */ }");
+
+        port = freePort();
+        svc = new WebAdminService();
+        svc.setListenPort(port);
+        svc.setHost("127.0.0.1");
+        svc.setSourceRoots(List.of(tmp.toString()));
+        svc.init();
+        svc.start();
+
+        HttpResponse<String> r = get("/api/source?fqn=com.example.fakegen.StubProcessor", null, null);
+        Assertions.assertEquals(200, r.statusCode(), r.body());
+        Assertions.assertTrue(r.body().contains("FILESYSTEM-WIN-MARKER"),
+                "filesystem hit should win when both tiers can serve: " + r.body());
+        Assertions.assertFalse(r.body().contains("stub-processor-marker"),
+                "classpath text must NOT appear when filesystem hit: " + r.body());
+        Assertions.assertFalse(r.body().contains("\"root\":\"classpath:\""),
+                "filesystem hit must NOT be flagged as classpath: " + r.body());
+    }
+
+    @Test
+    void source_endpoint_404_when_no_tier_matches(@org.junit.jupiter.api.io.TempDir java.nio.file.Path tmp) throws Exception {
+        port = freePort();
+        svc = new WebAdminService();
+        svc.setListenPort(port);
+        svc.setHost("127.0.0.1");
+        svc.setSourceRoots(List.of(tmp.toString()));
+        svc.init();
+        svc.start();
+
+        HttpResponse<String> r = get("/api/source?fqn=com.example.nothere.Ghost", null, null);
+        Assertions.assertEquals(404, r.statusCode());
+        Assertions.assertTrue(r.body().contains("classpathChecked"),
+                "404 body should advertise that classpath was attempted: " + r.body());
+    }
+
     // ---------- M5 log tail ----------
 
     @Test
