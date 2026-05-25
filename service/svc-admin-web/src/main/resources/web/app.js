@@ -170,6 +170,12 @@ document.addEventListener('alpine:init', () => {
         // can paste into their IDE. Floating overlay on the Graph tab so
         // it doesn't reflow the layout. Null when no node is focused.
         processorGraphSourceNav: null,
+        // FQN of the live processor instance, captured from the graphml
+        // fetch response's X-Processor-Class header. Feeds the "View
+        // processor source" button so the panel can open on the
+        // generated dispatcher class (which is NOT a node inside its
+        // own graph). Null until graphml has loaded.
+        processorGraphProcessorFqn: null,
         // Sibling-tab state — 'graph' shows the cytoscape canvas; 'stats'
         // shows a sortable / filterable / downloadable per-node table;
         // 'replay' steps through an audit-log file with the same canvas
@@ -1317,6 +1323,11 @@ document.addEventListener('alpine:init', () => {
                     this.processorGraphError = 'graphml fetch failed (HTTP ' + r.status + ').';
                     return;
                 }
+                // Server surfaces the live processor's FQN via X-Processor-Class
+                // so the "View processor source" button has an FQN to feed
+                // /api/source — the generated dispatcher class doesn't appear
+                // as a node inside its own graph.
+                this.processorGraphProcessorFqn = r.headers.get('X-Processor-Class') || null;
                 this.processorGraphRaw = await r.text();
             } catch (e) {
                 this.processorGraphError = String(e.message || e);
@@ -1467,6 +1478,37 @@ document.addEventListener('alpine:init', () => {
                     live.sourceErr = String(e);
                 }
             }
+        },
+
+        /** Open the source-nav panel on the live processor's own class
+         *  (the generated dispatcher — its handleEvent dispatch table,
+         *  bufferEvent buffer dispatch, exported service stubs, etc).
+         *  The processor never appears as a node inside its own graph,
+         *  so node-tap can't reach it; this is the dedicated entry. The
+         *  FQN comes from the X-Processor-Class header set by the
+         *  graphml endpoint, captured at fetch time. */
+        processorGraphShowProcessorSource() {
+            const fqn = this.processorGraphProcessorFqn;
+            if (!fqn) {
+                this.toast('No processor class FQN available — reload the graph');
+                return;
+            }
+            const simpleName = fqn.substring(fqn.lastIndexOf('.') + 1);
+            const sourcePathHint = fqn.replace(/\./g, '/') + '.java';
+            const origin = this._classifyOrigin(fqn);
+            this.processorGraphSourceNav = {
+                id: simpleName,
+                fqn,
+                simpleName,
+                origin,
+                sourcePathHint,
+                nodeKind: 'generated-processor',
+                sourceState: 'idle',
+                sourceText: null,
+                sourceFoundPath: null,
+                sourceErr: null
+            };
+            this._fetchSourceFor(fqn);
         },
 
         /** Close button on the source-nav panel. */

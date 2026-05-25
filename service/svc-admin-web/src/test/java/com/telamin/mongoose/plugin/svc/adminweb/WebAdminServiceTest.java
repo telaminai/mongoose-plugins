@@ -468,18 +468,30 @@ class WebAdminServiceTest {
     // classpath fallback would otherwise be free.
 
     @Test
-    void source_endpoint_returns_404_when_sourceRoots_unset() throws Exception {
+    void source_endpoint_classpath_tier_works_without_sourceRoots() throws Exception {
+        // Classpath tier is always-on — operators don't need to opt in via
+        // sourceRoots for the in-jar source to be reachable (the source is
+        // already in the deployable artefact; gating adds no protection).
+        // Filesystem tier remains opt-in below.
         port = freePort();
         svc = new WebAdminService();
         svc.setListenPort(port);
         svc.setHost("127.0.0.1");
+        // sourceRoots intentionally unset — defaults to empty list.
         svc.init();
         svc.start();
 
-        HttpResponse<String> r = get("/api/source?fqn=com.example.Foo", null, null);
-        Assertions.assertEquals(404, r.statusCode());
-        Assertions.assertTrue(r.body().contains("sourceRoots is not configured"),
-                "body should hint at the missing config: " + r.body());
+        HttpResponse<String> r = get("/api/source?fqn=com.example.fakegen.StubProcessor", null, null);
+        Assertions.assertEquals(200, r.statusCode(), r.body());
+        Assertions.assertTrue(r.body().contains("\"root\":\"classpath:\""),
+                "classpath hit should be flagged via root marker: " + r.body());
+
+        // Miss with empty sourceRoots still returns 404 — but the body says
+        // classpath was attempted, not "sourceRoots not configured".
+        HttpResponse<String> miss = get("/api/source?fqn=com.example.nothere.Ghost", null, null);
+        Assertions.assertEquals(404, miss.statusCode());
+        Assertions.assertTrue(miss.body().contains("classpathChecked"),
+                "404 should advertise classpath was attempted even with no sourceRoots: " + miss.body());
     }
 
     @Test

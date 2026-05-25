@@ -1323,6 +1323,13 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
                 return;
             }
             byte[] bytes = in.readAllBytes();
+            // Surface the live processor's FQN to the client so the
+            // Processor graph UI can offer "view processor source" — the
+            // generated dispatcher class doesn't appear as a node inside
+            // its own graph, so the panel needs an out-of-band way to
+            // pick it up. Header is non-invasive: existing clients ignore
+            // it, source-nav clients read it.
+            ctx.header("X-Processor-Class", cls.getName());
             ctx.contentType("application/xml; charset=utf-8");
             ctx.result(bytes);
         } catch (java.io.IOException e) {
@@ -2000,28 +2007,26 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
 
     // FQN -> .java text lookup. Two-tier resolution:
     //   1. Filesystem — walks sourceRoots in declared order, first hit wins
-    //      (live-edit dev experience beats packaged copy).
+    //      (live-edit dev experience beats packaged copy). Gated on a
+    //      non-empty sourceRoots — operators must explicitly name which
+    //      directories the HTTP surface may read from.
     //   2. Classpath — ClassLoader.getResourceAsStream(<pkg>/<Class>.java).
-    //      Fluxtion 1.0.2+ packages generated source as a classpath resource
-    //      via copySourceToResourcesDirectory; this tier surfaces it when
-    //      the runtime is detached from its build tree.
+    //      Always-on. Fluxtion 1.0.2+ packages generated source as a
+    //      classpath resource via copySourceToResourcesDirectory, and
+    //      anything reachable via the classloader is already in the
+    //      deployable artefact (`jar tf` shows it) — gating this tier
+    //      adds no real protection. Operators who genuinely need to
+    //      disable the endpoint should remove the route registration
+    //      (or front-proxy 403 it).
     // The fqn query param must match a strict identifier pattern (letters
     // / digits / underscore / dot, optional `$` for inner classes) — that
     // is the *only* gate against path traversal; we never pass user input
     // into Path.resolve raw. After resolve+toRealPath, the resolved file
-    // is verified to live under the root (catches symlink escape). Empty
-    // sourceRoots = 404 with config hint, no FS exposure AND no classpath
-    // lookup (opt-in stays whole — operators who don't want the panel at
-    // all leave sourceRoots empty).
+    // is verified to live under the root (catches symlink escape).
     private static final java.util.regex.Pattern FQN_PATTERN =
             java.util.regex.Pattern.compile("[A-Za-z_$][A-Za-z0-9_$]*(\\.[A-Za-z_$][A-Za-z0-9_$]*)+");
 
     private void handleSourceLookup(Context ctx) {
-        if (sourceRoots == null || sourceRoots.isEmpty()) {
-            ctx.status(HttpStatus.NOT_FOUND);
-            ctx.json(Map.of("err", "source lookup disabled: WebAdminService.sourceRoots is not configured"));
-            return;
-        }
         String fqn = ctx.queryParam("fqn");
         if (fqn == null || !FQN_PATTERN.matcher(fqn).matches()) {
             ctx.status(HttpStatus.BAD_REQUEST);
@@ -2036,8 +2041,10 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         String relPath = topLevel.replace('.', '/') + ".java";
 
         // Tier 1 — filesystem sourceRoots. Filesystem first so live edits
-        // beat the packaged copy during local development.
-        for (String rootSpec : sourceRoots) {
+        // beat the packaged copy during local development. Skipped when
+        // operator hasn't opted in via sourceRoots.
+        List<String> roots = sourceRoots == null ? Collections.emptyList() : sourceRoots;
+        for (String rootSpec : roots) {
             java.nio.file.Path root;
             try {
                 root = java.nio.file.Paths.get(rootSpec).toRealPath();
@@ -2102,7 +2109,7 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         ctx.status(HttpStatus.NOT_FOUND);
         ctx.json(Map.of(
                 "err", "no source found for " + fqn,
-                "searched", sourceRoots,
+                "searched", roots,
                 "classpathChecked", true,
                 "relPath", relPath));
     }

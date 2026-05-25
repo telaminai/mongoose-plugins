@@ -1339,6 +1339,9 @@
                     <button class="btn btn-ghost btn-sm" @click="processorGraphFullGraph()"
                             :disabled="processorGraphCycleStage === 0 && !processorGraphFilterApplied"
                             title="Clear selection + restore the full graph">Full graph</button>
+                    <button class="btn btn-ghost btn-sm" @click="processorGraphShowProcessorSource()"
+                            :disabled="!processorGraphProcessorFqn"
+                            title="Open the generated processor class's own source (handleEvent dispatch table, exported service stubs, bufferEvent buffer-dispatch)">Processor source</button>
                 </div>
 
                 <!-- Sibling tab bar: graph canvas vs per-node stats table.
