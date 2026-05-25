@@ -1811,3 +1811,117 @@ textarea { resize: vertical; font-family: ui-monospace, Menlo, monospace; font-s
 :root[data-theme="light"] .yaml-string  { color: #166534; }
 :root[data-theme="light"] .yaml-num,
 :root[data-theme="light"] .yaml-bool    { color: #c2410c; }
+
+/* ─── Overview homepage ──────────────────────────────────────────────
+   Landing summary surface: five cards in a responsive grid. Cards keep
+   their own scroll independent of the page so a server with many
+   processors doesn't push the audit card off-screen. */
+.overview-header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 1rem;
+    margin: 0 0 1rem;
+    padding-bottom: 0.65rem;
+    border-bottom: 1px solid var(--border);
+}
+.overview-title {
+    margin: 0 0 0.15rem;
+    font-size: 1.5rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--fg);
+}
+.overview-sub { letter-spacing: 0.01em; }
+.overview-banner {
+    margin: 0 0 1rem;
+    padding: 0.5rem 0.8rem;
+    border-radius: 4px;
+    font-size: 0.85rem;
+}
+
+.overview-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr));
+    gap: 1rem;
+}
+.overview-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.85rem 1rem 0.75rem;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+.overview-card-wide { grid-column: 1 / -1; }
+.overview-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.6rem;
+    margin-bottom: 0.6rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+}
+.overview-card-head h2 {
+    margin: 0;
+    font-size: 0.78rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--fg-muted);
+}
+.overview-card-count {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.78rem;
+    color: var(--fg-muted);
+    background: var(--surface-2);
+    border-radius: 999px;
+    padding: 0.05rem 0.55rem;
+    min-width: 1.8rem;
+    text-align: center;
+}
+.overview-empty {
+    padding: 0.6rem 0;
+}
+.overview-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+}
+.overview-table thead th {
+    text-align: left;
+    font-weight: 500;
+    font-size: 0.66rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--fg-muted);
+    padding: 0.25rem 0.5rem;
+    border-bottom: 1px solid var(--border);
+}
+.overview-table tbody td {
+    padding: 0.35rem 0.5rem;
+    border-bottom: 1px solid var(--border-subtle, var(--border));
+    vertical-align: baseline;
+}
+.overview-table tbody tr:last-child td { border-bottom: none; }
+.overview-table tbody tr.overview-row-click { cursor: pointer; }
+.overview-table tbody tr.overview-row-click:hover {
+    background: var(--surface-2);
+}
+
+.overview-audit {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2rem;
+    padding: 0.25rem 0 0;
+}
+.overview-audit-stat { min-width: 12rem; }
+.overview-audit-stat > div + div { margin-top: 0.2rem; }
+
+.pill-muted {
+    background: var(--surface-2);
+    color: var(--fg-muted);
+    border: 1px solid var(--border);
+}

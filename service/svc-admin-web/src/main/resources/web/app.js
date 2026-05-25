@@ -20,7 +20,24 @@ const DEFAULT_MONITOR_RATE_MS = 1000;
 document.addEventListener('alpine:init', () => {
     Alpine.data('adminApp', () => ({
         // ── shell ──
-        activeView: 'dashboard',
+        activeView: 'overview',
+
+        // Overview homepage — single landing surface that summarises the
+        // running server. Aggregates /api/services + /api/agents + the
+        // audit-files list into one view-model. Loaded lazily on first
+        // nav into 'overview' and re-fetched per visit (cheap; the
+        // server endpoints are sub-100ms in practice). Stock Mongoose
+        // services are hidden from the Services panel via a hard-coded
+        // FQN denylist below — only operator-installed services surface.
+        overviewData: {
+            loading: false,
+            loadError: null,
+            processors: [],   // {name, group, classFqn, auditing}
+            feeds: [],        // {name, classFqn}
+            sinks: [],        // {name, classFqn}
+            services: [],     // {name, classFqn} — filtered by denylist
+            audit: { enabled: false, recordingProcessors: [], fileCount: 0 }
+        },
 
         // Left-nav category expand/collapse state. Persisted to
         // localStorage so the user's collapse pattern survives reload.
@@ -296,6 +313,11 @@ document.addEventListener('alpine:init', () => {
             this.openLogsWs();
             await this.probeLoaderBaseDir();
             await this.loadIntrospection();
+            // Overview is the default landing view — kick its initial
+            // load so the page isn't blank on first paint after auth.
+            if (this.activeView === 'overview') {
+                this.fetchOverview();
+            }
         },
 
         // ── view + theme ──
@@ -333,7 +355,127 @@ document.addEventListener('alpine:init', () => {
                 // they want to see it; the explicit "View YAML" button was
                 // friction.
                 this.loadConfig();
+            } else if (view === 'overview') {
+                // Overview pulls a fresh snapshot every visit — running
+                // server state (audit recording flags, registered processors)
+                // can change between visits, and the fetch is cheap.
+                this.fetchOverview();
             }
+        },
+
+        // ── Overview homepage ─────────────────────────────────────────────
+        // Hard-coded denylist of stock Mongoose service FQNs — keeps the
+        // "Services" panel focused on operator-installed surfaces. Stock
+        // entries are still reachable from the dedicated Services view.
+        _stockServiceFqns: new Set([
+            'com.telamin.mongoose.service.admin.AdminCommandRegistry',
+            'com.telamin.mongoose.service.admin.impl.AdminCommandProcessor',
+            'com.telamin.mongoose.service.servercontrol.MongooseServerAdmin',
+            'com.telamin.mongoose.service.servercontrol.MongooseServerController',
+            'com.telamin.mongoose.plugin.svc.adminweb.WebAdminService',
+            'com.telamin.mongoose.service.audit.MongooseAuditCaptureService',
+            'com.telamin.mongoose.service.audit.AuditIntrospection',
+            'com.telamin.mongoose.service.counters.MongooseCountersService',
+            'com.telamin.mongoose.service.counters.MongooseLatencyService',
+            'com.telamin.mongoose.service.introspection.MongooseIntrospectionService',
+            'com.telamin.mongoose.service.scheduler.SchedulerService',
+            'com.telamin.mongoose.internal.NoOpAuditCaptureService',
+            'com.telamin.mongoose.internal.NoOpCountersService',
+            'com.telamin.mongoose.internal.NoOpLatencyService',
+            'com.telamin.mongoose.internal.AgronaCountersService',
+            'com.telamin.mongoose.internal.AgronaLatencyService'
+        ]),
+
+        async fetchOverview() {
+            this.overviewData.loading = true;
+            this.overviewData.loadError = null;
+            try {
+                // Parallel fetch — three independent endpoints, no
+                // dependencies between them. /api/audit/files often 404s
+                // (audit capture optional); treat that as "no audit".
+                const opts = { credentials: 'same-origin' };
+                const [svcRes, agentsRes, auditRes] = await Promise.all([
+                    fetch('/api/services', opts),
+                    fetch('/api/agents', opts),
+                    fetch('/api/audit/files', opts)
+                ]);
+
+                const services = svcRes.ok ? (await svcRes.json()).services ?? [] : [];
+                const agents   = agentsRes.ok ? (await agentsRes.json()).agents ?? [] : [];
+                const audit    = auditRes.ok ? await auditRes.json() : null;
+
+                const feeds = [];
+                const sinks = [];
+                const otherSvcs = [];
+                for (const s of services) {
+                    if (s.type === 'feed') feeds.push({ name: s.name, classFqn: s.className });
+                    else if (s.type === 'sink') sinks.push({ name: s.name, classFqn: s.className });
+                    else if (!this._stockServiceFqns.has(s.className)) {
+                        otherSvcs.push({ name: s.name, classFqn: s.className });
+                    }
+                }
+
+                // Audit-files response shape: { files: [{processor, ...}], serviceState: 'operational'|... }.
+                // 'Recording processors' = the unique set of processor names
+                // that have at least one open / live audit file.
+                const recording = new Set();
+                let fileCount = 0;
+                let auditEnabled = false;
+                if (audit) {
+                    auditEnabled = audit.serviceState
+                            ? audit.serviceState !== 'noop'
+                            : true;
+                    const files = audit.files || [];
+                    fileCount = files.length;
+                    for (const f of files) {
+                        if (f.processor) recording.add(f.processor);
+                    }
+                }
+
+                const processors = [];
+                for (const a of agents) {
+                    const groupName = a.name || a.group || '';
+                    for (const p of (a.processors || [])) {
+                        processors.push({
+                            name: p.name,
+                            group: groupName,
+                            classFqn: p.className || p.class || '',
+                            auditing: recording.has(p.name)
+                        });
+                    }
+                }
+
+                this.overviewData.processors = processors;
+                this.overviewData.feeds = feeds;
+                this.overviewData.sinks = sinks;
+                this.overviewData.services = otherSvcs;
+                this.overviewData.audit = {
+                    enabled: auditEnabled,
+                    recordingProcessors: [...recording],
+                    fileCount
+                };
+            } catch (e) {
+                this.overviewData.loadError = String(e.message || e);
+            } finally {
+                this.overviewData.loading = false;
+            }
+        },
+
+        /** Friendly short name for an FQN — "PnlSummaryCalc" from
+         *  "com.example.pnl.PnlSummaryCalc". Used by overview tables to
+         *  keep rows tight without losing the qualified name (full FQN
+         *  available via title attribute for hover). */
+        simpleClassName(fqn) {
+            if (!fqn) return '';
+            const dot = fqn.lastIndexOf('.');
+            return dot >= 0 ? fqn.substring(dot + 1) : fqn;
+        },
+
+        /** Click handler for an overview processor row — jumps into the
+         *  full Processor-graph view scoped to that processor. */
+        overviewOpenProcessor(p) {
+            this.processorGraphTarget = { group: p.group, name: p.name };
+            this.go('processor-graph');
         },
 
         toggleTheme() {

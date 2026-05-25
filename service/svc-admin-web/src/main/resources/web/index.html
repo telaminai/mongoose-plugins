@@ -108,20 +108,27 @@
                     aria-label="toggle navigation">
                 <span x-text="navCollapsed ? '»' : '«'"></span>
             </button>
-            <!-- Home — single top-level item, no category header. -->
+            <!-- Overview — landing summary: processors / feeds / sinks /
+                 key services / audit state. Default view on load. -->
             <div class="nav-group">
-                <button class="nav-item" :class="{active: activeView==='dashboard'}" @click="go('dashboard')">
-                    <svg class="ico"><use href="#i-dashboard"/></svg><span>Home</span>
+                <button class="nav-item" :class="{active: activeView==='overview'}" @click="go('overview')">
+                    <svg class="ico"><use href="#i-dashboard"/></svg><span>Overview</span>
                 </button>
             </div>
 
-            <!-- Monitor — observability surfaces. -->
+            <!-- Monitor — observability surfaces (VM gauges, logs,
+                 performance, topology). The VM dashboard used to live as
+                 "Home"; demoted to a Monitor child now that Overview
+                 owns the landing surface. -->
             <div class="nav-group">
                 <button type="button" class="nav-group-head" @click="navToggle('monitor')">
                     <span class="nav-caret" x-text="navExpanded.monitor ? '▾' : '▸'"></span>
                     <span class="nav-label">Monitor</span>
                 </button>
                 <div x-show="navExpanded.monitor" x-cloak>
+                    <button class="nav-item" :class="{active: activeView==='dashboard'}" @click="go('dashboard')">
+                        <svg class="ico"><use href="#i-dashboard"/></svg><span>VM</span>
+                    </button>
                     <button class="nav-item" :class="{active: activeView==='logs'}" @click="go('logs')">
                         <svg class="ico"><use href="#i-logs"/></svg><span>Logs</span>
                         <span class="nav-dot" :class="logsStatus==='live' ? 'on' : ''"></span>
@@ -233,6 +240,161 @@
                 <svg class="ico"><use href="#i-warn"/></svg>
                 <span><strong>Authentication is disabled.</strong> This console is unprotected — intended for local development only.</span>
             </div>
+
+            <!-- ─── Overview — server-summary homepage ──────────────────────
+                 Five-card landing surface: processors / feeds / sinks /
+                 key services (stock-class denylist applied client-side) /
+                 audit state. Each card is independently scrollable so a
+                 server with many processors doesn't crowd out the sinks.
+                 Refetches on every visit; cheap because all three backing
+                 endpoints are in-memory. -->
+            <section class="view" x-show="activeView==='overview'">
+                <header class="overview-header">
+                    <div>
+                        <h1 class="overview-title">Server overview</h1>
+                        <div class="overview-sub mono small muted"
+                             x-text="(server?.runtime || 'Mongoose') + ' · ' + (overviewData.processors.length) + ' processors, ' + (overviewData.feeds.length) + ' feeds, ' + (overviewData.sinks.length) + ' sinks'"></div>
+                    </div>
+                    <button class="btn btn-ghost btn-sm" @click="fetchOverview()" :disabled="overviewData.loading">
+                        <span x-show="!overviewData.loading">Refresh</span>
+                        <span x-show="overviewData.loading">Loading…</span>
+                    </button>
+                </header>
+
+                <div class="overview-banner banner-err" x-show="overviewData.loadError"
+                     x-text="overviewData.loadError"></div>
+
+                <div class="overview-grid">
+                    <!-- Processors -->
+                    <section class="overview-card">
+                        <header class="overview-card-head">
+                            <h2>Processors</h2>
+                            <span class="overview-card-count" x-text="overviewData.processors.length"></span>
+                        </header>
+                        <div class="overview-empty muted small"
+                             x-show="!overviewData.loading && overviewData.processors.length === 0">
+                            No processors registered.
+                        </div>
+                        <table class="overview-table" x-show="overviewData.processors.length">
+                            <thead><tr>
+                                <th>Name</th><th>Agent</th><th>Audit</th><th>Class</th>
+                            </tr></thead>
+                            <tbody>
+                                <template x-for="p in overviewData.processors" :key="p.group + ':' + p.name">
+                                    <tr class="overview-row-click" @click="overviewOpenProcessor(p)" :title="'Open processor graph for ' + p.name">
+                                        <td class="mono" x-text="p.name"></td>
+                                        <td class="muted small" x-text="p.group"></td>
+                                        <td>
+                                            <span class="pill" :class="p.auditing ? 'pill-ok' : 'pill-muted'"
+                                                  x-text="p.auditing ? 'recording' : 'off'"></span>
+                                        </td>
+                                        <td class="mono small muted" :title="p.classFqn"
+                                            x-text="simpleClassName(p.classFqn)"></td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </section>
+
+                    <!-- Feeds -->
+                    <section class="overview-card">
+                        <header class="overview-card-head">
+                            <h2>Feeds</h2>
+                            <span class="overview-card-count" x-text="overviewData.feeds.length"></span>
+                        </header>
+                        <div class="overview-empty muted small"
+                             x-show="!overviewData.loading && overviewData.feeds.length === 0">
+                            No feeds registered.
+                        </div>
+                        <table class="overview-table" x-show="overviewData.feeds.length">
+                            <thead><tr><th>Name</th><th>Class</th></tr></thead>
+                            <tbody>
+                                <template x-for="f in overviewData.feeds" :key="f.name">
+                                    <tr>
+                                        <td class="mono" x-text="f.name"></td>
+                                        <td class="mono small muted" :title="f.classFqn"
+                                            x-text="simpleClassName(f.classFqn)"></td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </section>
+
+                    <!-- Sinks -->
+                    <section class="overview-card">
+                        <header class="overview-card-head">
+                            <h2>Sinks</h2>
+                            <span class="overview-card-count" x-text="overviewData.sinks.length"></span>
+                        </header>
+                        <div class="overview-empty muted small"
+                             x-show="!overviewData.loading && overviewData.sinks.length === 0">
+                            No sinks registered.
+                        </div>
+                        <table class="overview-table" x-show="overviewData.sinks.length">
+                            <thead><tr><th>Name</th><th>Class</th></tr></thead>
+                            <tbody>
+                                <template x-for="s in overviewData.sinks" :key="s.name">
+                                    <tr>
+                                        <td class="mono" x-text="s.name"></td>
+                                        <td class="mono small muted" :title="s.classFqn"
+                                            x-text="simpleClassName(s.classFqn)"></td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </section>
+
+                    <!-- Key services — stock Mongoose plumbing filtered out. -->
+                    <section class="overview-card">
+                        <header class="overview-card-head">
+                            <h2>Services</h2>
+                            <span class="overview-card-count" x-text="overviewData.services.length"></span>
+                        </header>
+                        <div class="overview-empty muted small"
+                             x-show="!overviewData.loading && overviewData.services.length === 0">
+                            No operator-installed services — stock Mongoose plumbing is filtered out. See the dedicated <a href="#" @click.prevent="go('services'); servicesTab='service'">Services</a> view for the full list.
+                        </div>
+                        <table class="overview-table" x-show="overviewData.services.length">
+                            <thead><tr><th>Name</th><th>Class</th></tr></thead>
+                            <tbody>
+                                <template x-for="svc in overviewData.services" :key="svc.name">
+                                    <tr>
+                                        <td class="mono" x-text="svc.name"></td>
+                                        <td class="mono small muted" :title="svc.classFqn"
+                                            x-text="simpleClassName(svc.classFqn)"></td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </section>
+
+                    <!-- Audit state — capture enabled, what's recording,
+                         and how much it's written. Single card spanning
+                         the row at the bottom of the grid. -->
+                    <section class="overview-card overview-card-wide">
+                        <header class="overview-card-head">
+                            <h2>Audit capture</h2>
+                            <span class="pill" :class="overviewData.audit.enabled ? 'pill-ok' : 'pill-muted'"
+                                  x-text="overviewData.audit.enabled ? 'enabled' : 'disabled'"></span>
+                        </header>
+                        <div class="overview-audit">
+                            <div class="overview-audit-stat">
+                                <div class="muted small">Recording</div>
+                                <div class="mono" x-text="overviewData.audit.recordingProcessors.length + ' processor(s)'"></div>
+                                <div class="mono small muted" x-text="overviewData.audit.recordingProcessors.join(', ') || '—'"></div>
+                            </div>
+                            <div class="overview-audit-stat">
+                                <div class="muted small">Files on disk</div>
+                                <div class="mono" x-text="overviewData.audit.fileCount"></div>
+                            </div>
+                            <div class="overview-audit-stat">
+                                <div class="muted small">Actions</div>
+                                <button class="btn btn-ghost btn-sm" @click="go('replay')">Open replay</button>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+            </section>
 
             <!-- ─── Dashboard ──────────────────────────────────────────── -->
             <section class="view" x-show="activeView==='dashboard'">
