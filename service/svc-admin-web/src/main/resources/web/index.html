@@ -2404,6 +2404,48 @@
                             </button>
                         </form>
                     </div>
+                    <!-- Feed + sink loaders: simpler form than yaml/spring
+                         (no Group dimension; feed/sink names are
+                         server-global). YAML input is a single
+                         EventFeedConfig / EventSinkConfig mapping. -->
+                    <div class="card" x-show="hasFeedLoader()">
+                        <div class="card-head"><h2>Feed loader</h2></div>
+                        <form @submit.prevent="feedCompile()">
+                            <label class="field-label">Path</label>
+                            <div class="input-with-btn">
+                                <input type="text" x-model="feedPath" placeholder="feed.yaml">
+                                <button class="btn btn-ghost btn-sm" type="button" @click="openPicker('feedPath')" x-show="loaderBaseDirAvailable">
+                                    <svg class="ico"><use href="#i-folder"/></svg>Browse
+                                </button>
+                            </div>
+                            <label class="field-label" style="margin-top:.5rem">
+                                <input type="checkbox" x-model="feedPersist">
+                                Persist for restart
+                            </label>
+                            <button type="submit" class="btn btn-primary" :disabled="loaderBusy || !feedPath">
+                                <span x-text="feedPersist ? 'Persist + add' : 'Add feed'"></span>
+                            </button>
+                        </form>
+                    </div>
+                    <div class="card" x-show="hasSinkLoader()">
+                        <div class="card-head"><h2>Sink loader</h2></div>
+                        <form @submit.prevent="sinkCompile()">
+                            <label class="field-label">Path</label>
+                            <div class="input-with-btn">
+                                <input type="text" x-model="sinkPath" placeholder="sink.yaml">
+                                <button class="btn btn-ghost btn-sm" type="button" @click="openPicker('sinkPath')" x-show="loaderBaseDirAvailable">
+                                    <svg class="ico"><use href="#i-folder"/></svg>Browse
+                                </button>
+                            </div>
+                            <label class="field-label" style="margin-top:.5rem">
+                                <input type="checkbox" x-model="sinkPersist">
+                                Persist for restart
+                            </label>
+                            <button type="submit" class="btn btn-primary" :disabled="loaderBusy || !sinkPath">
+                                <span x-text="sinkPersist ? 'Persist + add' : 'Add sink'"></span>
+                            </button>
+                        </form>
+                    </div>
                 </div>
                 <div class="card" x-show="loaderOutput.length || loaderErr.length">
                     <div class="card-head"><h2>Result</h2></div>
@@ -2470,6 +2512,58 @@
                             </tbody>
                         </table>
                         <p class="muted" x-show="!persistedSpring.length">No persisted Spring configs. Tick "Persist for restart" above and submit one to populate this list.</p>
+                    </div>
+                    <div class="card" x-show="hasFeedLoader()">
+                        <div class="card-head">
+                            <h2>Persisted feeds</h2>
+                            <button type="button" class="btn btn-ghost btn-sm" @click="loadPersisted('feed')">Refresh</button>
+                        </div>
+                        <table class="tbl" x-show="persistedFeed.length">
+                            <thead><tr><th>File</th><th>Enabled</th><th>Last error</th><th></th></tr></thead>
+                            <tbody>
+                            <template x-for="e in persistedFeed" :key="e.group + '/' + e.file">
+                                <tr>
+                                    <td x-text="e.file"></td>
+                                    <td><input type="checkbox" :checked="e.enabled" @change="togglePersistedEnabled('feed', e.group, e.file, $event.target.checked)"></td>
+                                    <td>
+                                        <span x-show="!e.lastError" class="muted">OK</span>
+                                        <span x-show="e.lastError" class="err persist-err-cell" :title="e.lastError || ''" x-text="(e.lastError || '').split('\n')[0]"></span>
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-ghost btn-sm" type="button" @click="viewPersisted('feed', e.group, e.file)">View</button>
+                                        <button class="btn btn-ghost btn-sm" type="button" @click="removePersisted('feed', e.group, e.file)">Remove</button>
+                                    </td>
+                                </tr>
+                            </template>
+                            </tbody>
+                        </table>
+                        <p class="muted" x-show="!persistedFeed.length">No persisted feeds. Tick "Persist for restart" above and submit one to populate this list.</p>
+                    </div>
+                    <div class="card" x-show="hasSinkLoader()">
+                        <div class="card-head">
+                            <h2>Persisted sinks</h2>
+                            <button type="button" class="btn btn-ghost btn-sm" @click="loadPersisted('sink')">Refresh</button>
+                        </div>
+                        <table class="tbl" x-show="persistedSink.length">
+                            <thead><tr><th>File</th><th>Enabled</th><th>Last error</th><th></th></tr></thead>
+                            <tbody>
+                            <template x-for="e in persistedSink" :key="e.group + '/' + e.file">
+                                <tr>
+                                    <td x-text="e.file"></td>
+                                    <td><input type="checkbox" :checked="e.enabled" @change="togglePersistedEnabled('sink', e.group, e.file, $event.target.checked)"></td>
+                                    <td>
+                                        <span x-show="!e.lastError" class="muted">OK</span>
+                                        <span x-show="e.lastError" class="err persist-err-cell" :title="e.lastError || ''" x-text="(e.lastError || '').split('\n')[0]"></span>
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-ghost btn-sm" type="button" @click="viewPersisted('sink', e.group, e.file)">View</button>
+                                        <button class="btn btn-ghost btn-sm" type="button" @click="removePersisted('sink', e.group, e.file)">Remove</button>
+                                    </td>
+                                </tr>
+                            </template>
+                            </tbody>
+                        </table>
+                        <p class="muted" x-show="!persistedSink.length">No persisted sinks. Tick "Persist for restart" above and submit one to populate this list.</p>
                     </div>
                 </div>
 

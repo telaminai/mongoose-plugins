@@ -330,6 +330,13 @@ document.addEventListener('alpine:init', () => {
         springPath: '',
         springGroup: '',
         springPersist: false,
+        // feed/sink: no group dimension — feed/sink names are
+        // server-global, so the loaders use a fixed "feeds" / "sinks"
+        // group internally for the persistent dir layout.
+        feedPath: '',
+        feedPersist: false,
+        sinkPath: '',
+        sinkPersist: false,
         loaderOutput: [],
         loaderErr: [],
 
@@ -339,6 +346,8 @@ document.addEventListener('alpine:init', () => {
         // persist / toggle / remove action.
         persistedYaml: [],
         persistedSpring: [],
+        persistedFeed: [],
+        persistedSink: [],
         // Inline viewer (modal-ish overlay) for source preview.
         persistViewerOpen: false,
         persistViewerKind: null,   // 'yaml' | 'spring'
@@ -457,6 +466,8 @@ document.addEventListener('alpine:init', () => {
                 // out-of-band.
                 if (this.hasYamlLoader())   this.loadPersisted('yaml');
                 if (this.hasSpringLoader()) this.loadPersisted('spring');
+                if (this.hasFeedLoader())   this.loadPersisted('feed');
+                if (this.hasSinkLoader())   this.loadPersisted('sink');
             }
         },
 
@@ -4092,7 +4103,12 @@ document.addEventListener('alpine:init', () => {
         },
         hasYamlLoader()   { return this.commands.some(c => c.startsWith('yamlLoader.')); },
         hasSpringLoader() { return this.commands.some(c => c.startsWith('springLoader.')); },
-        hasLoaderCommands() { return this.hasYamlLoader() || this.hasSpringLoader(); },
+        hasFeedLoader()   { return this.commands.some(c => c.startsWith('feedLoader.')); },
+        hasSinkLoader()   { return this.commands.some(c => c.startsWith('sinkLoader.')); },
+        hasLoaderCommands() {
+            return this.hasYamlLoader() || this.hasSpringLoader()
+                || this.hasFeedLoader() || this.hasSinkLoader();
+        },
 
         // ── command invocation helper (no UI runner state) ──
 
@@ -4144,30 +4160,45 @@ document.addEventListener('alpine:init', () => {
 
         async yamlCompile()   { return this._loaderCompile('yaml');   },
         async springCompile() { return this._loaderCompile('spring'); },
+        async feedCompile()   { return this._loaderCompile('feed');   },
+        async sinkCompile()   { return this._loaderCompile('sink');   },
 
-        /** Single compile pipeline. Routes to compileProcessor or
-         *  persistAndCompile based on the kind's Persist checkbox.
-         *  When persistence succeeds, the list refresh + introspection
-         *  refresh both fire so the UI catches up. */
+        /** Per-kind metadata: form field names, command names, label
+         *  used in toasts. yaml/spring have a `group` dimension and use
+         *  `compileProcessor`; feed/sink are single-name and use
+         *  `compile`. */
+        _loaderKindMeta(kind) {
+            switch (kind) {
+                case 'yaml':   return { hasGroup: true,  command: 'compileProcessor', label: 'YAML',   noun: 'processor' };
+                case 'spring': return { hasGroup: true,  command: 'compileProcessor', label: 'Spring', noun: 'processor' };
+                case 'feed':   return { hasGroup: false, command: 'compile',          label: 'Feed',   noun: 'feed' };
+                case 'sink':   return { hasGroup: false, command: 'compile',          label: 'Sink',   noun: 'sink' };
+                default: throw new Error('unknown loader kind: ' + kind);
+            }
+        },
+
+        /** Single compile pipeline for any loader kind. Routes to
+         *  {kind}Loader.{command} or {kind}Loader.persistAndCompile
+         *  based on the kind's Persist checkbox. */
         async _loaderCompile(kind) {
-            const path    = kind === 'yaml' ? this.yamlPath    : this.springPath;
-            const group   = kind === 'yaml' ? this.yamlGroup   : this.springGroup;
-            const persist = kind === 'yaml' ? this.yamlPersist : this.springPersist;
+            const meta    = this._loaderKindMeta(kind);
+            const path    = this[`${kind}Path`];
+            const group   = meta.hasGroup ? this[`${kind}Group`] : '';
+            const persist = this[`${kind}Persist`];
             if (!path) return;
             this.loaderBusy = true;
-            const args = group ? [path, group] : [path];
+            const args = (meta.hasGroup && group) ? [path, group] : [path];
             const cmd = persist
                 ? `${kind}Loader.persistAndCompile`
-                : `${kind}Loader.compileProcessor`;
+                : `${kind}Loader.${meta.command}`;
             const res = await this.invokeRaw(cmd, args);
             this.loaderOutput = res.output || [];
             this.loaderErr    = res.err    || [];
             this.loaderBusy = false;
             const failed = res.err && res.err.length;
-            const label = kind === 'yaml' ? 'YAML' : 'Spring';
             this.toast(failed
-                    ? `${label} compile failed`
-                    : (persist ? `${label} processor persisted + compiled` : `${label} processor compiled`),
+                    ? `${meta.label} compile failed`
+                    : (persist ? `${meta.label} ${meta.noun} persisted + added` : `${meta.label} ${meta.noun} added`),
                 failed ? 'error' : 'success');
             if (!failed) {
                 this._refreshAfterLoaderCompile();
@@ -4208,8 +4239,10 @@ document.addEventListener('alpine:init', () => {
         },
 
         _setPersistedList(kind, entries) {
-            if (kind === 'yaml')  this.persistedYaml  = entries;
-            else                  this.persistedSpring = entries;
+            if      (kind === 'yaml')   this.persistedYaml   = entries;
+            else if (kind === 'spring') this.persistedSpring = entries;
+            else if (kind === 'feed')   this.persistedFeed   = entries;
+            else if (kind === 'sink')   this.persistedSink   = entries;
         },
 
         async togglePersistedEnabled(kind, group, file, nextEnabled) {
@@ -4251,6 +4284,9 @@ document.addEventListener('alpine:init', () => {
                 // fallback. .yml + .yaml → yaml; .xml → xml; anything
                 // else falls back to plain-text (just HTML-escaped).
                 const lower = (file || '').toLowerCase();
+                // Spring uses XML, every other kind uses YAML. Extension
+                // sniff wins when present (operator may name a Spring
+                // file .yaml or vice versa).
                 const lang = lower.endsWith('.xml') ? 'xml'
                         : (lower.endsWith('.yml') || lower.endsWith('.yaml')) ? 'yaml'
                         : (kind === 'spring' ? 'xml' : 'yaml');
