@@ -2129,6 +2129,8 @@
                         </span>
                         <span class="flex-spacer"></span>
                         <button class="btn btn-ghost btn-sm" @click="complianceEnter()" :disabled="complianceLoading">Refresh</button>
+                        <button class="btn btn-ghost btn-sm" @click="complianceDownloadPdf()" :disabled="!complianceReport"
+                                title="Open a print-ready HTML version of the report in a new window and trigger the browser print dialog — choose &quot;Save as PDF&quot; to download. Embeds the graphml snapshot.">Download PDF</button>
                         <button class="btn btn-ghost btn-sm" @click="complianceDownloadMarkdown()" :disabled="!complianceReport"
                                 title="Download a Markdown report with embedded graphml snapshot, inputs/outputs tables, and deployed jar versions. Pipe through pandoc for PDF.">Download report (.md)</button>
                         <button class="btn btn-ghost btn-sm" @click="complianceDownload()" :disabled="!complianceReport"

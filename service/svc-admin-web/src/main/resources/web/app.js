@@ -2776,10 +2776,8 @@ document.addEventListener('alpine:init', () => {
                 try { await this.loadVersions(); } catch (_) {}
             }
             const target = this.processorGraphTarget || {};
-            const fqn = this.processorGraphProcessorFqn || '(unknown)';
             const now = new Date();
-            const stamp = now.toISOString();
-            const stampFile = stamp.replace(/[:.]/g, '-');
+            const stampFile = now.toISOString().replace(/[:.]/g, '-');
             const r = this.processorGraphReport(now);
             const blob = new Blob([r], { type: 'text/markdown' });
             const url = URL.createObjectURL(blob);
@@ -2790,6 +2788,156 @@ document.addEventListener('alpine:init', () => {
             a.click();
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
+        },
+
+        /** Open a print-ready HTML version of the report in a new
+         *  window and trigger the browser print dialog. The user picks
+         *  "Save as PDF" (every modern browser surfaces this as a
+         *  destination) to download. Same content as the Markdown
+         *  export, just formatted with @media print styles + a real
+         *  HTML structure. No PDF library dependency — every browser
+         *  ships a print-to-PDF path. */
+        async complianceDownloadPdf() {
+            if (!this.complianceReport) return;
+            if (!this.versions) {
+                try { await this.loadVersions(); } catch (_) {}
+            }
+            const html = this._complianceReportHtml(new Date());
+            // popup blockers can refuse window.open with no user gesture
+            // — this method is wired to a button click so we have the
+            // gesture, but bail with a toast if the call still returns
+            // null (extension blocks, ad-blockers, etc).
+            const win = window.open('', '_blank');
+            if (!win) {
+                this.toast('Pop-ups blocked — allow them for this site to export PDF', 'err');
+                return;
+            }
+            win.document.open();
+            win.document.write(html);
+            win.document.close();
+            // Wait for the embedded image to load before printing —
+            // otherwise the print dialog opens with a blank topology
+            // slot. document-load fires after image-load; if no image
+            // we still fire on document ready.
+            const fire = () => { win.focus(); win.print(); };
+            if (win.document.readyState === 'complete') {
+                // give layout a tick to settle the image dimensions
+                setTimeout(fire, 100);
+            } else {
+                win.addEventListener('load', () => setTimeout(fire, 100));
+            }
+        },
+
+        /** Build a self-contained HTML version of the compliance report
+         *  for the print-to-PDF path. Same data sources + section
+         *  layout as the markdown export; styling uses @media print
+         *  to keep colours muted on paper and force page-breaks before
+         *  major sections so the topology image isn't split across
+         *  pages. */
+        _complianceReportHtml(now) {
+            const target = this.processorGraphTarget || {};
+            const fqn = this.processorGraphProcessorFqn || '(unknown)';
+            const stamp = (now || new Date()).toISOString();
+            const cy = this.processorGraphRenderer?.cy;
+            // Snapshot — drop selection before capture so the report
+            // shows the full graph, restore after.
+            const prevCycle = this.processorGraphCycleStage;
+            const prevFocus = this.processorGraphCycleFocus;
+            this.processorGraphCycleStage = 0;
+            this.processorGraphCycleFocus = null;
+            this._applyProcessorGraphHighlight();
+            let pngDataUri = '';
+            try {
+                if (cy) pngDataUri = cy.png({ full: true, scale: 2, output: 'base64uri' });
+            } catch (e) { console.warn('compliance PNG export failed', e); }
+            this.processorGraphCycleStage = prevCycle;
+            this.processorGraphCycleFocus = prevFocus;
+            this._applyProcessorGraphHighlight();
+
+            const report   = this.complianceReport || {};
+            const inputs   = report.inputs   || [];
+            const outputs  = report.outputs  || [];
+            const services = report.services || [];
+            const warnings = report.warnings || [];
+
+            const esc = (s) => String(s == null ? '' : s)
+                    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const cfgCell = (cfg) => {
+                if (cfg == null || typeof cfg !== 'object') return '<span class="muted">—</span>';
+                const items = Object.entries(cfg).map(
+                        ([k, v]) => `<div class="cfg-line"><code>${esc(k)}</code>=<code>${esc(v == null ? '(null)' : v)}</code></div>`);
+                return items.length ? items.join('') : '<span class="muted">—</span>';
+            };
+            const endpointRows = (rows) => rows.map(ep =>
+                    `<tr><td><code>${esc(ep.name)}</code></td><td><code>${esc(ep.className)}</code></td><td>${cfgCell(ep.config)}</td></tr>`).join('');
+
+            const versions = this.versions || {};
+            const versionRows = Object.entries(versions)
+                    .filter(([, v]) => v && v !== 'absent')
+                    .map(([k, v]) => `<tr><td><code>${esc(k)}</code></td><td><code>${esc(v)}</code></td></tr>`).join('');
+
+            return [
+                '<!doctype html>',
+                '<html lang="en"><head>',
+                '<meta charset="utf-8">',
+                `<title>Compliance — ${esc(target.name || 'processor')}</title>`,
+                '<style>',
+                '  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #1a2129; margin: 2rem 2.5rem; }',
+                '  h1 { font-size: 1.5rem; margin: 0 0 0.25rem; letter-spacing: -0.02em; }',
+                '  h2 { font-size: 1.05rem; font-weight: 600; margin: 1.6rem 0 0.5rem; border-bottom: 1px solid #dde2e8; padding-bottom: 0.2rem; }',
+                '  h3 { font-size: 0.9rem; font-weight: 600; margin: 1rem 0 0.4rem; color: #66707b; }',
+                '  p, td, th, li { font-size: 0.86rem; line-height: 1.45; }',
+                '  .meta { color: #66707b; font-size: 0.78rem; margin-bottom: 1.5rem; }',
+                '  table { width: 100%; border-collapse: collapse; margin: 0.6rem 0 1rem; }',
+                '  th, td { padding: 0.4rem 0.55rem; border-bottom: 1px solid #dde2e8; text-align: left; vertical-align: top; }',
+                '  th { font-size: 0.66rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #66707b; }',
+                '  code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.78rem; background: #f4f6f8; padding: 0.05rem 0.3rem; border-radius: 3px; }',
+                '  .muted { color: #939ca6; font-size: 0.78rem; }',
+                '  .cfg-line { margin-bottom: 0.18rem; }',
+                '  .warn { background: #fdf3e3; border-left: 3px solid #c77400; padding: 0.4rem 0.6rem; margin: 0.3rem 0; }',
+                '  .topology { margin: 1rem 0; text-align: center; }',
+                '  .topology img { max-width: 100%; height: auto; border: 1px solid #dde2e8; border-radius: 4px; }',
+                '  .field-grid { display: grid; grid-template-columns: max-content 1fr; gap: 0.3rem 1.2rem; margin: 0.6rem 0 1rem; }',
+                '  .field-grid .k { color: #66707b; font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.06em; }',
+                '  .footer { margin-top: 2rem; padding-top: 0.8rem; border-top: 1px solid #dde2e8; font-size: 0.74rem; color: #939ca6; }',
+                '  @media print {',
+                '    body { margin: 1.5cm; }',
+                '    h2 { break-after: avoid; }',
+                '    table, .topology { break-inside: avoid; }',
+                '    code { background: transparent; padding: 0; }',
+                '  }',
+                '  @page { margin: 1.5cm; }',
+                '</style>',
+                '</head><body>',
+                `<h1>Compliance report — <code>${esc(target.name || '(unknown)')}</code></h1>`,
+                `<div class="meta">Generated ${esc(stamp)} · svc-admin-web</div>`,
+                '<h2>Processor</h2>',
+                '<div class="field-grid">',
+                `  <div class="k">Name</div><div><code>${esc(target.name || '')}</code></div>`,
+                `  <div class="k">Agent group</div><div><code>${esc(target.group || '')}</code></div>`,
+                `  <div class="k">Class FQN</div><div><code>${esc(fqn)}</code></div>`,
+                '</div>',
+                (pngDataUri ? `<h2>Topology</h2><div class="topology"><img src="${pngDataUri}" alt="${esc(target.name || 'processor')} graph"></div>` : ''),
+                (warnings.length ? `<h2>Warnings</h2>${warnings.map(w => `<div class="warn">${esc(w)}</div>`).join('')}` : ''),
+                `<h2>Inputs <span class="muted">(${inputs.length})</span></h2>`,
+                '<p class="muted">Feeds this processor reads from.</p>',
+                (inputs.length
+                        ? `<table><thead><tr><th>Name</th><th>Class</th><th>Config</th></tr></thead><tbody>${endpointRows(inputs)}</tbody></table>`
+                        : '<p class="muted">None.</p>'),
+                `<h2>Outputs <span class="muted">(${outputs.length})</span></h2>`,
+                '<p class="muted">Sinks this processor writes to.</p>',
+                (outputs.length
+                        ? `<table><thead><tr><th>Name</th><th>Class</th><th>Config</th></tr></thead><tbody>${endpointRows(outputs)}</tbody></table>`
+                        : '<p class="muted">None.</p>'),
+                (services.length
+                        ? `<h2>Bound services <span class="muted">(${services.length})</span></h2><table><thead><tr><th>Name</th><th>Class</th><th>Config</th></tr></thead><tbody>${endpointRows(services)}</tbody></table>`
+                        : ''),
+                (versionRows
+                        ? `<h2>Deployed versions</h2><table><thead><tr><th>Component</th><th>Version</th></tr></thead><tbody>${versionRows}</tbody></table>`
+                        : ''),
+                `<div class="footer">Compiled by Mongoose admin console at ${esc(stamp)}</div>`,
+                '</body></html>'
+            ].join('\n');
         },
 
         /** Assemble the markdown report body. Returns a single string;
