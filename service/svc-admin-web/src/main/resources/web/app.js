@@ -319,6 +319,11 @@ document.addEventListener('alpine:init', () => {
         // ── loader panel ──
         loaderBusy: false,
         loaderBaseDirAvailable: false,
+        // Absolute filesystem path of the server's loaderBaseDir, set
+        // by loadPicker on its first response. pickerSelect uses it to
+        // build absolute paths that admin commands can resolve from
+        // any CWD.
+        pickerBaseDir: '',
         yamlPath: '',
         yamlGroup: '',
         springPath: '',
@@ -4156,6 +4161,11 @@ document.addEventListener('alpine:init', () => {
                 const r = await fetch('/api/files' + qs, { credentials: 'same-origin' });
                 if (!r.ok) { this.pickerEntries = []; return; }
                 const data = await r.json();
+                // baseDir is the absolute filesystem path of loaderBaseDir
+                // on the server; we cache it so pickerSelect can stitch
+                // together a full absolute path the loader services can
+                // resolve regardless of the server's CWD.
+                this.pickerBaseDir = data.baseDir || '';
                 this.pickerCwd = data.cwd || '';
                 this.pickerEntries = data.entries || [];
             } catch (e) {
@@ -4167,7 +4177,17 @@ document.addEventListener('alpine:init', () => {
             if (e.isDir) {
                 await this.loadPicker(next);
             } else {
-                this[this.pickerTargetField] = next;
+                // Stitch baseDir + cwd-relative file name into an absolute
+                // path so the receiving admin command (yamlLoader.* /
+                // springLoader.*) finds the file from any working
+                // directory. Falls back to just `next` if baseDir wasn't
+                // returned (older server build).
+                let path = next;
+                if (this.pickerBaseDir) {
+                    const sep = this.pickerBaseDir.endsWith('/') ? '' : '/';
+                    path = this.pickerBaseDir + sep + next;
+                }
+                this[this.pickerTargetField] = path;
                 this.pickerOpen = false;
             }
         },

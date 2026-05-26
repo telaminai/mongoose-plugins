@@ -2181,6 +2181,13 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         }
         String relForResp = base.relativize(target).toString().replace('\\', '/');
         ctx.json(Map.of(
+                // Absolute baseDir — clients use this to build full paths
+                // before submitting to admin commands. The loader services
+                // resolve paths against the server's CWD, NOT against
+                // loaderBaseDir, so a picker that returned just "file.yaml"
+                // wouldn't be found unless the user happened to launch
+                // from loaderBaseDir's parent.
+                "baseDir", base.toAbsolutePath().toString().replace('\\', '/'),
                 "cwd", relForResp,
                 "entries", entries));
     }
