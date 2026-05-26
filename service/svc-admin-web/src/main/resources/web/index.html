@@ -129,6 +129,17 @@
                 </button>
             </div>
 
+            <!-- Navigator — visual companion to Managed services. Cytoscape
+                 graph of the same wiring (feed → agent group → processor
+                 → sink). Promoted to top-level so the two views of the
+                 system sit side-by-side in the nav. Was "Topology" under
+                 Monitor. -->
+            <div class="nav-group">
+                <button class="nav-item" :class="{active: activeView==='topology'}" @click="go('topology')" x-show="servicesAvailable && agentsAvailable">
+                    <svg class="ico"><use href="#i-topology"/></svg><span>Navigator</span>
+                </button>
+            </div>
+
             <!-- Monitor — observability surfaces (VM gauges, logs,
                  performance, topology). The VM dashboard used to live as
                  "Home"; demoted to a Monitor child now that Overview
@@ -153,9 +164,10 @@
                         <svg class="ico"><use href="#i-topology"/></svg><span>App counters</span>
                         <span class="nav-count" x-show="(throughput?.custom?.length ?? 0)" x-text="(throughput?.custom?.length ?? 0)"></span>
                     </button>
-                    <button class="nav-item" :class="{active: activeView==='topology'}" @click="go('topology')" x-show="servicesAvailable && agentsAvailable">
-                        <svg class="ico"><use href="#i-topology"/></svg><span>Topology</span>
-                    </button>
+                    <!-- (Topology moved out of Monitor — promoted to a top-
+                         level "Navigator" entry above, sitting next to
+                         Managed services as the visual companion to its
+                         tabular wiring view.) -->
                     <button class="nav-item" :class="{active: activeView==='replay' || (activeView==='processor-graph' && processorGraphTab==='replay')}"
                             @click="goReplay()">
                         <svg class="ico"><use href="#i-logs"/></svg><span>Replay</span>
@@ -1483,8 +1495,8 @@
             <section class="view view-fill" x-show="activeView==='topology'">
                 <div class="view-head">
                     <div>
-                        <h1>Topology</h1>
-                        <p class="view-sub">Feed → agent group → processor. Click any node to open its detail. Click the ⌄ on a processor to inline its compiled graphml (when the resource is shipped with the jar).</p>
+                        <h1>Navigator</h1>
+                        <p class="view-sub">Visual companion to <a href="#" @click.prevent="go('agents')">Managed services</a> — same wiring (feed → agent group → processor → sink) as an interactive graph. Click any node to drill into its detail. Click the ⌄ on a processor to inline its compiled graphml (when the resource is shipped with the jar).</p>
                     </div>
                     <div class="topology-actions">
                         <span class="muted small" x-show="topologyError" x-text="topologyError"></span>
