@@ -2430,7 +2430,10 @@
                                     <td x-text="e.group"></td>
                                     <td x-text="e.file"></td>
                                     <td><input type="checkbox" :checked="e.enabled" @change="togglePersistedEnabled('yaml', e.group, e.file, $event.target.checked)"></td>
-                                    <td><span class="err" x-text="e.lastError || ''"></span></td>
+                                    <td>
+                                        <span x-show="!e.lastError" class="muted">OK</span>
+                                        <span x-show="e.lastError" class="err persist-err-cell" :title="e.lastError || ''" x-text="(e.lastError || '').split('\n')[0]"></span>
+                                    </td>
                                     <td>
                                         <button class="btn btn-ghost btn-sm" type="button" @click="viewPersisted('yaml', e.group, e.file)">View</button>
                                         <button class="btn btn-ghost btn-sm" type="button" @click="removePersisted('yaml', e.group, e.file)">Remove</button>
@@ -2454,7 +2457,10 @@
                                     <td x-text="e.group"></td>
                                     <td x-text="e.file"></td>
                                     <td><input type="checkbox" :checked="e.enabled" @change="togglePersistedEnabled('spring', e.group, e.file, $event.target.checked)"></td>
-                                    <td><span class="err" x-text="e.lastError || ''"></span></td>
+                                    <td>
+                                        <span x-show="!e.lastError" class="muted">OK</span>
+                                        <span x-show="e.lastError" class="err persist-err-cell" :title="e.lastError || ''" x-text="(e.lastError || '').split('\n')[0]"></span>
+                                    </td>
                                     <td>
                                         <button class="btn btn-ghost btn-sm" type="button" @click="viewPersisted('spring', e.group, e.file)">View</button>
                                         <button class="btn btn-ghost btn-sm" type="button" @click="removePersisted('spring', e.group, e.file)">Remove</button>
@@ -2467,20 +2473,20 @@
                     </div>
                 </div>
 
-                <!-- Persisted-source viewer: simple <pre> for now. The
-                     full syntax-highlight path lives in _highlightJava
-                     (prism); plain text keeps this panel small and
-                     readable until we wire prism's yaml + xml grammars
-                     into the bundle. -->
-                <div class="modal-backdrop" x-show="persistViewerOpen" @click="closePersistViewer()" style="display:none">
-                </div>
-                <div class="modal" x-show="persistViewerOpen" style="display:none">
-                    <div class="modal-head">
-                        <h2 x-text="persistViewerKind + ': ' + persistViewerGroup + ' / ' + persistViewerFile"></h2>
-                        <button class="btn btn-ghost btn-sm" type="button" @click="closePersistViewer()">Close</button>
+                <!-- Persisted-source viewer. Click-outside or Close
+                     dismisses. .modal-wide gives ~80vw so wrapped
+                     XML/YAML stays readable. Token classes match
+                     the .proc-sourcenav-code Java highlighter
+                     palette for cross-view consistency. -->
+                <div class="modal-overlay" x-show="persistViewerOpen" @click.self="closePersistViewer()" style="display:none">
+                    <div class="modal modal-wide">
+                        <div class="modal-head">
+                            <h2 x-text="persistViewerKind + ': ' + persistViewerGroup + ' / ' + persistViewerFile"></h2>
+                            <button class="btn btn-ghost btn-sm" type="button" @click="closePersistViewer()">Close</button>
+                        </div>
+                        <pre class="persist-viewer-code" x-show="persistViewerContent" x-html="persistViewerContentHtml"></pre>
+                        <pre class="err" x-show="persistViewerErr" x-text="persistViewerErr"></pre>
                     </div>
-                    <pre class="out" x-show="persistViewerContent" x-text="persistViewerContent"></pre>
-                    <pre class="err" x-show="persistViewerErr" x-text="persistViewerErr"></pre>
                 </div>
             </section>
 

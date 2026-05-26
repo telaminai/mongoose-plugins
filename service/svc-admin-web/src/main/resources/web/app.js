@@ -345,6 +345,7 @@ document.addEventListener('alpine:init', () => {
         persistViewerGroup: '',
         persistViewerFile: '',
         persistViewerContent: '',
+        persistViewerContentHtml: '',
         persistViewerErr: '',
 
         // ── file picker ──
@@ -4239,12 +4240,23 @@ document.addEventListener('alpine:init', () => {
             this.persistViewerGroup = group;
             this.persistViewerFile = file;
             this.persistViewerContent = '';
+            this.persistViewerContentHtml = '';
             this.persistViewerErr = '';
             const res = await this.invokeRaw(`${kind}Loader.getPersistedSource`, [group, file]);
             if (res.err && res.err.length) {
                 this.persistViewerErr = res.err.join('\n');
             } else {
                 this.persistViewerContent = (res.output && res.output.join('\n')) || '';
+                // Pick highlighter by file extension first, kind as
+                // fallback. .yml + .yaml → yaml; .xml → xml; anything
+                // else falls back to plain-text (just HTML-escaped).
+                const lower = (file || '').toLowerCase();
+                const lang = lower.endsWith('.xml') ? 'xml'
+                        : (lower.endsWith('.yml') || lower.endsWith('.yaml')) ? 'yaml'
+                        : (kind === 'spring' ? 'xml' : 'yaml');
+                this.persistViewerContentHtml = (lang === 'xml')
+                        ? this._highlightXml(this.persistViewerContent)
+                        : this._highlightYaml(this.persistViewerContent);
             }
         },
 
@@ -4254,7 +4266,137 @@ document.addEventListener('alpine:init', () => {
             this.persistViewerGroup = '';
             this.persistViewerFile = '';
             this.persistViewerContent = '';
+            this.persistViewerContentHtml = '';
             this.persistViewerErr = '';
+        },
+
+        /** Lightweight YAML highlighter — hand-rolled in the same
+         *  shape as _highlightJava (zero new deps). Token order
+         *  matters: comments first (eat the whole line), then
+         *  strings, then per-line key/scalar split. Uses the same
+         *  j-* CSS classes as the Java highlighter for visual
+         *  consistency across views. */
+        _highlightYaml(source) {
+            if (!source) return '';
+            const esc = (s) => String(s)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const lines = source.split('\n');
+            const out = [];
+            for (const raw of lines) {
+                // Whole-line comment
+                if (/^\s*#/.test(raw)) {
+                    out.push('<span class="j-com">' + esc(raw) + '</span>');
+                    continue;
+                }
+                // Pull inline trailing-comment off first so we don't
+                // tokenise inside it. Naive about `#` in strings —
+                // acceptable for config files in practice.
+                let body = raw, trailing = '';
+                const hashIdx = (() => {
+                    let inSingle = false, inDouble = false;
+                    for (let i = 0; i < raw.length; i++) {
+                        const c = raw[i];
+                        if (c === '\\') { i++; continue; }
+                        if (!inSingle && c === '"') inDouble = !inDouble;
+                        else if (!inDouble && c === "'") inSingle = !inSingle;
+                        else if (!inSingle && !inDouble && c === '#' && (i === 0 || /\s/.test(raw[i - 1]))) return i;
+                    }
+                    return -1;
+                })();
+                if (hashIdx >= 0) {
+                    body = raw.slice(0, hashIdx);
+                    trailing = raw.slice(hashIdx);
+                }
+
+                // Indent + list-dash prefix
+                const indentMatch = body.match(/^(\s*-?\s*)/);
+                const indent = indentMatch ? indentMatch[1] : '';
+                let rest = body.slice(indent.length);
+
+                // key: value split — only at the first `:` not inside
+                // quotes. Without a colon, the whole line is a scalar.
+                let key = '', sep = '', value = rest;
+                const colon = (() => {
+                    let inSingle = false, inDouble = false;
+                    for (let i = 0; i < rest.length; i++) {
+                        const c = rest[i];
+                        if (c === '\\') { i++; continue; }
+                        if (!inSingle && c === '"') inDouble = !inDouble;
+                        else if (!inDouble && c === "'") inSingle = !inSingle;
+                        else if (!inSingle && !inDouble && c === ':' && (i === rest.length - 1 || /\s/.test(rest[i + 1]))) return i;
+                    }
+                    return -1;
+                })();
+                if (colon >= 0) {
+                    key = rest.slice(0, colon);
+                    sep = ':';
+                    value = rest.slice(colon + 1);
+                }
+
+                let html = esc(indent);
+                if (key) {
+                    html += '<span class="j-kw">' + esc(key) + '</span>' + esc(sep);
+                }
+                html += this._highlightYamlScalar(value);
+                if (trailing) html += '<span class="j-com">' + esc(trailing) + '</span>';
+                out.push(html);
+            }
+            return out.join('\n');
+        },
+
+        /** Tokenises the right-hand-side of a YAML mapping (or a
+         *  standalone scalar line): strings, tags (!!fqn / !tag),
+         *  anchors (&id), aliases (*id), bool/null literals,
+         *  numbers. */
+        _highlightYamlScalar(value) {
+            if (!value) return '';
+            const esc = (s) => String(s)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            // Single + double quoted strings — placeholdered first so
+            // later passes don't tokenise inside them.
+            const strings = [];
+            let h = esc(value);
+            h = h.replace(/(&quot;(?:[^&\\]|\\.)*?&quot;|'(?:[^']|'')*')/g, (m) => {
+                strings.push(m);
+                return 's' + (strings.length - 1) + '';
+            });
+            // Tags + anchors + aliases
+            h = h.replace(/(!![\w.$]+|![\w.-]+)/g, '<span class="j-type">$1</span>');
+            h = h.replace(/(?:^|\s)(&[\w-]+)/g, (m, a) => m.replace(a, '<span class="j-ann">' + a + '</span>'));
+            h = h.replace(/(?:^|\s)(\*[\w-]+)/g, (m, a) => m.replace(a, '<span class="j-ann">' + a + '</span>'));
+            // Booleans + null
+            h = h.replace(/\b(true|false|null|yes|no|on|off)\b/g, '<span class="j-kw">$1</span>');
+            // Numbers (including negative + decimal + scientific)
+            h = h.replace(/(?:^|[\s:,\[\{])(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\b/g,
+                    (m, n) => m.replace(n, '<span class="j-num">' + n + '</span>'));
+            // Restore strings
+            h = h.replace(/s(\d+)/g,
+                    (_, i) => '<span class="j-str">' + strings[+i] + '</span>');
+            return h;
+        },
+
+        /** Lightweight XML highlighter — comments, tag brackets,
+         *  element + attribute names, attribute values. Sufficient
+         *  for Spring XML; not full XML 1.0 (no PIs, no DTD, no
+         *  CDATA — we don't need them for loader configs). */
+        _highlightXml(source) {
+            if (!source) return '';
+            const esc = (s) => String(s)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            let h = esc(source);
+            // Comments
+            h = h.replace(/(&lt;!--[\s\S]*?--&gt;)/g, '<span class="j-com">$1</span>');
+            // Tags — split open `<el ...>` into bracket + name + attrs
+            h = h.replace(/(&lt;\/?)([A-Za-z_][\w:.-]*)([^&]*?)(\/?&gt;)/g,
+                    (_, lt, name, attrs, gt) => {
+                        const attrsHtml = attrs.replace(/([A-Za-z_][\w:.-]*)=(&quot;[^&]*?&quot;|'[^']*?')/g,
+                                (_, n, v) => '<span class="j-type">' + n + '</span>=<span class="j-str">' + v + '</span>');
+                        return '<span class="j-kw">' + lt + '</span>'
+                             + '<span class="j-type">' + name + '</span>'
+                             + attrsHtml
+                             + '<span class="j-kw">' + gt + '</span>';
+                    });
+            return h;
         },
 
         // ── file picker (loaderBaseDir-rooted) ──
