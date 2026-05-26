@@ -6,6 +6,7 @@
 package com.telamin.mongoose.plugin.loader.spring;
 
 import org.agrona.concurrent.YieldingIdleStrategy;
+import com.telamin.fluxtion.builder.compile.config.FluxtionCompilerConfig;
 import com.telamin.fluxtion.builder.extern.spring.FluxtionSpring;
 import com.telamin.fluxtion.builder.extern.spring.FluxtionSpringInterpreter;
 import com.telamin.fluxtion.runtime.CloneableDataFlow;
@@ -13,6 +14,7 @@ import com.telamin.fluxtion.runtime.annotations.feature.Preview;
 import com.telamin.fluxtion.runtime.annotations.runtime.ServiceRegistered;
 import com.telamin.fluxtion.runtime.audit.EventLogControlEvent;
 import com.telamin.fluxtion.runtime.lifecycle.Lifecycle;
+import com.telamin.fluxtion.runtime.partition.LambdaReflection;
 import com.telamin.mongoose.service.admin.AdminCommandRegistry;
 import com.telamin.mongoose.service.servercontrol.MongooseServerController;
 import lombok.Data;
@@ -39,6 +41,17 @@ public class SpringEventHandlerLoader implements Lifecycle {
     @Getter
     @Setter
     private Set<EventSpringFile> loadAtStartup = new HashSet<>();
+
+    /** Filesystem directory to emit generated .java sources under.
+     *  When null/blank, source is kept in-memory. When set, generated
+     *  classes land at
+     *  {@code <generatedSourceDir>/<packageName-path>/<className>.java}
+     *  so the admin web's source-viewer (sourceRoots) can find them. */
+    @Getter @Setter private String generatedSourceDir;
+    /** Filesystem directory to emit .graphml + auxiliary resources. */
+    @Getter @Setter private String generatedResourcesDir;
+    /** Java package for runtime-generated processor classes. */
+    @Getter @Setter private String packageName = "com.telamin.mongoose.runtime.loaded.spring";
 
     public void init() {
     }
@@ -138,12 +151,18 @@ public class SpringEventHandlerLoader implements Lifecycle {
 
         CloneableDataFlow<?> eventProcessor;
         if (compileProcessor) {
-            eventProcessor = FluxtionSpring.compile(springFilePath, cfg -> {
+            Consumer<com.telamin.fluxtion.builder.generation.config.EventProcessorConfig> nodeCfg = cfg -> {
                 if (addEventAuditor) {
                     cfg.addEventAudit();
                     cfg.addEventAudit(traceLogLevel);
                 }
-            });
+            };
+            LambdaReflection.SerializableConsumer<FluxtionCompilerConfig> compilerCfg = compilerConfigFor(springFile, group);
+            if (compilerCfg == null) {
+                eventProcessor = FluxtionSpring.compile(springFilePath, nodeCfg);
+            } else {
+                eventProcessor = FluxtionSpring.compileAot(springFilePath, nodeCfg, compilerCfg);
+            }
         } else {
             eventProcessor = FluxtionSpringInterpreter.interpret(springFilePath, cfg -> {
                 if (addEventAuditor) {
@@ -164,6 +183,52 @@ public class SpringEventHandlerLoader implements Lifecycle {
         }
 
     }
+
+    /** Returns the compiler-config consumer to apply to the AOT path,
+     *  or null when neither output dir is set (caller falls back to
+     *  the no-config compile()). */
+    private LambdaReflection.SerializableConsumer<FluxtionCompilerConfig> compilerConfigFor(
+            String sourceFile, String group) {
+        if (isBlank(generatedSourceDir) && isBlank(generatedResourcesDir)) {
+            return null;
+        }
+        final String pkg = packageName == null || packageName.isBlank()
+                ? "com.telamin.mongoose.runtime.loaded.spring" : packageName;
+        final String cls = deriveClassName(sourceFile, group);
+        final String srcDir = generatedSourceDir;
+        final String resDir = generatedResourcesDir == null ? generatedSourceDir : generatedResourcesDir;
+        return cfg -> {
+            cfg.setPackageName(pkg);
+            cfg.setClassName(cls);
+            if (srcDir != null && !srcDir.isBlank()) {
+                cfg.setOutputDirectory(srcDir);
+                cfg.setWriteSourceToFile(true);
+            }
+            if (resDir != null && !resDir.isBlank()) {
+                cfg.setResourcesOutputDirectory(resDir);
+                cfg.setGenerateDescription(true);
+            }
+        };
+    }
+
+    /** Maps an arbitrary config-file path + group into a legal Java
+     *  class name, suffixing {@code _Processor}. Exposed for unit tests. */
+    static String deriveClassName(String sourceFile, String group) {
+        String base = sourceFile == null ? "loaded" : sourceFile;
+        int slash = Math.max(base.lastIndexOf('/'), base.lastIndexOf('\\'));
+        if (slash >= 0) base = base.substring(slash + 1);
+        int dot = base.lastIndexOf('.');
+        if (dot > 0) base = base.substring(0, dot);
+        String groupPart = group == null || group.isBlank() ? "" : "_" + group;
+        String raw = base + groupPart + "_Processor";
+        String sanitised = raw.replaceAll("[^A-Za-z0-9_]", "_");
+        if (sanitised.isEmpty() || !Character.isJavaIdentifierStart(sanitised.charAt(0))) {
+            sanitised = "P_" + sanitised;
+        }
+        return sanitised;
+    }
+
+    private static boolean isBlank(String s) { return s == null || s.isBlank(); }
 
     @Data
     public static final class EventSpringFile {
