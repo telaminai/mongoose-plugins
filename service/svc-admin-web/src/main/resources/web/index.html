@@ -204,6 +204,18 @@
                     <button class="nav-item" :class="{active: activeView==='config'}" @click="go('config')">
                         <svg class="ico"><use href="#i-commands"/></svg><span>Server YAML</span>
                     </button>
+                    <!-- Dynamic list of currently-persisted configs across
+                         all four loaders. Auto-refreshes when persist /
+                         remove / toggle actions run via loadPersisted().
+                         Clicking opens the source viewer modal. -->
+                    <template x-for="cfg in allPersistedConfigs()" :key="cfg.kind + ':' + cfg.group + '/' + cfg.file">
+                        <button class="nav-item" type="button"
+                                @click="viewPersisted(cfg.kind, cfg.group, cfg.file)"
+                                :title="cfg.kind + ' — ' + (cfg.lastError ? 'last error: ' + cfg.lastError : (cfg.enabled ? 'enabled' : 'disabled'))">
+                            <svg class="ico"><use href="#i-commands"/></svg>
+                            <span x-text="cfg.file"></span>
+                        </button>
+                    </template>
                 </div>
             </div>
 
@@ -2361,13 +2373,26 @@
                     </div>
                 </div>
 
-                <div class="loader-cards">
-                    <div class="card" x-show="hasYamlLoader()">
+                <!-- Per-kind rows: each loader gets its own row with the
+                     compile form on the left and the persisted-configs
+                     table on the right. Horizontal rule between rows
+                     keeps the visual break clean. Drag-and-drop:
+                     dropping a file onto the dropzone uploads it to
+                     loaderBaseDir/uploads/<file> on the server and
+                     auto-fills the Path field. -->
+
+                <!-- YAML loader row -->
+                <div class="loader-kind-row" x-show="hasYamlLoader()">
+                    <div class="card">
                         <div class="card-head"><h2>YAML loader</h2></div>
                         <form @submit.prevent="yamlCompile()">
                             <label class="field-label">Path</label>
-                            <div class="input-with-btn">
-                                <input type="text" x-model="yamlPath" placeholder="processor.yaml">
+                            <div class="input-with-btn loader-dropzone"
+                                 :class="{ 'is-drag': dragOverKind === 'yaml' }"
+                                 @dragover.prevent="dragOverKind = 'yaml'"
+                                 @dragleave.prevent="dragOverKind = null"
+                                 @drop.prevent="handleDrop('yaml', $event)">
+                                <input type="text" x-model="yamlPath" placeholder="processor.yaml or drop a file here">
                                 <button class="btn btn-ghost btn-sm" type="button" @click="openPicker('yamlPath')" x-show="loaderBaseDirAvailable">
                                     <svg class="ico"><use href="#i-folder"/></svg>Browse
                                 </button>
@@ -2383,83 +2408,7 @@
                             </button>
                         </form>
                     </div>
-                    <div class="card" x-show="hasSpringLoader()">
-                        <div class="card-head"><h2>Spring loader</h2></div>
-                        <form @submit.prevent="springCompile()">
-                            <label class="field-label">Path</label>
-                            <div class="input-with-btn">
-                                <input type="text" x-model="springPath" placeholder="processor.xml">
-                                <button class="btn btn-ghost btn-sm" type="button" @click="openPicker('springPath')" x-show="loaderBaseDirAvailable">
-                                    <svg class="ico"><use href="#i-folder"/></svg>Browse
-                                </button>
-                            </div>
-                            <label class="field-label">Group</label>
-                            <input type="text" x-model="springGroup" placeholder="default">
-                            <label class="field-label" style="margin-top:.5rem">
-                                <input type="checkbox" x-model="springPersist">
-                                Persist for restart
-                            </label>
-                            <button type="submit" class="btn btn-primary" :disabled="loaderBusy || !springPath">
-                                <span x-text="springPersist ? 'Persist + compile' : 'Compile processor'"></span>
-                            </button>
-                        </form>
-                    </div>
-                    <!-- Feed + sink loaders: simpler form than yaml/spring
-                         (no Group dimension; feed/sink names are
-                         server-global). YAML input is a single
-                         EventFeedConfig / EventSinkConfig mapping. -->
-                    <div class="card" x-show="hasFeedLoader()">
-                        <div class="card-head"><h2>Feed loader</h2></div>
-                        <form @submit.prevent="feedCompile()">
-                            <label class="field-label">Path</label>
-                            <div class="input-with-btn">
-                                <input type="text" x-model="feedPath" placeholder="feed.yaml">
-                                <button class="btn btn-ghost btn-sm" type="button" @click="openPicker('feedPath')" x-show="loaderBaseDirAvailable">
-                                    <svg class="ico"><use href="#i-folder"/></svg>Browse
-                                </button>
-                            </div>
-                            <label class="field-label" style="margin-top:.5rem">
-                                <input type="checkbox" x-model="feedPersist">
-                                Persist for restart
-                            </label>
-                            <button type="submit" class="btn btn-primary" :disabled="loaderBusy || !feedPath">
-                                <span x-text="feedPersist ? 'Persist + add' : 'Add feed'"></span>
-                            </button>
-                        </form>
-                    </div>
-                    <div class="card" x-show="hasSinkLoader()">
-                        <div class="card-head"><h2>Sink loader</h2></div>
-                        <form @submit.prevent="sinkCompile()">
-                            <label class="field-label">Path</label>
-                            <div class="input-with-btn">
-                                <input type="text" x-model="sinkPath" placeholder="sink.yaml">
-                                <button class="btn btn-ghost btn-sm" type="button" @click="openPicker('sinkPath')" x-show="loaderBaseDirAvailable">
-                                    <svg class="ico"><use href="#i-folder"/></svg>Browse
-                                </button>
-                            </div>
-                            <label class="field-label" style="margin-top:.5rem">
-                                <input type="checkbox" x-model="sinkPersist">
-                                Persist for restart
-                            </label>
-                            <button type="submit" class="btn btn-primary" :disabled="loaderBusy || !sinkPath">
-                                <span x-text="sinkPersist ? 'Persist + add' : 'Add sink'"></span>
-                            </button>
-                        </form>
-                    </div>
-                </div>
-                <div class="card" x-show="loaderOutput.length || loaderErr.length">
-                    <div class="card-head"><h2>Result</h2></div>
-                    <pre class="out" x-show="loaderOutput.length"><template x-for="(line, i) in loaderOutput" :key="i"><span x-text="line + '\n'"></span></template></pre>
-                    <pre class="err" x-show="loaderErr.length"><template x-for="(line, i) in loaderErr" :key="i"><span x-text="line + '\n'"></span></template></pre>
-                </div>
-
-                <!-- Persisted configs: per-kind table; enable / view /
-                     remove. Auto-refreshes after persist / toggle /
-                     delete actions in app.js. The "Refresh" button is
-                     also a lazy-load on first visit since the panel
-                     starts empty. -->
-                <div class="loader-cards" x-show="hasYamlLoader() || hasSpringLoader()">
-                    <div class="card" x-show="hasYamlLoader()">
+                    <div class="card">
                         <div class="card-head">
                             <h2>Persisted YAML configs</h2>
                             <button type="button" class="btn btn-ghost btn-sm" @click="loadPersisted('yaml')">Refresh</button>
@@ -2484,9 +2433,38 @@
                             </template>
                             </tbody>
                         </table>
-                        <p class="muted" x-show="!persistedYaml.length">No persisted YAML configs. Tick "Persist for restart" above and submit one to populate this list.</p>
+                        <p class="muted" x-show="!persistedYaml.length">No persisted YAML configs. Tick "Persist for restart" and submit one to populate this list.</p>
                     </div>
-                    <div class="card" x-show="hasSpringLoader()">
+                </div>
+
+                <!-- Spring loader row -->
+                <div class="loader-kind-row" x-show="hasSpringLoader()">
+                    <div class="card">
+                        <div class="card-head"><h2>Spring loader</h2></div>
+                        <form @submit.prevent="springCompile()">
+                            <label class="field-label">Path</label>
+                            <div class="input-with-btn loader-dropzone"
+                                 :class="{ 'is-drag': dragOverKind === 'spring' }"
+                                 @dragover.prevent="dragOverKind = 'spring'"
+                                 @dragleave.prevent="dragOverKind = null"
+                                 @drop.prevent="handleDrop('spring', $event)">
+                                <input type="text" x-model="springPath" placeholder="processor.xml or drop a file here">
+                                <button class="btn btn-ghost btn-sm" type="button" @click="openPicker('springPath')" x-show="loaderBaseDirAvailable">
+                                    <svg class="ico"><use href="#i-folder"/></svg>Browse
+                                </button>
+                            </div>
+                            <label class="field-label">Group</label>
+                            <input type="text" x-model="springGroup" placeholder="default">
+                            <label class="field-label" style="margin-top:.5rem">
+                                <input type="checkbox" x-model="springPersist">
+                                Persist for restart
+                            </label>
+                            <button type="submit" class="btn btn-primary" :disabled="loaderBusy || !springPath">
+                                <span x-text="springPersist ? 'Persist + compile' : 'Compile processor'"></span>
+                            </button>
+                        </form>
+                    </div>
+                    <div class="card">
                         <div class="card-head">
                             <h2>Persisted Spring configs</h2>
                             <button type="button" class="btn btn-ghost btn-sm" @click="loadPersisted('spring')">Refresh</button>
@@ -2511,9 +2489,36 @@
                             </template>
                             </tbody>
                         </table>
-                        <p class="muted" x-show="!persistedSpring.length">No persisted Spring configs. Tick "Persist for restart" above and submit one to populate this list.</p>
+                        <p class="muted" x-show="!persistedSpring.length">No persisted Spring configs. Tick "Persist for restart" and submit one to populate this list.</p>
                     </div>
-                    <div class="card" x-show="hasFeedLoader()">
+                </div>
+
+                <!-- Feed loader row -->
+                <div class="loader-kind-row" x-show="hasFeedLoader()">
+                    <div class="card">
+                        <div class="card-head"><h2>Feed loader</h2></div>
+                        <form @submit.prevent="feedCompile()">
+                            <label class="field-label">Path</label>
+                            <div class="input-with-btn loader-dropzone"
+                                 :class="{ 'is-drag': dragOverKind === 'feed' }"
+                                 @dragover.prevent="dragOverKind = 'feed'"
+                                 @dragleave.prevent="dragOverKind = null"
+                                 @drop.prevent="handleDrop('feed', $event)">
+                                <input type="text" x-model="feedPath" placeholder="feed.yaml or drop a file here">
+                                <button class="btn btn-ghost btn-sm" type="button" @click="openPicker('feedPath')" x-show="loaderBaseDirAvailable">
+                                    <svg class="ico"><use href="#i-folder"/></svg>Browse
+                                </button>
+                            </div>
+                            <label class="field-label" style="margin-top:.5rem">
+                                <input type="checkbox" x-model="feedPersist">
+                                Persist for restart
+                            </label>
+                            <button type="submit" class="btn btn-primary" :disabled="loaderBusy || !feedPath">
+                                <span x-text="feedPersist ? 'Persist + add' : 'Add feed'"></span>
+                            </button>
+                        </form>
+                    </div>
+                    <div class="card">
                         <div class="card-head">
                             <h2>Persisted feeds</h2>
                             <button type="button" class="btn btn-ghost btn-sm" @click="loadPersisted('feed')">Refresh</button>
@@ -2537,9 +2542,36 @@
                             </template>
                             </tbody>
                         </table>
-                        <p class="muted" x-show="!persistedFeed.length">No persisted feeds. Tick "Persist for restart" above and submit one to populate this list.</p>
+                        <p class="muted" x-show="!persistedFeed.length">No persisted feeds. Tick "Persist for restart" and submit one to populate this list.</p>
                     </div>
-                    <div class="card" x-show="hasSinkLoader()">
+                </div>
+
+                <!-- Sink loader row -->
+                <div class="loader-kind-row" x-show="hasSinkLoader()">
+                    <div class="card">
+                        <div class="card-head"><h2>Sink loader</h2></div>
+                        <form @submit.prevent="sinkCompile()">
+                            <label class="field-label">Path</label>
+                            <div class="input-with-btn loader-dropzone"
+                                 :class="{ 'is-drag': dragOverKind === 'sink' }"
+                                 @dragover.prevent="dragOverKind = 'sink'"
+                                 @dragleave.prevent="dragOverKind = null"
+                                 @drop.prevent="handleDrop('sink', $event)">
+                                <input type="text" x-model="sinkPath" placeholder="sink.yaml or drop a file here">
+                                <button class="btn btn-ghost btn-sm" type="button" @click="openPicker('sinkPath')" x-show="loaderBaseDirAvailable">
+                                    <svg class="ico"><use href="#i-folder"/></svg>Browse
+                                </button>
+                            </div>
+                            <label class="field-label" style="margin-top:.5rem">
+                                <input type="checkbox" x-model="sinkPersist">
+                                Persist for restart
+                            </label>
+                            <button type="submit" class="btn btn-primary" :disabled="loaderBusy || !sinkPath">
+                                <span x-text="sinkPersist ? 'Persist + add' : 'Add sink'"></span>
+                            </button>
+                        </form>
+                    </div>
+                    <div class="card">
                         <div class="card-head">
                             <h2>Persisted sinks</h2>
                             <button type="button" class="btn btn-ghost btn-sm" @click="loadPersisted('sink')">Refresh</button>
@@ -2563,8 +2595,14 @@
                             </template>
                             </tbody>
                         </table>
-                        <p class="muted" x-show="!persistedSink.length">No persisted sinks. Tick "Persist for restart" above and submit one to populate this list.</p>
+                        <p class="muted" x-show="!persistedSink.length">No persisted sinks. Tick "Persist for restart" and submit one to populate this list.</p>
                     </div>
+                </div>
+
+                <div class="card" x-show="loaderOutput.length || loaderErr.length">
+                    <div class="card-head"><h2>Result</h2></div>
+                    <pre class="out" x-show="loaderOutput.length"><template x-for="(line, i) in loaderOutput" :key="i"><span x-text="line + '\n'"></span></template></pre>
+                    <pre class="err" x-show="loaderErr.length"><template x-for="(line, i) in loaderErr" :key="i"><span x-text="line + '\n'"></span></template></pre>
                 </div>
 
                 <!-- Persisted-source viewer. Click-outside or Close

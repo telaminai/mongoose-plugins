@@ -1762,6 +1762,38 @@ textarea { resize: vertical; font-family: ui-monospace, Menlo, monospace; font-s
 .loader-cards .card { margin-bottom: 1.1rem; }
 .loader-cards form .btn-primary { margin-top: 0.9rem; }
 
+/* Per-kind loader row: compile form on the left (narrow), persisted-
+ * configs table on the right (wide). Horizontal rule below each row
+ * keeps the visual break clean without nesting cards inside cards. */
+.loader-kind-row {
+    display: grid;
+    grid-template-columns: minmax(280px, 1fr) minmax(0, 2fr);
+    gap: 1.1rem;
+    align-items: start;
+    margin-bottom: 0.8rem;
+    padding-bottom: 1.2rem;
+    border-bottom: 1px solid var(--border);
+}
+.loader-kind-row:last-of-type { border-bottom: 0; padding-bottom: 0; }
+.loader-kind-row form .btn-primary { margin-top: 0.9rem; }
+/* On narrow viewports, stack form + list vertically. */
+@media (max-width: 880px) {
+    .loader-kind-row { grid-template-columns: 1fr; }
+}
+
+/* Drag-and-drop hint on the loader Path-input wrapper. The
+ * is-drag class toggles in app.js based on dragOverKind. */
+.loader-dropzone {
+    border: 1px dashed transparent;
+    border-radius: 8px;
+    padding: 0.15rem;
+    transition: background 0.12s, border-color 0.12s;
+}
+.loader-dropzone.is-drag {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
 /* ─── login ──────────────────────────────────────────────────────────── */
 .login-screen {
     position: fixed;

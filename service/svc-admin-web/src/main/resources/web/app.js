@@ -348,6 +348,10 @@ document.addEventListener('alpine:init', () => {
         persistedSpring: [],
         persistedFeed: [],
         persistedSink: [],
+
+        // Drag-over hint: which kind's dropzone is currently
+        // dragged-over, or null. Toggles the .is-drag visual cue.
+        dragOverKind: null,
         // Inline viewer (modal-ish overlay) for source preview.
         persistViewerOpen: false,
         persistViewerKind: null,   // 'yaml' | 'spring'
@@ -406,6 +410,14 @@ document.addEventListener('alpine:init', () => {
             this.openLogsWs();
             await this.probeLoaderBaseDir();
             await this.loadIntrospection();
+            // Pre-load persisted-config lists so the Config nav-group
+            // can render them without waiting for a Loader-tab visit.
+            // Each call is one admin command per loader present; quiet
+            // failure if persistentConfigDir is unset on a given loader.
+            if (this.hasYamlLoader())   this.loadPersisted('yaml');
+            if (this.hasSpringLoader()) this.loadPersisted('spring');
+            if (this.hasFeedLoader())   this.loadPersisted('feed');
+            if (this.hasSinkLoader())   this.loadPersisted('sink');
             // Overview is the default landing view — kick its initial
             // load so the page isn't blank on first paint after auth.
             if (this.activeView === 'overview') {
@@ -4245,6 +4257,24 @@ document.addEventListener('alpine:init', () => {
             else if (kind === 'sink')   this.persistedSink   = entries;
         },
 
+        /** Flattened view of every persisted config across all four
+         *  loader kinds. Used by the Config nav-group to render a
+         *  dynamic list under "Server YAML" — clicking a row opens
+         *  the source viewer modal. Stable order: yaml → spring →
+         *  feed → sink, then by group/file. */
+        allPersistedConfigs() {
+            const tag = (kind, arr) => arr.map(e => ({
+                kind, group: e.group, file: e.file,
+                enabled: e.enabled, lastError: e.lastError,
+            }));
+            return [
+                ...tag('yaml',   this.persistedYaml),
+                ...tag('spring', this.persistedSpring),
+                ...tag('feed',   this.persistedFeed),
+                ...tag('sink',   this.persistedSink),
+            ];
+        },
+
         async togglePersistedEnabled(kind, group, file, nextEnabled) {
             const res = await this.invokeRaw(`${kind}Loader.setPersistedEnabled`,
                 [group, file, String(!!nextEnabled)]);
@@ -4304,6 +4334,84 @@ document.addEventListener('alpine:init', () => {
             this.persistViewerContent = '';
             this.persistViewerContentHtml = '';
             this.persistViewerErr = '';
+        },
+
+        /** Drag-and-drop handler for any loader dropzone. Reads the
+         *  first dropped file via FileReader, does a lightweight
+         *  client-side parse for friendly errors, then POSTs to
+         *  /api/loader/upload — the server writes it under
+         *  loaderBaseDir/uploads/<filename> and returns the saved
+         *  absolute path which we plug into the kind's Path field.
+         *
+         *  Client-side parse here is "is this YAML-ish or XML-ish",
+         *  not full validation — the loader's compile step does the
+         *  real parse and reports its own errors. We just bail early
+         *  on the obvious cases (binary files, empty, wrong shape
+         *  for the kind) so the round-trip isn't wasted. */
+        async handleDrop(kind, ev) {
+            this.dragOverKind = null;
+            const dt = ev.dataTransfer;
+            if (!dt || !dt.files || !dt.files.length) return;
+            const file = dt.files[0];
+
+            // Read as text — config files are always text. Binary
+            // detection: ArrayBuffer-first would let us check for
+            // NUL bytes, but in practice an operator dragging a
+            // .bin file is a user error we'd rather surface than
+            // silently filter, so let the server reject it.
+            let text;
+            try {
+                text = await file.text();
+            } catch (e) {
+                this.toast('Could not read file: ' + e.message, 'error');
+                return;
+            }
+            if (!text || !text.trim()) {
+                this.toast('Dropped file is empty', 'error');
+                return;
+            }
+
+            // Lightweight shape check by kind. Catches the wrong-file-
+            // on-wrong-card case (drop XML on the YAML card) with a
+            // friendlier message than the server compile error would
+            // produce.
+            const looksXml  = /^\s*<\?xml|^\s*<[A-Za-z]/.test(text);
+            const looksYaml = !looksXml; // anything not XML-prefixed is treated as YAML
+            const expectXml = (kind === 'spring');
+            if (expectXml && !looksXml) {
+                this.toast(`Spring loader expects XML; this looks like YAML`, 'error');
+                return;
+            }
+            if (!expectXml && looksXml) {
+                this.toast(`${kind} loader expects YAML; this looks like XML`, 'error');
+                return;
+            }
+
+            // Upload to server. The Path field gets the returned
+            // saved-path so a follow-up Compile / Persist uses it
+            // directly — no manual copy/paste step.
+            try {
+                const r = await fetch('/api/loader/upload', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'text/plain; charset=utf-8',
+                               'X-Filename': file.name,
+                               ...(this.csrfToken ? { 'X-CSRF': this.csrfToken } : {}) },
+                    body: text,
+                });
+                if (!r.ok) {
+                    const body = await r.text().catch(() => '');
+                    this.toast('Upload failed: ' + (body || r.statusText), 'error');
+                    return;
+                }
+                const json = await r.json();
+                // Auto-fill the relevant Path field.
+                const pathField = `${kind}Path`;
+                this[pathField] = json.path || file.name;
+                this.toast(`Uploaded ${file.name} (${(file.size / 1024).toFixed(1)} KB)`, 'success');
+            } catch (e) {
+                this.toast('Upload failed: ' + e.message, 'error');
+            }
         },
 
         /** Lightweight YAML highlighter — hand-rolled in the same
