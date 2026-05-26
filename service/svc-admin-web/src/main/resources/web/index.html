@@ -116,6 +116,19 @@
                 </button>
             </div>
 
+            <!-- Managed services — top-level sidebar entry to the 5-tab
+                 surface (Agents / Services / Feeds / Sinks / Queues).
+                 Sits directly below Overview so the drill-down from
+                 server summary into wiring details is one click, not
+                 two. Was "Integration" in the previous nav. -->
+            <div class="nav-group" x-show="servicesAvailable || agentsAvailable || queuesAvailable">
+                <button class="nav-item"
+                        :class="{active: ['agents','services','queues'].includes(activeView)}"
+                        @click="go('agents')">
+                    <svg class="ico"><use href="#i-services"/></svg><span>Managed services</span>
+                </button>
+            </div>
+
             <!-- Monitor — observability surfaces (VM gauges, logs,
                  performance, topology). The VM dashboard used to live as
                  "Home"; demoted to a Monitor child now that Overview
@@ -167,20 +180,6 @@
                 </div>
             </div>
 
-            <!-- Integration — one top-level sidebar entry that opens the
-                 5-tab surface (Agents / Services / Feeds / Sinks / Queues).
-                 Previously these were five separate sidebar items in a
-                 collapsible group; consolidated into a single nav row
-                 with a tab strip on the page so the chrome stays quiet
-                 but the routes are still discoverable. -->
-            <div class="nav-group" x-show="servicesAvailable || agentsAvailable || queuesAvailable">
-                <button class="nav-item"
-                        :class="{active: ['agents','services','queues'].includes(activeView)}"
-                        @click="go('agents')">
-                    <svg class="ico"><use href="#i-services"/></svg><span>Integration</span>
-                </button>
-            </div>
-
             <!-- Config — declarative wiring. Today: YAML viewer. Future:
                  editable YAML + drag-and-drop service / queue / sink /
                  processor authoring (see roadmap). -->
@@ -210,6 +209,14 @@
                         <svg class="ico"><use href="#i-loader"/></svg><span>Loader</span>
                     </button>
                 </div>
+            </div>
+
+            <!-- Settings — bottom of the nav above the foot. Text-size,
+                 theme, refresh-rate display, jar versions. -->
+            <div class="nav-group">
+                <button class="nav-item" :class="{active: activeView==='settings'}" @click="go('settings')">
+                    <svg class="ico"><use href="#i-commands"/></svg><span>Settings</span>
+                </button>
             </div>
 
             <div class="nav-foot">
@@ -2373,6 +2380,91 @@
                     <div class="card-head"><h2>Result</h2></div>
                     <pre class="out" x-show="loaderOutput.length"><template x-for="(line, i) in loaderOutput" :key="i"><span x-text="line + '\n'"></span></template></pre>
                     <pre class="err" x-show="loaderErr.length"><template x-for="(line, i) in loaderErr" :key="i"><span x-text="line + '\n'"></span></template></pre>
+                </div>
+            </section>
+
+            <!-- ─── Settings ─────────────────────────────────────────────
+                 Operator-side preferences (text size, theme) + read-only
+                 server info (current refresh cadence, deployed jar
+                 versions). Persists user choices to localStorage. -->
+            <section class="view" x-show="activeView==='settings'">
+                <div class="view-head">
+                    <div>
+                        <h1>Settings</h1>
+                        <p class="view-sub">Console preferences + deployed-artefact versions. Text size and theme are remembered across sessions; refresh-rate is set in the server YAML.</p>
+                    </div>
+                </div>
+
+                <div class="settings-grid">
+                    <!-- Display -->
+                    <section class="card">
+                        <div class="card-head"><h2>Display</h2></div>
+                        <div class="settings-row">
+                            <div class="settings-row-k">Text size</div>
+                            <div class="settings-row-v">
+                                <div class="seg seg-tabs">
+                                    <button type="button" class="seg-btn" :class="{active: uiTextSize==='sm'}" @click="setUiTextSize('sm')">Small</button>
+                                    <button type="button" class="seg-btn" :class="{active: uiTextSize==='md'}" @click="setUiTextSize('md')">Medium</button>
+                                    <button type="button" class="seg-btn" :class="{active: uiTextSize==='lg'}" @click="setUiTextSize('lg')">Large</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="settings-row">
+                            <div class="settings-row-k">Theme</div>
+                            <div class="settings-row-v">
+                                <div class="seg seg-tabs">
+                                    <button type="button" class="seg-btn" :class="{active: theme==='light'}" @click="theme==='dark' && toggleTheme()">Light</button>
+                                    <button type="button" class="seg-btn" :class="{active: theme==='dark'}" @click="theme==='light' && toggleTheme()">Dark</button>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- Refresh / sampling -->
+                    <section class="card">
+                        <div class="card-head"><h2>Refresh cadence</h2></div>
+                        <div class="settings-row">
+                            <div class="settings-row-k">Counters sampler</div>
+                            <div class="settings-row-v">
+                                <span class="mono" x-text="(server?.metricsIntervalMs ?? '—') + ' ms'"></span>
+                                <span class="muted small">— set in YAML <code>performanceMonitoring.counterSampleIntervalMs</code></span>
+                            </div>
+                        </div>
+                        <div class="settings-row">
+                            <div class="settings-row-k">Log tail buffer</div>
+                            <div class="settings-row-v">
+                                <span class="mono" x-text="(server?.logTailBuffer ?? '—')"></span>
+                                <span class="muted small">— max records retained for the Logs view</span>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- Versions -->
+                    <section class="card card-wide">
+                        <div class="card-head">
+                            <h2>Deployed versions</h2>
+                            <button class="btn btn-ghost btn-sm" @click="loadVersions()" :disabled="versionsLoading">
+                                <span x-show="!versionsLoading">Refresh</span>
+                                <span x-show="versionsLoading">Loading…</span>
+                            </button>
+                        </div>
+                        <table class="data-table" x-show="versions">
+                            <thead>
+                                <tr><th>Component</th><th>Version</th></tr>
+                            </thead>
+                            <tbody>
+                                <template x-for="row in versionRows()" :key="row.key">
+                                    <tr>
+                                        <td class="mono" x-text="row.key"></td>
+                                        <td class="mono strong" x-text="row.value"></td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                        <div class="empty empty-sm" x-show="!versions && !versionsLoading">
+                            <p class="muted small">Click Refresh to query <code>/api/version</code>.</p>
+                        </div>
+                    </section>
                 </div>
             </section>
 

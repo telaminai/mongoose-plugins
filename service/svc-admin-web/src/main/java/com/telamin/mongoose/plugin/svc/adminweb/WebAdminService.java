@@ -237,6 +237,11 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         javalin.get("/api/server", this::handleServer);
         javalin.get("/api/jvm", this::handleJvm);
         javalin.get("/api/config", this::handleConfig);
+        // Versions of the deployed artefacts — read from each component's
+        // class-package Implementation-Version manifest entry. Drives the
+        // Settings view's version panel; also useful in support tickets
+        // for "what versions are you running" answers.
+        javalin.get("/api/version", this::handleVersion);
 
         // Audit-log capture endpoints (Phase 2 of the audit-log-viewer
         // plugin spec). Read endpoints back the introspection service;
@@ -966,6 +971,73 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         m.put("lastWriteAt", h.lastWriteAt() == null ? null : h.lastWriteAt().toString());
         m.put("isLive", h.isLive());
         return m;
+    }
+
+    /** Reports deployed-artefact versions for the Settings view's
+     *  version panel. Each entry uses Class.getPackage().getImplementationVersion()
+     *  which reads the {@code Implementation-Version} manifest entry —
+     *  populated by Maven's jar-plugin by default for everything we
+     *  ship. The "app" entry reads the JVM's main-class package's
+     *  version (best-effort; null when the entry-point hasn't been
+     *  given an explicit version, e.g. running from an IDE class path
+     *  rather than a fat jar). */
+    private void handleVersion(Context ctx) {
+        Map<String, String> versions = new LinkedHashMap<>();
+        versions.put("mongoose", versionFor("com.telamin.mongoose.MongooseServer"));
+        versions.put("mongoose-plugins-admin-web", versionFor(WebAdminService.class.getName()));
+        versions.put("fluxtion-runtime", versionFor("com.telamin.fluxtion.runtime.DataFlow"));
+        versions.put("fluxtion-builder", versionFor("com.telamin.fluxtion.builder.compile.config.FluxtionCompilerConfig"));
+        // App version: walk the system property the JVM sets on launch
+        // for `java -jar`. Without it (e.g. running from an IDE) we
+        // fall back to the JVM's sun.java.command if that hints at a
+        // main class.
+        versions.put("app", appVersionBestEffort());
+        ctx.json(Map.of("versions", versions));
+    }
+
+    private static String versionFor(String fqn) {
+        try {
+            Class<?> c = Class.forName(fqn);
+            String v = c.getPackage().getImplementationVersion();
+            return v != null ? v : "unknown";
+        } catch (ClassNotFoundException e) {
+            return "absent";
+        }
+    }
+
+    /** Best-effort app-version lookup. Reads the manifest of the jar
+     *  that defined the JVM's main class (system property
+     *  {@code sun.java.command}). Returns "unknown" when the JVM was
+     *  launched in a way that doesn't surface a single jar (IDE
+     *  classpath, modular launch, etc). */
+    private static String appVersionBestEffort() {
+        try {
+            String cmd = System.getProperty("sun.java.command", "");
+            // `java -jar foo.jar args…` → cmd starts with "foo.jar".
+            if (cmd.endsWith(".jar") || cmd.contains(".jar ")) {
+                String jarPath = cmd.split("\\s")[0];
+                java.io.File jarFile = new java.io.File(jarPath);
+                if (jarFile.isFile()) {
+                    try (java.util.jar.JarFile jar = new java.util.jar.JarFile(jarFile)) {
+                        java.util.jar.Manifest mf = jar.getManifest();
+                        if (mf != null) {
+                            String v = mf.getMainAttributes().getValue("Implementation-Version");
+                            if (v != null && !v.isEmpty()) return v;
+                            String iTitle = mf.getMainAttributes().getValue("Implementation-Title");
+                            return iTitle != null ? iTitle : "unknown";
+                        }
+                    }
+                }
+            }
+            // Otherwise — the main-class's class-loader package may carry
+            // a version (less reliable; fat jars usually rewrite this).
+            String mainClass = cmd.split("\\s")[0];
+            if (mainClass.contains(".")) {
+                String v = versionFor(mainClass);
+                if (!"absent".equals(v) && !"unknown".equals(v)) return v;
+            }
+        } catch (Throwable ignore) { /* fall through */ }
+        return "unknown";
     }
 
     // Returns the YAML config file the server was booted with as plain text,

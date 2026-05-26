@@ -211,6 +211,22 @@ document.addEventListener('alpine:init', () => {
         // fqn}. Click a row to centre the graph on that node and jump
         // to its handleEvent declaration in source-nav.
         processorGraphEventsCollapsed: false,
+        // Settings — UI text size persisted to localStorage and applied
+        // as a class on <html> ('ui-text-sm'|'ui-text-md'|'ui-text-lg').
+        // Sizes scale all the rem-based sizes elsewhere via a root
+        // font-size override.
+        uiTextSize: (() => {
+            try {
+                const v = localStorage.getItem('mongoose-admin-text-size');
+                if (v === 'sm' || v === 'md' || v === 'lg') return v;
+            } catch (_) {}
+            return 'md';
+        })(),
+        // Deployed-artefact versions for the Settings page. Lazily
+        // loaded on first visit; refreshable via the panel button.
+        versions: null,
+        versionsLoading: false,
+
         // App-counters view — filterable + sortable list of `app.*`
         // counters separated out of the Server-performance view. Filter
         // is plain substring; sort key cycles label → rate → total with
@@ -321,6 +337,9 @@ document.addEventListener('alpine:init', () => {
         async boot() {
             // A 1 Hz clock keeps the uptime readouts live without a server round-trip.
             setInterval(() => { this.now = Date.now(); }, 1000);
+            // Apply persisted text-size before first paint so the user
+            // sees their chosen size from the moment the SPA mounts.
+            this.applyUiTextSize();
 
             // Probe: if /api/commands returns 200, we're authed (or NONE mode).
             const r = await fetch('/api/commands', { credentials: 'same-origin' });
@@ -403,6 +422,10 @@ document.addEventListener('alpine:init', () => {
                 // server state (audit recording flags, registered processors)
                 // can change between visits, and the fetch is cheap.
                 this.fetchOverview();
+            } else if (view === 'settings' && !this.versions && !this.versionsLoading) {
+                // Lazy-load versions on first settings visit; subsequent
+                // visits show the cached set until Refresh is clicked.
+                this.loadVersions();
             }
         },
 
@@ -531,6 +554,48 @@ document.addEventListener('alpine:init', () => {
             this.theme = this.theme === 'dark' ? 'light' : 'dark';
             document.documentElement.setAttribute('data-theme', this.theme);
             try { localStorage.setItem(THEME_KEY, this.theme); } catch (e) {}
+        },
+
+        // ── Settings ─────────────────────────────────────────────────────
+
+        /** Apply the saved text-size class to <html>. Called from boot
+         *  + on every change. Three sizes (sm/md/lg) map to root
+         *  font-size 13px/14.5px/16.5px — every rem-based size in the
+         *  stylesheet scales with it. */
+        applyUiTextSize() {
+            const root = document.documentElement;
+            root.classList.remove('ui-text-sm', 'ui-text-md', 'ui-text-lg');
+            root.classList.add('ui-text-' + this.uiTextSize);
+        },
+
+        setUiTextSize(size) {
+            this.uiTextSize = size;
+            this.applyUiTextSize();
+            try { localStorage.setItem('mongoose-admin-text-size', size); } catch (_) {}
+        },
+
+        /** Fetch deployed-artefact versions for the Settings panel. */
+        async loadVersions() {
+            this.versionsLoading = true;
+            try {
+                const r = await fetch('/api/version', { credentials: 'same-origin' });
+                if (r.ok) {
+                    const data = await r.json();
+                    this.versions = data.versions || {};
+                } else {
+                    this.versions = { 'error': 'HTTP ' + r.status };
+                }
+            } catch (e) {
+                this.versions = { 'error': String(e.message || e) };
+            } finally {
+                this.versionsLoading = false;
+            }
+        },
+
+        versionRows() {
+            const v = this.versions;
+            if (!v) return [];
+            return Object.entries(v).map(([key, value]) => ({ key, value }));
         },
 
         // ── toasts ──
