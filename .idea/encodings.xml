@@ -27,6 +27,8 @@
     <file url="file://$PROJECT_DIR$/service/svc-loader-spring/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/service/svc-loader-yaml/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/service/svc-loader-yaml/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/service/svc-micrometer/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/service/svc-micrometer/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/test-support/mongoose-test-support/src/main/java" charset="UTF-8" />
