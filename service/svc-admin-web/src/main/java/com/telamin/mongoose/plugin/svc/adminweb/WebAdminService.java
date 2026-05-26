@@ -110,6 +110,14 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
     // playground download additionally "target/generated-sources/fluxtion".
     @Getter @Setter private List<String> sourceRoots = new ArrayList<>();
 
+    /** Filesystem roots searched for {@code <package>/<Class>.graphml}
+     *  when the processor's classloader has no graphml resource. The
+     *  yaml + spring runtime loaders emit graphml under their
+     *  configured {@code generatedResourcesDir} — point this list at
+     *  the same dir(s) to make the Processor graph view work for
+     *  runtime-loaded processors. Empty = classpath-only (legacy). */
+    @Getter @Setter private List<String> graphmlRoots = new ArrayList<>();
+
     // session config
     @Setter         private String sessionSecret;
     @Getter @Setter private int    sessionMinutes = 60;
@@ -1487,36 +1495,76 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         ClassLoader loader = cls.getClassLoader();
         if (loader == null) loader = ClassLoader.getSystemClassLoader();
 
+        byte[] bytes = null;
         try (java.io.InputStream in = loader.getResourceAsStream(resourcePath)) {
-            if (in == null) {
-                // Structured miss: frontend turns this into a friendly guide
-                // ("expected /package/Class.graphml — copy the generated file
-                //  into src/main/resources/<package>/<Class>.graphml").
-                ctx.status(HttpStatus.NOT_FOUND);
-                ctx.json(Map.of(
-                        "err", "graphml resource not found on the processor's classloader",
-                        "className", cls.getName(),
-                        "expectedResource", resourcePath,
-                        "hint", "Fluxtion writes <ClassName>.graphml alongside the generated source. "
-                              + "Copy it into src/main/resources/" + cls.getName().replace('.', '/') + ".graphml "
-                              + "(or otherwise add it to the runtime jar) so the admin UI can render the internal DAG."));
-                return;
-            }
-            byte[] bytes = in.readAllBytes();
-            // Surface the live processor's FQN to the client so the
-            // Processor graph UI can offer "view processor source" — the
-            // generated dispatcher class doesn't appear as a node inside
-            // its own graph, so the panel needs an out-of-band way to
-            // pick it up. Header is non-invasive: existing clients ignore
-            // it, source-nav clients read it.
-            ctx.header("X-Processor-Class", cls.getName());
-            ctx.contentType("application/xml; charset=utf-8");
-            ctx.result(bytes);
+            if (in != null) bytes = in.readAllBytes();
         } catch (java.io.IOException e) {
             log.warn("graphml read failed for {}", cls.getName(), e);
             ctx.status(HttpStatus.INTERNAL_SERVER_ERROR);
             ctx.json(Map.of("err", "graphml read failed: " + e.getMessage()));
+            return;
         }
+
+        if (bytes == null) {
+            // Runtime-loaded processors (yaml / spring loaders) live in a
+            // classloader that doesn't see the file the loader just wrote.
+            // Fall back to the configured graphmlRoots — operator points
+            // these at each loader's generatedResourcesDir.
+            bytes = readFromRoots(graphmlRoots, resourcePath);
+        }
+
+        if (bytes == null) {
+            ctx.status(HttpStatus.NOT_FOUND);
+            ctx.json(Map.of(
+                    "err", "graphml resource not found on the processor's classloader",
+                    "className", cls.getName(),
+                    "expectedResource", resourcePath,
+                    "searchedRoots", graphmlRoots == null ? List.of() : graphmlRoots,
+                    "hint", "Fluxtion writes <ClassName>.graphml alongside the generated source. "
+                          + "Either bundle it into the runtime jar at src/main/resources/" + resourcePath
+                          + ", or set graphmlRoots on the WebAdminService bean to the loader's "
+                          + "generatedResourcesDir so the file is found at runtime."));
+            return;
+        }
+
+        // Surface the live processor's FQN to the client so the
+        // Processor graph UI can offer "view processor source" — the
+        // generated dispatcher class doesn't appear as a node inside
+        // its own graph, so the panel needs an out-of-band way to
+        // pick it up. Header is non-invasive: existing clients ignore
+        // it, source-nav clients read it.
+        ctx.header("X-Processor-Class", cls.getName());
+        ctx.contentType("application/xml; charset=utf-8");
+        ctx.result(bytes);
+    }
+
+    /** Walks {@code roots} (in order) for {@code relPath}, returning
+     *  the first file's bytes. Symlink-escape-guarded. Returns null on
+     *  miss. Package-private for unit tests. */
+    static byte[] readFromRoots(List<String> roots, String relPath) {
+        if (roots == null || roots.isEmpty()) return null;
+        for (String rootSpec : roots) {
+            java.nio.file.Path root;
+            try {
+                root = java.nio.file.Paths.get(rootSpec).toRealPath();
+            } catch (java.io.IOException missing) {
+                continue;
+            }
+            java.nio.file.Path candidate;
+            try {
+                candidate = root.resolve(relPath).toRealPath();
+            } catch (java.io.IOException missing) {
+                continue;
+            }
+            if (!candidate.startsWith(root)) continue;
+            if (!java.nio.file.Files.isRegularFile(candidate)) continue;
+            try {
+                return java.nio.file.Files.readAllBytes(candidate);
+            } catch (java.io.IOException io) {
+                return null;
+            }
+        }
+        return null;
     }
 
     /**
@@ -2181,6 +2229,13 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         }
         String relForResp = base.relativize(target).toString().replace('\\', '/');
         ctx.json(Map.of(
+                // Absolute baseDir — clients use this to build full paths
+                // before submitting to admin commands. The loader services
+                // resolve paths against the server's CWD, NOT against
+                // loaderBaseDir, so a picker that returned just "file.yaml"
+                // wouldn't be found unless the user happened to launch
+                // from loaderBaseDir's parent.
+                "baseDir", base.toAbsolutePath().toString().replace('\\', '/'),
                 "cwd", relForResp,
                 "entries", entries));
     }
