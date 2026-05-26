@@ -465,6 +465,37 @@ document.addEventListener('alpine:init', () => {
             if (this.activeView === 'overview') {
                 this.fetchOverview();
             }
+            // Server-side boot replay (loader plugins replaying persisted
+            // configs, processors finishing their start() hooks, feeds
+            // settling) often completes a beat after the SPA finishes
+            // its initial fetch. Without a follow-up the operator sees
+            // stale counts + an empty persisted-config nav for a few
+            // seconds. Stagger three re-fetches at 1.5 / 5 / 15s after
+            // auth — catches both fast and slow replays without
+            // hammering. After that, manual Refresh or user actions
+            // drive updates.
+            this._postBootRefresh = [
+                setTimeout(() => this._refreshIntrospection(),  1500),
+                setTimeout(() => this._refreshIntrospection(),  5000),
+                setTimeout(() => this._refreshIntrospection(), 15000),
+            ];
+        },
+
+        /** Re-fetch everything the boot-replay state could have
+         *  changed: introspection cache (drives Services / Agents /
+         *  nav), persisted-config lists (drive the Config nav),
+         *  Overview (if visible). Cheap — admin commands return JSON
+         *  arrays; no websockets re-opened. */
+        async _refreshIntrospection() {
+            try { await this.loadIntrospection(); } catch (_) {}
+            if (this.hasYamlLoader())   this.loadPersisted('yaml');
+            if (this.hasSpringLoader()) this.loadPersisted('spring');
+            if (this.hasFeedLoader())   this.loadPersisted('feed');
+            if (this.hasSinkLoader())   this.loadPersisted('sink');
+            if (this.activeView === 'overview' && this.overviewData
+                    && this.overviewData.processors) {
+                try { await this.fetchOverview(); } catch (_) {}
+            }
         },
 
         // ── view + theme ──

@@ -365,7 +365,8 @@
                         <div class="overview-card-body" x-show="!overviewCollapsed.processors">
                             <div class="overview-empty muted small"
                                  x-show="!overviewData.loading && overviewData.processors.length === 0">
-                                No processors registered.
+                                <p>No processors registered.</p>
+                                <p x-show="hasLoaderCommands()">Add one through <a href="#" @click.prevent="go('loader')">Service config</a> — yaml or spring graph, compiled into the running server.</p>
                             </div>
                             <table class="overview-table" x-show="overviewData.processors.length">
                                 <thead><tr>
@@ -408,7 +409,8 @@
                         <div class="overview-card-body" x-show="!overviewCollapsed.feeds">
                             <div class="overview-empty muted small"
                                  x-show="!overviewData.loading && overviewData.feeds.length === 0">
-                                No feeds registered.
+                                <p>No feeds registered.</p>
+                                <p x-show="hasFeedLoader()">Add one through <a href="#" @click.prevent="go('loader')">Service config → Feed loader</a>, or declare in <code>server.yml</code>.</p>
                             </div>
                             <table class="overview-table" x-show="overviewData.feeds.length">
                                 <thead><tr><th class="col-name">Name</th><th class="col-class">Class</th></tr></thead>
@@ -444,7 +446,8 @@
                         <div class="overview-card-body" x-show="!overviewCollapsed.sinks">
                             <div class="overview-empty muted small"
                                  x-show="!overviewData.loading && overviewData.sinks.length === 0">
-                                No sinks registered.
+                                <p>No sinks registered.</p>
+                                <p x-show="hasSinkLoader()">Add one through <a href="#" @click.prevent="go('loader')">Service config → Sink loader</a>, or declare in <code>server.yml</code>.</p>
                             </div>
                             <table class="overview-table" x-show="overviewData.sinks.length">
                                 <thead><tr><th class="col-name">Name</th><th class="col-class">Class</th></tr></thead>
@@ -1217,6 +1220,10 @@
                             <div class="empty">
                                 <svg class="ico ico-lg"><use href="#i-services"/></svg>
                                 <p>No services reported.</p>
+                                <p class="muted small" x-show="hasLoaderCommands()">
+                                    Services are registered either at boot via <code>server.yml</code>
+                                    or at runtime via <a href="#" @click.prevent="go('loader')">Service config</a>.
+                                </p>
                             </div>
                         </div>
                     </div>
@@ -1445,6 +1452,11 @@
                             <div class="empty">
                                 <svg class="ico ico-lg"><use href="#i-agents"/></svg>
                                 <p>No agent groups reported.</p>
+                                <p class="muted small">
+                                    Agent groups appear when processors or worker services are registered.
+                                    If the server just booted, this list may still be settling —
+                                    use the Refresh control or wait a moment.
+                                </p>
                             </div>
                         </div>
                     </div>
