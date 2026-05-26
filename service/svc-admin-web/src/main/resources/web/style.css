@@ -1963,18 +1963,19 @@ textarea { resize: vertical; font-family: ui-monospace, Menlo, monospace; font-s
     border: 1px solid var(--border);
 }
 
-/* ─── Processor graph: exported-services panel ────────────────────────
-   Floats bottom-left on the Graph tab. Parsed client-side from the
-   pre-fetched generated dispatcher source — one row per @Override in
-   //EXPORTED SERVICE FUNCTIONS. Click → opens the source-nav panel
-   scrolled to that method's @Override line. */
-.proc-exports {
+/* ─── Processor graph: surface panel ──────────────────────────────────
+   Floats bottom-left on the Graph tab. Two stacked, individually-
+   collapsible sections: "Events handled" (derived from graphml nodes)
+   and "Exported services" (parsed from generated source). Each row is
+   a click-target that drives the cytoscape view + the source-nav
+   viewer in concert. */
+.proc-surface {
     position: absolute;
     left: 0.5rem;
     bottom: 0.5rem;
-    width: 18rem;
+    width: 20rem;
     max-width: calc(100% - 1rem);
-    max-height: 50%;
+    max-height: 60%;
     background: var(--surface-2);
     border: 1px solid var(--border);
     border-radius: 6px;
@@ -1983,25 +1984,34 @@ textarea { resize: vertical; font-family: ui-monospace, Menlo, monospace; font-s
     display: flex;
     flex-direction: column;
     font-size: 0.78rem;
+    overflow: hidden;
 }
-.proc-exports-head {
+.proc-surface-section {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+.proc-surface-section + .proc-surface-section {
+    border-top: 1px solid var(--border);
+}
+.proc-surface-head {
     display: flex;
     align-items: center;
     gap: 0.4rem;
     padding: 0.4rem 0.65rem;
     cursor: pointer;
     user-select: none;
-    border-bottom: 1px solid var(--border);
+    background: var(--surface-3, var(--surface-2));
 }
-.proc-exports-caret { font-size: 0.7rem; color: var(--fg-muted); }
-.proc-exports-title {
+.proc-surface-caret { font-size: 0.7rem; color: var(--fg-muted); }
+.proc-surface-title {
     text-transform: uppercase;
     letter-spacing: 0.06em;
     font-size: 0.66rem;
     color: var(--fg-muted);
     flex: 1 1 auto;
 }
-.proc-exports-count {
+.proc-surface-count {
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     font-size: 0.72rem;
     color: var(--fg-muted);
@@ -2011,28 +2021,28 @@ textarea { resize: vertical; font-family: ui-monospace, Menlo, monospace; font-s
     min-width: 1.5rem;
     text-align: center;
 }
-.proc-exports-body {
+.proc-surface-body {
     overflow: auto;
     flex: 1 1 auto;
     min-height: 0;
 }
-.proc-exports-table {
+.proc-surface-table {
     width: 100%;
     border-collapse: collapse;
 }
-.proc-exports-table .proc-exports-row {
+.proc-surface-table .proc-surface-row {
     cursor: pointer;
 }
-.proc-exports-table .proc-exports-row:hover {
+.proc-surface-table .proc-surface-row:hover {
     background: var(--surface);
 }
-.proc-exports-table .proc-exports-row td {
+.proc-surface-table .proc-surface-row td {
     padding: 0.3rem 0.65rem;
     border-bottom: 1px solid var(--border);
     vertical-align: baseline;
     line-height: 1.3;
 }
-.proc-exports-table .proc-exports-row:last-child td { border-bottom: none; }
+.proc-surface-table .proc-surface-row:last-child td { border-bottom: none; }
 
 /* ─── Topology drill-down ribbon ──────────────────────────────────────
    Replaces the previous Dispatch-services sidebar group. Sits below

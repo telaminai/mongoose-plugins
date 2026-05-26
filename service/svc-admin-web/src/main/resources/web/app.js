@@ -206,6 +206,11 @@ document.addEventListener('alpine:init', () => {
         // Collapse state for the floating exports panel — persisted
         // across taps but not across page loads.
         processorGraphExportsCollapsed: false,
+        // Events-handled list — derived from the parsed graphml. Each
+        // event node (nodeKind === 'EVENT') becomes a row {id, simpleName,
+        // fqn}. Click a row to centre the graph on that node and jump
+        // to its handleEvent declaration in source-nav.
+        processorGraphEventsCollapsed: false,
         // Sibling-tab state — 'graph' shows the cytoscape canvas; 'stats'
         // shows a sortable / filterable / downloadable per-node table;
         // 'replay' steps through an audit-log file with the same canvas
@@ -2081,6 +2086,89 @@ document.addEventListener('alpine:init', () => {
                 });
             }
             return out;
+        },
+
+        /** Events the processor handles — derived from the parsed
+         *  graphml. Walks every node, picks those tagged `EVENT` by the
+         *  graphml Style, and returns one row per type. The user clicks
+         *  a row to centre the canvas + jump to the corresponding
+         *  handleEvent declaration. */
+        processorGraphHandledEvents() {
+            const nodes = this.processorGraphParsed?.nodes;
+            if (!nodes || !nodes.length) return [];
+            const out = [];
+            const seen = new Set();
+            for (const n of nodes) {
+                if (n.nodeKind !== 'EVENT') continue;
+                const fqn = n.className || n.id || '';
+                if (!fqn || seen.has(fqn)) continue;
+                seen.add(fqn);
+                // Strip pkg + outer-class prefix to match the dispatcher's
+                // bare import (same logic as _onProcessorGraphNodeTap).
+                const afterPkg = fqn.substring(fqn.lastIndexOf('.') + 1);
+                const dollar = afterPkg.lastIndexOf('$');
+                const simpleName = dollar >= 0 ? afterPkg.substring(dollar + 1) : afterPkg;
+                out.push({ id: n.id, fqn, simpleName });
+            }
+            return out;
+        },
+
+        /** Click handler for an events-handled row. Centres the graph on
+         *  the matching cytoscape node, then dispatches the same tap
+         *  handler the user would get by clicking the node directly —
+         *  highlight + source-nav scrolled to handleEvent(SimpleName ...).
+         *  Smooth-animates the camera so the user sees the connection
+         *  between table row and node. */
+        processorGraphJumpToEvent(row) {
+            const r = this.processorGraphRenderer;
+            if (!r || !r.cy) return;
+            const node = r.cy.getElementById(row.id);
+            if (!node || node.length === 0) {
+                // Node not currently in the cytoscape view (probably
+                // hidden by the scaffolding filter). Fall back to opening
+                // source-nav by FQN without the canvas pan.
+                this._jumpToEventSourceOnly(row);
+                return;
+            }
+            // Smooth pan to centre the node, then trigger the tap
+            // handler — the existing event-node routing already lands
+            // on handleEvent(SimpleName typedEvent).
+            try {
+                r.cy.animate({
+                    center: { eles: node },
+                    duration: 300
+                });
+            } catch (_) {
+                // Older cytoscape versions / non-animatable states.
+                try { r.cy.center(node); } catch (_2) {}
+            }
+            this._onProcessorGraphNodeTap(node);
+        },
+
+        /** Fallback when the event's cytoscape node isn't currently in
+         *  the view (filtered / scaffolding-hidden). Opens source-nav on
+         *  the processor's FQN with a jumpHint that resolves to the
+         *  handleEvent declaration. */
+        _jumpToEventSourceOnly(row) {
+            const procFqn = this.processorGraphProcessorFqn;
+            if (!procFqn) return;
+            const procSimple = procFqn.substring(procFqn.lastIndexOf('.') + 1);
+            this.processorGraphSourceNav = {
+                id: row.simpleName,
+                fqn: procFqn,
+                simpleName: procSimple,
+                origin: this._classifyOrigin(procFqn),
+                sourcePathHint: procFqn.replace(/\./g, '/') + '.java',
+                nodeKind: 'dispatch:' + row.simpleName,
+                jumpHint: 'event:' + row.simpleName,
+                sourceState: 'idle',
+                sourceText: null,
+                sourceHtml: null,
+                sourceFoundPath: null,
+                sourceErr: null,
+                targetLine: null
+            };
+            this._fetchSourceFor(procFqn);
         },
 
         /** Click handler for an exported-services row — opens the
