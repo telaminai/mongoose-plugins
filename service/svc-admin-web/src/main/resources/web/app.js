@@ -2848,7 +2848,7 @@ document.addEventListener('alpine:init', () => {
             this._applyProcessorGraphHighlight();
             let pngDataUri = '';
             try {
-                if (cy) pngDataUri = cy.png({ full: true, scale: 2, output: 'base64uri' });
+                if (cy) pngDataUri = this._captureGraphPngForPrint(cy);
             } catch (e) { console.warn('compliance PNG export failed', e); }
             this.processorGraphCycleStage = prevCycle;
             this.processorGraphCycleFocus = prevFocus;
@@ -2940,6 +2940,57 @@ document.addEventListener('alpine:init', () => {
             ].join('\n');
         },
 
+        /** Capture a cytoscape PNG with high-contrast colours suitable
+         *  for the print PDF / markdown report. The live renderer is
+         *  themed for the operator's current setting (often dark) and
+         *  embedding that snapshot into a white-background HTML report
+         *  produces unreadably light text. This helper applies per-
+         *  element inline-style overrides FIRST — dark text, dark
+         *  borders, white fills — then takes the snapshot and strips
+         *  the overrides so the live canvas reverts. Inline styles
+         *  win over the renderer's stylesheet, so the swap doesn't
+         *  reach into the renderer module. */
+        _captureGraphPngForPrint(cy) {
+            const nodes = cy.nodes();
+            const edges = cy.edges();
+            // Track exactly which properties we touched so removeStyle
+            // can target only those — leaves any other ad-hoc inline
+            // styles (highlight/dim classes work via classes, not
+            // inline overrides, so they're safe regardless) intact.
+            const NODE_OVERRIDES = {
+                'color':            '#1a2129',
+                'background-color': '#ffffff',
+                'border-color':     '#475569',
+                'border-width':     1.5,
+                'text-outline-color': '#ffffff',
+                'text-outline-width': 1
+            };
+            const EDGE_OVERRIDES = {
+                'line-color':         '#475569',
+                'target-arrow-color': '#475569',
+                'color':              '#1a2129'
+            };
+            nodes.style(NODE_OVERRIDES);
+            edges.style(EDGE_OVERRIDES);
+            try {
+                return cy.png({
+                    full: true,
+                    scale: 2,
+                    output: 'base64uri',
+                    // Force white background so the saved PNG matches
+                    // the print page; cytoscape default is transparent
+                    // which can leave a dark-themed renderer's last
+                    // canvas-fill visible in the export.
+                    bg: '#ffffff'
+                });
+            } finally {
+                // Strip just the overrides we set. Cytoscape's
+                // .removeStyle(name) takes a single name; iterate.
+                Object.keys(NODE_OVERRIDES).forEach(k => nodes.removeStyle(k));
+                Object.keys(EDGE_OVERRIDES).forEach(k => edges.removeStyle(k));
+            }
+        },
+
         /** Assemble the markdown report body. Returns a single string;
          *  callers wrap it in a Blob + anchor download. Separated from
          *  the download so future code (PDF generator, in-page preview)
@@ -2961,7 +3012,7 @@ document.addEventListener('alpine:init', () => {
             this._applyProcessorGraphHighlight();
             let pngDataUri = '';
             try {
-                if (cy) pngDataUri = cy.png({ full: true, scale: 2, output: 'base64uri' });
+                if (cy) pngDataUri = this._captureGraphPngForPrint(cy);
             } catch (e) {
                 console.warn('compliance PNG export failed', e);
             }
