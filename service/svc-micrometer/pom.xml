@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  svc-micrometer — Micrometer bridge for Mongoose counters + latencies.
+
+  Subscribes to MongooseCountersService (counters) and MongooseLatencyService
+  (HDR histograms) via @ServiceRegistered, snapshots their values once per
+  second, and publishes them as Micrometer meters into a user-supplied
+  MeterRegistry. Operators add their preferred Micrometer backend
+  (Prometheus / Datadog / StatsD / OTLP / CloudWatch / etc) on the
+  classpath; this module imports `micrometer-core` only.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.telamin</groupId>
+        <artifactId>mongoose-plugins</artifactId>
+        <version>1.0.21-SNAPSHOT</version>
+        <relativePath>../../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>svc-micrometer</artifactId>
+    <name>telamin :: mongoose-plugins :: svc-micrometer</name>
+
+    <properties>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <!-- Stable across Spring Boot 3.2 → 3.4; backends ship matching
+             registry artefacts at the same version line. -->
+        <micrometer.version>1.13.6</micrometer.version>
+    </properties>
+
+    <dependencies>
+        <!-- The Mongoose counters + latency interfaces are in mongoose-core,
+             which the parent pom already pulls in transitively. -->
+
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-core</artifactId>
+            <version>${micrometer.version}</version>
+        </dependency>
+
+        <!-- JUnit is inherited from the parent pom's <dependencies>;
+             tests run against SimpleMeterRegistry from micrometer-core,
+             no backend-specific artefacts pulled in for the module. -->
+    </dependencies>
+</project>
