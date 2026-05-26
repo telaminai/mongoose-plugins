@@ -53,6 +53,17 @@ public class EventHandlerLoader implements Lifecycle {
     private EventLogControlEvent.LogLevel traceLogLevel;
     private boolean addEventAuditor = false;
 
+    /** Filesystem directory to emit generated .java sources under.
+     *  When null/blank, source is kept in-memory (legacy behaviour).
+     *  When set, generated classes land at
+     *  {@code <generatedSourceDir>/<packageName-path>/<className>.java}
+     *  so the admin web's source-viewer (sourceRoots) can find them. */
+    @Getter @Setter private String generatedSourceDir;
+    /** Filesystem directory to emit .graphml + auxiliary resources. */
+    @Getter @Setter private String generatedResourcesDir;
+    /** Java package for runtime-generated processor classes. */
+    @Getter @Setter private String packageName = "com.telamin.mongoose.runtime.loaded.yaml";
+
     @ServiceRegistered
     public void adminRegistry(AdminCommandRegistry adminCommandRegistry, String name) {
         log.info("Admin registry: '{}' name: '{}'", adminCommandRegistry, name);
@@ -135,7 +146,9 @@ public class EventHandlerLoader implements Lifecycle {
                 Class<FluxtionGraphBuilder> compiledClass = StringCompilation.compile(className, Files.readString(javaSourceFilePath));
 
                 SerializableConsumer<EventProcessorConfig> buildGraph = compiledClass.getDeclaredConstructor().newInstance()::buildGraph;
-                CloneableDataFlow<?> eventProcessor = compileProcessor ? Fluxtion.compile(buildGraph) : FluxtionInterpreter.interpret(buildGraph);
+                CloneableDataFlow<?> eventProcessor = compileProcessor
+                        ? Fluxtion.compile(buildGraph, compilerConfigFor(javaSourceFiler, group))
+                        : FluxtionInterpreter.interpret(buildGraph);
 
                 eventProcessor.init();
                 eventProcessor.setAuditLogLevel(initialLogLevel);
@@ -169,7 +182,17 @@ public class EventHandlerLoader implements Lifecycle {
         out.accept("loading yaml file:" + javaSourceFiler);
 
         try {
-            Yaml yaml = new Yaml();
+            // SnakeYAML 2.x rejects all global tags by default via the
+            // TagInspector on LoaderOptions — even the non-safe
+            // Constructor inherits that gate. The loader's whole
+            // contract is "user references node classes by FQN", so
+            // install a permissive inspector. Callers who want a
+            // tighter policy can wrap this loader and pre-validate.
+            org.yaml.snakeyaml.LoaderOptions opts = new org.yaml.snakeyaml.LoaderOptions();
+            opts.setTagInspector(tag -> true);
+            org.yaml.snakeyaml.constructor.Constructor ctor =
+                    new org.yaml.snakeyaml.constructor.Constructor(EventProcessorYamlCfg.class, opts);
+            Yaml yaml = new Yaml(ctor);
             EventProcessorYamlCfg yamlCfg = yaml.loadAs(Files.readString(javaSourceFilePath), EventProcessorYamlCfg.class);
 
             SerializableConsumer<EventProcessorConfig> buildGraph = cfg -> {
@@ -192,7 +215,9 @@ public class EventHandlerLoader implements Lifecycle {
 
             };
 
-            CloneableDataFlow<?> eventProcessor = compileProcessor ? Fluxtion.compile(buildGraph) : FluxtionInterpreter.interpret(buildGraph);
+            CloneableDataFlow<?> eventProcessor = compileProcessor
+                    ? Fluxtion.compile(buildGraph, compilerConfigFor(javaSourceFiler, group))
+                    : FluxtionInterpreter.interpret(buildGraph);
             eventProcessor.init();
 
             out.accept("compiled and loaded processor" + eventProcessor.toString());
@@ -201,6 +226,54 @@ public class EventHandlerLoader implements Lifecycle {
             err.accept("Failed to compile java source file: " + javaSourceFiler);
             log.error(e);
         }
+    }
+
+    /** Builds the compiler-config consumer applied to each
+     *  {@code Fluxtion.compile} call. ALWAYS overrides package +
+     *  className so the generated FQN is deterministic and free of
+     *  `$` (Fluxtion's default lambda-derived names like
+     *  {@code …lambda$compileForCfg$1.Processor} contain `$`, which
+     *  the admin web's source endpoint mistakes for inner-class
+     *  syntax and strips, breaking navigation). Output dirs are
+     *  applied only when the operator sets them on the bean. */
+    private LambdaReflection.SerializableConsumer<FluxtionCompilerConfig> compilerConfigFor(
+            String sourceFile, String group) {
+        final String pkg = packageName == null || packageName.isBlank()
+                ? "com.telamin.mongoose.runtime.loaded.yaml" : packageName;
+        final String cls = deriveClassName(sourceFile, group);
+        final String srcDir = generatedSourceDir;
+        final String resDir = generatedResourcesDir == null ? generatedSourceDir : generatedResourcesDir;
+        return cfg -> {
+            cfg.setPackageName(pkg);
+            cfg.setClassName(cls);
+            if (srcDir != null && !srcDir.isBlank()) {
+                cfg.setOutputDirectory(srcDir);
+                cfg.setWriteSourceToFile(true);
+            }
+            if (resDir != null && !resDir.isBlank()) {
+                cfg.setResourcesOutputDirectory(resDir);
+                cfg.setGenerateDescription(true);
+            }
+        };
+    }
+
+    /** Maps an arbitrary config-file path + group into a legal Java
+     *  class name, suffixing {@code _Processor}. Guarantees the result
+     *  starts with a letter and contains only word chars — anything
+     *  else gets squashed to '_'. Exposed for unit tests. */
+    static String deriveClassName(String sourceFile, String group) {
+        String base = sourceFile == null ? "loaded" : sourceFile;
+        int slash = Math.max(base.lastIndexOf('/'), base.lastIndexOf('\\'));
+        if (slash >= 0) base = base.substring(slash + 1);
+        int dot = base.lastIndexOf('.');
+        if (dot > 0) base = base.substring(0, dot);
+        String groupPart = group == null || group.isBlank() ? "" : "_" + group;
+        String raw = base + groupPart + "_Processor";
+        String sanitised = raw.replaceAll("[^A-Za-z0-9_]", "_");
+        if (sanitised.isEmpty() || !Character.isJavaIdentifierStart(sanitised.charAt(0))) {
+            sanitised = "P_" + sanitised;
+        }
+        return sanitised;
     }
 
     @Data
