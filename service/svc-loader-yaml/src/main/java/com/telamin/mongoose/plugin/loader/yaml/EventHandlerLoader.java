@@ -229,17 +229,15 @@ public class EventHandlerLoader implements Lifecycle {
     }
 
     /** Builds the compiler-config consumer applied to each
-     *  {@code Fluxtion.compile} call. When neither output dir is set,
-     *  returns a no-op so the legacy in-memory-only behaviour is
-     *  preserved. When the operator opts in by setting either dir on
-     *  the loader bean in {@code server.yml}, the processor is emitted
-     *  as source + .graphml under those dirs so the admin web
-     *  (sourceRoots / graphmlRoots) can navigate to it. */
+     *  {@code Fluxtion.compile} call. ALWAYS overrides package +
+     *  className so the generated FQN is deterministic and free of
+     *  `$` (Fluxtion's default lambda-derived names like
+     *  {@code …lambda$compileForCfg$1.Processor} contain `$`, which
+     *  the admin web's source endpoint mistakes for inner-class
+     *  syntax and strips, breaking navigation). Output dirs are
+     *  applied only when the operator sets them on the bean. */
     private LambdaReflection.SerializableConsumer<FluxtionCompilerConfig> compilerConfigFor(
             String sourceFile, String group) {
-        if (isBlank(generatedSourceDir) && isBlank(generatedResourcesDir)) {
-            return cfg -> {}; // legacy: no on-disk artefacts
-        }
         final String pkg = packageName == null || packageName.isBlank()
                 ? "com.telamin.mongoose.runtime.loaded.yaml" : packageName;
         final String cls = deriveClassName(sourceFile, group);
@@ -277,8 +275,6 @@ public class EventHandlerLoader implements Lifecycle {
         }
         return sanitised;
     }
-
-    private static boolean isBlank(String s) { return s == null || s.isBlank(); }
 
     @Data
     public static class EventProcessorYamlCfg {

@@ -157,12 +157,13 @@ public class SpringEventHandlerLoader implements Lifecycle {
                     cfg.addEventAudit(traceLogLevel);
                 }
             };
-            LambdaReflection.SerializableConsumer<FluxtionCompilerConfig> compilerCfg = compilerConfigFor(springFile, group);
-            if (compilerCfg == null) {
-                eventProcessor = FluxtionSpring.compile(springFilePath, nodeCfg);
-            } else {
-                eventProcessor = FluxtionSpring.compileAot(springFilePath, nodeCfg, compilerCfg);
-            }
+            // Always take the compileAot overload so our package +
+            // className override applies — without it, Fluxtion's
+            // default FQN contains `$` (lambda-derived) which the
+            // admin web's source endpoint mistakes for inner-class
+            // syntax, breaking event-source navigation.
+            eventProcessor = FluxtionSpring.compileAot(
+                    springFilePath, nodeCfg, compilerConfigFor(springFile, group));
         } else {
             eventProcessor = FluxtionSpringInterpreter.interpret(springFilePath, cfg -> {
                 if (addEventAuditor) {
@@ -184,14 +185,16 @@ public class SpringEventHandlerLoader implements Lifecycle {
 
     }
 
-    /** Returns the compiler-config consumer to apply to the AOT path,
-     *  or null when neither output dir is set (caller falls back to
-     *  the no-config compile()). */
+    /** Compiler-config consumer applied to every AOT compile. ALWAYS
+     *  overrides package + className so the generated FQN is
+     *  deterministic and free of `$` (Fluxtion's default for
+     *  spring-fed compiles is {@code ….fluxtionspring.addNodes.Processor}
+     *  but for buildGraph-fed lambdas contains `$`; the admin web's
+     *  source endpoint strips on first `$` as inner-class syntax, so
+     *  any FQN with `$` breaks event-source navigation). Output dirs
+     *  apply only when set. */
     private LambdaReflection.SerializableConsumer<FluxtionCompilerConfig> compilerConfigFor(
             String sourceFile, String group) {
-        if (isBlank(generatedSourceDir) && isBlank(generatedResourcesDir)) {
-            return null;
-        }
         final String pkg = packageName == null || packageName.isBlank()
                 ? "com.telamin.mongoose.runtime.loaded.spring" : packageName;
         final String cls = deriveClassName(sourceFile, group);
@@ -227,8 +230,6 @@ public class SpringEventHandlerLoader implements Lifecycle {
         }
         return sanitised;
     }
-
-    private static boolean isBlank(String s) { return s == null || s.isBlank(); }
 
     @Data
     public static final class EventSpringFile {
