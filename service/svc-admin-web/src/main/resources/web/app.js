@@ -51,6 +51,28 @@ document.addEventListener('alpine:init', () => {
             return { processors: false, feeds: false, sinks: false, services: false, audit: false };
         })(),
 
+        /** Per-item collapsed state on the Services list view. Keyed by
+         *  service name. Defaults to collapsed (true) so the page shows
+         *  one row per service with summary in the header — operator
+         *  expands the few they care about. */
+        servicesCardCollapsed: (() => {
+            try {
+                const raw = localStorage.getItem('mongoose-admin-services-collapsed');
+                if (raw) return JSON.parse(raw);
+            } catch (_) { /* fall through */ }
+            return {};
+        })(),
+
+        /** Per-item collapsed state on the Agents list view. Same shape
+         *  as servicesCardCollapsed; keyed by agent-group name. */
+        agentsCardCollapsed: (() => {
+            try {
+                const raw = localStorage.getItem('mongoose-admin-agents-collapsed');
+                if (raw) return JSON.parse(raw);
+            } catch (_) { /* fall through */ }
+            return {};
+        })(),
+
         // Left-nav category expand/collapse state. Persisted to
         // localStorage so the user's collapse pattern survives reload.
         // Default: every category expanded so first-time users see
@@ -666,6 +688,82 @@ document.addEventListener('alpine:init', () => {
             try {
                 await navigator.clipboard.writeText(json);
                 this.toast(`Copied ${key} JSON to clipboard`, 'success');
+            } catch (e) {
+                this.toast('Copy failed: ' + e.message, 'error');
+            }
+        },
+
+        // ── Services / Agents card behaviour ────────────────────────
+        // Same shape as the Overview cards: per-item collapsed state
+        // persisted to localStorage, header summary when collapsed,
+        // copy-as-JSON action.
+
+        toggleServicesCard(name) {
+            this.servicesCardCollapsed[name] = !this.servicesCardCollapsed[name];
+            try {
+                localStorage.setItem('mongoose-admin-services-collapsed',
+                        JSON.stringify(this.servicesCardCollapsed));
+            } catch (_) {}
+        },
+
+        toggleAgentsCard(name) {
+            this.agentsCardCollapsed[name] = !this.agentsCardCollapsed[name];
+            try {
+                localStorage.setItem('mongoose-admin-agents-collapsed',
+                        JSON.stringify(this.agentsCardCollapsed));
+            } catch (_) {}
+        },
+
+        /** Service is "collapsed-by-default" — first time we see this
+         *  name, return true (collapsed) unless the operator has
+         *  explicitly expanded it. Stops the page from being a wall of
+         *  expanded cards on first visit. */
+        isServicesCardCollapsed(name) {
+            return this.servicesCardCollapsed[name] !== false;
+        },
+
+        isAgentsCardCollapsed(name) {
+            return this.agentsCardCollapsed[name] !== false;
+        },
+
+        /** One-line summary shown in a collapsed Services card. Picks
+         *  the most useful piece per service kind: rate for feeds, just
+         *  className for sinks + plain services. */
+        serviceCardSummary(s) {
+            const parts = [];
+            if (s.type === 'feed') {
+                const rate = this.feedRateLabel(s.name);
+                if (rate) parts.push(rate);
+            }
+            if (s.className) parts.push(this.simpleClassName(s.className));
+            return parts.join(' · ');
+        },
+
+        /** Summary for an Agent group card: processor count + state +
+         *  rate when available. */
+        agentCardSummary(a) {
+            const parts = [];
+            const procCount = (a.members ?? []).length;
+            parts.push(procCount + (procCount === 1 ? ' processor' : ' processors'));
+            if (a.state) parts.push(a.state);
+            const rate = this.groupRateLabel ? this.groupRateLabel(a.group) : null;
+            if (rate) parts.push(rate);
+            return parts.join(' · ');
+        },
+
+        async copyServiceJson(s) {
+            try {
+                await navigator.clipboard.writeText(JSON.stringify(s, null, 2));
+                this.toast(`Copied ${s.name} JSON`, 'success');
+            } catch (e) {
+                this.toast('Copy failed: ' + e.message, 'error');
+            }
+        },
+
+        async copyAgentJson(a) {
+            try {
+                await navigator.clipboard.writeText(JSON.stringify(a, null, 2));
+                this.toast(`Copied ${a.group} JSON`, 'success');
             } catch (e) {
                 this.toast('Copy failed: ' + e.message, 'error');
             }

@@ -189,6 +189,14 @@
                         <svg class="ico"><use href="#i-commands"/></svg><span>Commands</span>
                         <span class="nav-count" x-show="commands.length" x-text="commands.length"></span>
                     </button>
+                    <!-- Service config — control surface for what gets registered
+                         into the server (yaml/spring/feed/sink loaders +
+                         persisted-config replay). Renamed from "Loader" in this
+                         pass; the view id is still 'loader' for url stability
+                         + to avoid touching the four kinds of *Loader code. -->
+                    <button class="nav-item" :class="{active: activeView==='loader'}" @click="go('loader')" x-show="hasLoaderCommands()">
+                        <svg class="ico"><use href="#i-loader"/></svg><span>Service config</span>
+                    </button>
                 </div>
             </div>
 
@@ -237,9 +245,6 @@
                 <div x-show="navExpanded.plugins" x-cloak>
                     <button class="nav-item" :class="{active: activeView==='cache'}" @click="go('cache')" x-show="hasCacheCommands()">
                         <svg class="ico"><use href="#i-cache"/></svg><span>Cache</span>
-                    </button>
-                    <button class="nav-item" :class="{active: activeView==='loader'}" @click="go('loader')" x-show="hasLoaderCommands()">
-                        <svg class="ico"><use href="#i-loader"/></svg><span>Loader</span>
                     </button>
                 </div>
             </div>
@@ -1156,35 +1161,60 @@
                                 <input type="search" placeholder="Filter…" x-model="servicesFilter">
                             </div>
                         </div>
-                        <div class="card">
-                            <!-- Seg-tabs removed — the left-nav now serves
-                                 the same purpose with three top-level
-                                 buttons (Services / Feeds / Sinks). -->
-
-                            <table class="data-table sortable clickable-rows" x-show="services.length">
-                                <thead>
-                                    <tr>
-                                        <th><button type="button" class="th-sort" :class="{active: servicesSortCol==='name'}" @click="sortServices('name')">Name <span class="sort-ind" x-text="sortIndicator('name')"></span></button></th>
-                                        <th><button type="button" class="th-sort" :class="{active: servicesSortCol==='type'}" @click="sortServices('type')">Type <span class="sort-ind" x-text="sortIndicator('type')"></span></button></th>
-                                        <th class="num" x-show="throughput">Rate</th>
-                                        <th><button type="button" class="th-sort" :class="{active: servicesSortCol==='className'}" @click="sortServices('className')">Implementation <span class="sort-ind" x-text="sortIndicator('className')"></span></button></th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <template x-for="s in sortedFilteredServices()" :key="s.name">
-                                        <tr class="clickable" @click="openService(s.name)" :title="'Open ' + s.name">
-                                            <td class="mono strong" x-text="s.name"></td>
-                                            <td><span class="tag" :class="{ok: s.type==='feed', warn: s.type==='sink'}" x-text="s.type || 'service'"></span></td>
-                                            <td class="num" x-show="throughput" x-text="feedRateLabel(s.name)" :class="feedRateClass(s.name)"></td>
-                                            <td class="mono muted" x-text="s.className"></td>
-                                        </tr>
-                                    </template>
-                                    <template x-if="services.length>0 && sortedFilteredServices().length===0">
-                                        <tr><td colspan="4" class="empty empty-sm"><svg class="ico"><use href="#i-search"/></svg><span>No match for “<span x-text="servicesFilter"></span>”</span></td></tr>
-                                    </template>
-                                </tbody>
-                            </table>
-                            <div class="empty" x-show="!services.length">
+                        <!-- One overview-style card per service. Same
+                             collapsible / summary / copy-JSON shape as
+                             the Overview page cards. Header click =
+                             toggle expand; click on the name itself
+                             still navigates to the dedicated detail
+                             page (which retains the full kv/consumers/
+                             config richness). Empty state + filter
+                             miss + no-services-at-all kept beneath. -->
+                        <div class="overview-stack">
+                            <template x-for="s in sortedFilteredServices()" :key="s.name">
+                                <section class="overview-card" :class="{ collapsed: isServicesCardCollapsed(s.name) }">
+                                    <header class="overview-card-head"
+                                            @click="toggleServicesCard(s.name)"
+                                            role="button" tabindex="0"
+                                            @keydown.enter.prevent="toggleServicesCard(s.name)"
+                                            @keydown.space.prevent="toggleServicesCard(s.name)">
+                                        <span class="overview-card-caret" x-text="isServicesCardCollapsed(s.name) ? '▸' : '▾'"></span>
+                                        <h2 class="mono" x-text="s.name"></h2>
+                                        <span class="tag" :class="{ok: s.type==='feed', warn: s.type==='sink'}" x-text="s.type || 'service'"></span>
+                                        <span class="overview-card-summary muted small" x-text="serviceCardSummary(s)"></span>
+                                        <button type="button" class="btn btn-ghost btn-sm overview-card-copy"
+                                                @click.stop="copyServiceJson(s)"
+                                                title="Copy as JSON">Copy</button>
+                                        <button type="button" class="btn btn-ghost btn-sm"
+                                                @click.stop="openService(s.name)"
+                                                title="Open detail page">Open</button>
+                                    </header>
+                                    <div class="overview-card-body" x-show="!isServicesCardCollapsed(s.name)">
+                                        <div class="kv-grid kv-grid-1">
+                                            <div class="kv">
+                                                <span class="kv-k">Type</span>
+                                                <span class="kv-v" x-text="s.type || 'service'"></span>
+                                            </div>
+                                            <div class="kv">
+                                                <span class="kv-k">Implementation</span>
+                                                <span class="kv-v mono ellipsis" :title="s.className" x-text="s.className || '—'"></span>
+                                            </div>
+                                            <div class="kv" x-show="throughput && s.type === 'feed' && feedRateLabel(s.name)">
+                                                <span class="kv-k">Rate</span>
+                                                <span class="kv-v mono" :class="feedRateClass(s.name)" x-text="feedRateLabel(s.name)"></span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </section>
+                            </template>
+                        </div>
+                        <div class="card" x-show="services.length>0 && sortedFilteredServices().length===0">
+                            <div class="empty empty-sm">
+                                <svg class="ico"><use href="#i-search"/></svg>
+                                <span>No match for &ldquo;<span x-text="servicesFilter"></span>&rdquo;</span>
+                            </div>
+                        </div>
+                        <div class="card" x-show="!services.length">
+                            <div class="empty">
                                 <svg class="ico ico-lg"><use href="#i-services"/></svg>
                                 <p>No services reported.</p>
                             </div>
@@ -1365,35 +1395,50 @@
                                 <p class="view-sub">Agent groups — the threads that run processors and worker services. Click a card for detail.</p>
                             </div>
                         </div>
-                        <div class="agent-grid" x-show="agents.length">
+                        <!-- One overview-style card per agent group. Same
+                             collapsible / summary / copy-JSON shape as the
+                             Overview + Services pages. -->
+                        <div class="overview-stack" x-show="agents.length">
                             <template x-for="a in agents" :key="a.group">
-                                <div class="card agent-card clickable" @click="openAgent(a.group)" :title="'Open ' + a.group">
-                                    <div class="agent-head">
-                                        <div>
-                                            <div class="agent-name mono" x-text="a.group"></div>
-                                            <div class="agent-type" x-text="(a.type || 'agent') + ' group'"></div>
-                                        </div>
-                                        <span class="tag tag-rate" x-show="throughput && groupRateLabel(a.group)" :class="groupRateClass(a.group)" x-text="groupRateLabel(a.group)"></span>
+                                <section class="overview-card" :class="{ collapsed: isAgentsCardCollapsed(a.group) }">
+                                    <header class="overview-card-head"
+                                            @click="toggleAgentsCard(a.group)"
+                                            role="button" tabindex="0"
+                                            @keydown.enter.prevent="toggleAgentsCard(a.group)"
+                                            @keydown.space.prevent="toggleAgentsCard(a.group)">
+                                        <span class="overview-card-caret" x-text="isAgentsCardCollapsed(a.group) ? '▸' : '▾'"></span>
+                                        <h2 class="mono" x-text="a.group"></h2>
                                         <span class="tag" :class="threadTagClass(a.state)" x-show="a.state" x-text="a.state"></span>
-                                        <span class="nav-count" x-show="!a.state" x-text="(a.members ?? []).length"></span>
+                                        <span class="overview-card-count" x-text="(a.members ?? []).length"></span>
+                                        <span class="overview-card-summary muted small" x-text="agentCardSummary(a)"></span>
+                                        <button type="button" class="btn btn-ghost btn-sm overview-card-copy"
+                                                @click.stop="copyAgentJson(a)"
+                                                title="Copy as JSON">Copy</button>
+                                        <button type="button" class="btn btn-ghost btn-sm"
+                                                @click.stop="openAgent(a.group)"
+                                                title="Open detail page">Open</button>
+                                    </header>
+                                    <div class="overview-card-body" x-show="!isAgentsCardCollapsed(a.group)">
+                                        <div class="kv-grid kv-grid-1">
+                                            <div class="kv">
+                                                <span class="kv-k">Type</span>
+                                                <span class="kv-v" x-text="(a.type || 'agent') + ' group'"></span>
+                                            </div>
+                                            <div class="kv" x-show="a.thread"><span class="kv-k">Thread</span><span class="kv-v mono" x-text="a.thread"></span></div>
+                                            <div class="kv" x-show="a.idleStrategy"><span class="kv-k">Idle strategy</span><span class="kv-v mono ellipsis" :title="a.idleStrategy" x-text="a.idleStrategy"></span></div>
+                                            <div class="kv" x-show="(a.feeds ?? []).length"><span class="kv-k">Feeds</span><span class="kv-v" x-text="(a.feeds ?? []).length + ' subscribed'"></span></div>
+                                        </div>
+                                        <div class="agent-members" style="margin-top:.7rem">
+                                            <span class="field-label">Processors</span>
+                                            <ul class="member-list">
+                                                <template x-for="m in (a.members ?? [])" :key="m.name">
+                                                    <li><span class="dot-mini" :class="m.kind"></span><span class="mono" x-text="m.name"></span><span class="muted" x-text="m.kind"></span></li>
+                                                </template>
+                                                <li x-show="!(a.members ?? []).length" class="muted">(no processors)</li>
+                                            </ul>
+                                        </div>
                                     </div>
-                                    <div class="kv-grid kv-grid-1" x-show="a.thread || a.idleStrategy">
-                                        <div class="kv" x-show="a.thread"><span class="kv-k">Thread</span><span class="kv-v mono" x-text="a.thread"></span></div>
-                                        <div class="kv" x-show="a.idleStrategy"><span class="kv-k">Idle strategy</span><span class="kv-v mono" x-text="a.idleStrategy"></span></div>
-                                    </div>
-                                    <div class="agent-members">
-                                        <span class="field-label">Processors</span>
-                                        <ul class="member-list">
-                                            <template x-for="m in (a.members ?? [])" :key="m.name">
-                                                <li><span class="dot-mini" :class="m.kind"></span><span class="mono" x-text="m.name"></span><span class="muted" x-text="m.kind"></span></li>
-                                            </template>
-                                            <li x-show="!(a.members ?? []).length" class="muted">(no processors)</li>
-                                        </ul>
-                                    </div>
-                                    <div class="kv-grid kv-grid-1" x-show="(a.feeds ?? []).length">
-                                        <div class="kv"><span class="kv-k">Feeds</span><span class="kv-v" x-text="(a.feeds ?? []).length + ' subscribed'"></span></div>
-                                    </div>
-                                </div>
+                                </section>
                             </template>
                         </div>
                         <div class="card" x-show="!agents.length">
@@ -2453,12 +2498,18 @@
                 </div>
             </section>
 
-            <!-- ─── Loader ─────────────────────────────────────────────── -->
+            <!-- ─── Service config ──────────────────────────────────────────
+                 Control surface for what gets registered into the running
+                 server. Forms for one-shot + persistent registration of
+                 yaml processors / spring processors / feeds / sinks; tables
+                 below for managing the persisted entries that replay on
+                 boot. Renamed from "Loader" in May 2026; view id stays
+                 'loader' for url stability + the four *Loader services. -->
             <section class="view" x-show="activeView==='loader'">
                 <div class="view-head">
                     <div>
-                        <h1>Loader</h1>
-                        <p class="view-sub">Compile processors through the configured loader plugins.</p>
+                        <h1>Service config</h1>
+                        <p class="view-sub">Add processors, feeds, and sinks to the running server. Tick "Persist for restart" to make a config survive reboot.</p>
                     </div>
                 </div>
 
