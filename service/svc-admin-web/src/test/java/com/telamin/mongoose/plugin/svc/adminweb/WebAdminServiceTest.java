@@ -1350,6 +1350,12 @@ class WebAdminServiceTest {
         @Override public void stopService(String n)  { }
         @Override public void startService(String n) { }
         @Override public void stopProcessor(String g, String n) { }
+        // Mongoose 1.0.18 added these to MongooseServerController. The
+        // admin-web stub doesn't exercise them yet — no-op overrides
+        // keep the test double satisfying the interface.
+        @Override public void registerService(com.telamin.fluxtion.runtime.service.Service<?> service) { }
+        @Override public <T> void registerEventSource(String sourceName, com.telamin.mongoose.service.EventSource<T> eventSource) { }
+        @Override public void removeService(String serviceName) { }
     }
 
     /**
