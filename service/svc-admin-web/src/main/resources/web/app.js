@@ -4124,8 +4124,10 @@ document.addEventListener('alpine:init', () => {
             this.loaderOutput = res.output || [];
             this.loaderErr    = res.err    || [];
             this.loaderBusy = false;
-            this.toast(res.err && res.err.length ? 'YAML compile failed' : 'YAML processor compiled',
-                       res.err && res.err.length ? 'error' : 'success');
+            const failed = res.err && res.err.length;
+            this.toast(failed ? 'YAML compile failed' : 'YAML processor compiled',
+                       failed ? 'error' : 'success');
+            if (!failed) this._refreshAfterLoaderCompile();
         },
         async springCompile() {
             if (!this.springPath) return;
@@ -4135,8 +4137,25 @@ document.addEventListener('alpine:init', () => {
             this.loaderOutput = res.output || [];
             this.loaderErr    = res.err    || [];
             this.loaderBusy = false;
-            this.toast(res.err && res.err.length ? 'Spring compile failed' : 'Spring processor compiled',
-                       res.err && res.err.length ? 'error' : 'success');
+            const failed = res.err && res.err.length;
+            this.toast(failed ? 'Spring compile failed' : 'Spring processor compiled',
+                       failed ? 'error' : 'success');
+            if (!failed) this._refreshAfterLoaderCompile();
+        },
+
+        /** Kick the data sources that show the new processor: the
+         *  introspection cache (drives Managed services + Navigator)
+         *  and the Overview cards. Without this, a freshly-loaded
+         *  processor doesn't appear until the user navigates away and
+         *  back, which feels broken. */
+        async _refreshAfterLoaderCompile() {
+            try { await this.loadIntrospection(); } catch (_) {}
+            // Overview is the next surface the user is likely to check.
+            // Refresh whenever it has been loaded once this session
+            // (overviewData.processors is empty until first visit).
+            if (this.overviewData && this.overviewData.processors) {
+                try { await this.fetchOverview(); } catch (_) {}
+            }
         },
 
         // ── file picker (loaderBaseDir-rooted) ──
