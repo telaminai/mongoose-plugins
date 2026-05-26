@@ -1655,7 +1655,7 @@
                     <button type="button" class="seg-btn" :class="{active: processorGraphTab==='replay'}"
                             @click="processorGraphTab='replay'; replayEnter(); replayCanvasResize()">Replay <span class="seg-count" x-show="replayRecordCount" x-text="replayRecordCount"></span></button>
                     <button type="button" class="seg-btn" :class="{active: processorGraphTab==='compliance'}"
-                            @click="processorGraphTab='compliance'; complianceEnter()">Compliance</button>
+                            @click="processorGraphTab='compliance'; complianceEnter(); replayCanvasResize()">Compliance</button>
                 </div>
 
                 <!-- Replay toolbar — only visible on the Replay tab. The
@@ -2129,7 +2129,10 @@
                         </span>
                         <span class="flex-spacer"></span>
                         <button class="btn btn-ghost btn-sm" @click="complianceEnter()" :disabled="complianceLoading">Refresh</button>
-                        <button class="btn btn-ghost btn-sm" @click="complianceDownload()" :disabled="!complianceReport">Download JSON</button>
+                        <button class="btn btn-ghost btn-sm" @click="complianceDownloadMarkdown()" :disabled="!complianceReport"
+                                title="Download a Markdown report with embedded graphml snapshot, inputs/outputs tables, and deployed jar versions. Pipe through pandoc for PDF.">Download report (.md)</button>
+                        <button class="btn btn-ghost btn-sm" @click="complianceDownload()" :disabled="!complianceReport"
+                                title="Raw JSON dump of the compliance data — for tooling consumption.">Download JSON</button>
                     </div>
 
                     <div class="empty empty-sm" x-show="complianceLoading">

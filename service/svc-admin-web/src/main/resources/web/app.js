@@ -1542,12 +1542,15 @@ document.addEventListener('alpine:init', () => {
             this.processorGraphCycleFocus = null;
             this.processorGraphHoverTip = null;
             this.processorGraphSourceNav = null;
-            // Wipe stale exports / cached source — they belong to the
-            // previously-viewed processor and would mis-link if the new
-            // graph load fails to refresh them.
+            // Wipe stale exports / cached source / compliance — they
+            // belong to the previously-viewed processor and would
+            // mis-link / mis-render if the new graph load fails to
+            // refresh them.
             this.processorGraphProcessorFqn = null;
             this.processorGraphSource = null;
             this.processorGraphExportedServices = [];
+            this.complianceReport = null;
+            this.complianceError = '';
             this.go('processor-graph');
         },
 
@@ -2759,6 +2762,153 @@ document.addEventListener('alpine:init', () => {
             a.click();
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
+        },
+
+        /** Build + download a Markdown compliance report — embeds a PNG
+         *  snapshot of the processor graph + the JSON compliance data
+         *  as readable tables + timestamps + deployed-jar versions.
+         *  User can pipe into pandoc for PDF, or open in any markdown
+         *  viewer. Captures the canvas at scale 2 for print legibility. */
+        async complianceDownloadMarkdown() {
+            if (!this.complianceReport) return;
+            // Ensure versions are loaded so the report carries them.
+            if (!this.versions) {
+                try { await this.loadVersions(); } catch (_) {}
+            }
+            const target = this.processorGraphTarget || {};
+            const fqn = this.processorGraphProcessorFqn || '(unknown)';
+            const now = new Date();
+            const stamp = now.toISOString();
+            const stampFile = stamp.replace(/[:.]/g, '-');
+            const r = this.processorGraphReport(now);
+            const blob = new Blob([r], { type: 'text/markdown' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${target.name || 'processor'}-compliance-${stampFile}.md`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        },
+
+        /** Assemble the markdown report body. Returns a single string;
+         *  callers wrap it in a Blob + anchor download. Separated from
+         *  the download so future code (PDF generator, in-page preview)
+         *  can call the same builder. */
+        processorGraphReport(now) {
+            const target = this.processorGraphTarget || {};
+            const fqn = this.processorGraphProcessorFqn || '(unknown)';
+            const stamp = (now || new Date()).toISOString();
+            const cy = this.processorGraphRenderer?.cy;
+            // PNG snapshot — scale=2 keeps the image legible when the
+            // markdown is rendered to PDF/A4 (Cytoscape's PNG export
+            // matches the on-screen layout, including any current
+            // selection highlight; the cycle-stage state is cleared
+            // before the snapshot so the report shows the full graph).
+            const prevCycle = this.processorGraphCycleStage;
+            const prevFocus = this.processorGraphCycleFocus;
+            this.processorGraphCycleStage = 0;
+            this.processorGraphCycleFocus = null;
+            this._applyProcessorGraphHighlight();
+            let pngDataUri = '';
+            try {
+                if (cy) pngDataUri = cy.png({ full: true, scale: 2, output: 'base64uri' });
+            } catch (e) {
+                console.warn('compliance PNG export failed', e);
+            }
+            // Restore cycle so the live UI keeps the user's selection.
+            this.processorGraphCycleStage = prevCycle;
+            this.processorGraphCycleFocus = prevFocus;
+            this._applyProcessorGraphHighlight();
+
+            const report = this.complianceReport || {};
+            const inputs = report.inputs || [];
+            const outputs = report.outputs || [];
+            const services = report.services || [];
+            const warnings = report.warnings || [];
+
+            const fmtConfig = (cfg) => {
+                if (cfg == null) return '_(no config exposed)_';
+                if (typeof cfg !== 'object') return '`' + String(cfg) + '`';
+                const lines = [];
+                for (const [k, v] of Object.entries(cfg)) {
+                    lines.push(`- \`${k}\`: \`${v == null ? '(null)' : String(v)}\``);
+                }
+                return lines.length ? lines.join('\n') : '_(empty)_';
+            };
+            const endpointTable = (rows) => {
+                if (!rows.length) return '_(none)_\n';
+                let md = '| Name | Class | Config |\n| --- | --- | --- |\n';
+                for (const ep of rows) {
+                    const cfgInline = ep.config && typeof ep.config === 'object'
+                            ? '<br>' + Object.entries(ep.config)
+                                    .map(([k, v]) => `\`${k}=${v == null ? '(null)' : v}\``).join('<br>')
+                            : '_(no config)_';
+                    md += `| \`${ep.name}\` | \`${ep.className || ''}\` | ${cfgInline} |\n`;
+                }
+                return md;
+            };
+
+            // Versions table — drop "absent" rows for cleanliness in the
+            // exported report.
+            const versions = this.versions || {};
+            const versionRows = Object.entries(versions)
+                    .filter(([, v]) => v && v !== 'absent')
+                    .map(([k, v]) => `| \`${k}\` | \`${v}\` |`).join('\n');
+
+            const parts = [];
+            parts.push(`# Compliance report — \`${target.name || '(unknown)'}\``);
+            parts.push('');
+            parts.push(`Generated **${stamp}** from the \`svc-admin-web\` admin console.`);
+            parts.push('');
+            parts.push('## Processor');
+            parts.push('');
+            parts.push(`| Field | Value |`);
+            parts.push(`| --- | --- |`);
+            parts.push(`| Name | \`${target.name || ''}\` |`);
+            parts.push(`| Agent group | \`${target.group || ''}\` |`);
+            parts.push(`| Class FQN | \`${fqn}\` |`);
+            parts.push('');
+            if (pngDataUri) {
+                parts.push('## Topology');
+                parts.push('');
+                parts.push(`![${target.name || 'processor'} graph](${pngDataUri})`);
+                parts.push('');
+            }
+            if (warnings.length) {
+                parts.push('## Warnings');
+                parts.push('');
+                for (const w of warnings) parts.push(`- ⚠️ ${w}`);
+                parts.push('');
+            }
+            parts.push(`## Inputs (${inputs.length})`);
+            parts.push('');
+            parts.push('Feeds this processor reads from.');
+            parts.push('');
+            parts.push(endpointTable(inputs));
+            parts.push(`## Outputs (${outputs.length})`);
+            parts.push('');
+            parts.push('Sinks this processor writes to.');
+            parts.push('');
+            parts.push(endpointTable(outputs));
+            if (services.length) {
+                parts.push(`## Bound services (${services.length})`);
+                parts.push('');
+                parts.push(endpointTable(services));
+            }
+            if (versionRows) {
+                parts.push('## Deployed versions');
+                parts.push('');
+                parts.push('| Component | Version |');
+                parts.push('| --- | --- |');
+                parts.push(versionRows);
+                parts.push('');
+            }
+            parts.push('---');
+            parts.push('');
+            parts.push(`_Compiled by Mongoose admin console at ${stamp}_`);
+            return parts.join('\n');
         },
 
         // ── Replay tab ──────────────────────────────────────────────
