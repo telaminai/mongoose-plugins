@@ -1663,6 +1663,51 @@ textarea { resize: vertical; font-family: ui-monospace, Menlo, monospace; font-s
     border-left-color: #1d4ed8;
 }
 
+/* Persisted-config viewer: wider modal + reuses the .j-* token
+ * palette established for proc-sourcenav-code. .modal-wide overrides
+ * the default .modal width so 80-column-wrapped XML / YAML keeps its
+ * shape; .persist-viewer-code is a scrollable mono block matching the
+ * existing Result panes. */
+.modal.modal-wide {
+    width: min(1100px, 92vw);
+    max-height: 82vh;
+}
+.persist-viewer-code {
+    margin: 0;
+    padding: 0.9rem 1rem;
+    overflow: auto;
+    font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    font-size: 0.83rem;
+    line-height: 1.45;
+    white-space: pre;
+    background: var(--surface);
+    color: var(--fg);
+}
+.persist-viewer-code .j-kw   { color: #c678dd; font-weight: 600; }
+.persist-viewer-code .j-type { color: #e5c07b; }
+.persist-viewer-code .j-ann  { color: #d19a66; font-style: italic; }
+.persist-viewer-code .j-str  { color: #98c379; }
+.persist-viewer-code .j-num  { color: #d19a66; }
+.persist-viewer-code .j-com  { color: #5c6370; font-style: italic; }
+:root[data-theme="light"] .persist-viewer-code .j-kw   { color: #7c2d92; font-weight: 600; }
+:root[data-theme="light"] .persist-viewer-code .j-type { color: #b45309; }
+:root[data-theme="light"] .persist-viewer-code .j-ann  { color: #a16207; }
+:root[data-theme="light"] .persist-viewer-code .j-str  { color: #15803d; }
+:root[data-theme="light"] .persist-viewer-code .j-num  { color: #b91c1c; }
+:root[data-theme="light"] .persist-viewer-code .j-com  { color: #525964; font-style: italic; }
+
+/* Single-line truncated error cell — full message available via
+ * the title tooltip so multi-line stack traces stay reachable. */
+.persist-err-cell {
+    display: inline-block;
+    max-width: 32ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: middle;
+    cursor: help;
+}
+
 .proc-empty {
     background: var(--surface);
     border: 1px solid var(--border);
