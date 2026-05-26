@@ -2234,3 +2234,35 @@ textarea { resize: vertical; font-family: ui-monospace, Menlo, monospace; font-s
     color: var(--accent);
     background: var(--accent-weak);
 }
+
+/* ─── App counters view ──────────────────────────────────────────────
+   Filterable + sortable counter list separated out of the
+   Server-performance view. */
+.app-counters-toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    margin: 0 0 var(--sp-3);
+}
+.app-counters-filter {
+    flex: 1 1 auto;
+    max-width: 30rem;
+    padding: var(--sp-2) var(--sp-3);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--fg);
+    font: inherit;
+    font-size: var(--t-body);
+}
+.app-counters-filter:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-weak);
+}
+/* Individual sortable th (not just inside .data-table.sortable). */
+.data-table th.sortable {
+    cursor: pointer;
+    user-select: none;
+}
+.data-table th.sortable:hover { color: var(--fg); }

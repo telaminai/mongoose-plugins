@@ -134,7 +134,11 @@
                         <span class="nav-dot" :class="logsStatus==='live' ? 'on' : ''"></span>
                     </button>
                     <button class="nav-item" :class="{active: activeView==='performance'}" @click="go('performance')" x-show="throughput">
-                        <svg class="ico"><use href="#i-topology"/></svg><span>Performance</span>
+                        <svg class="ico"><use href="#i-topology"/></svg><span>Server performance</span>
+                    </button>
+                    <button class="nav-item" :class="{active: activeView==='app-counters'}" @click="go('app-counters')" x-show="throughput">
+                        <svg class="ico"><use href="#i-topology"/></svg><span>App counters</span>
+                        <span class="nav-count" x-show="(throughput?.custom?.length ?? 0)" x-text="(throughput?.custom?.length ?? 0)"></span>
                     </button>
                     <button class="nav-item" :class="{active: activeView==='topology'}" @click="go('topology')" x-show="servicesAvailable && agentsAvailable">
                         <svg class="ico"><use href="#i-topology"/></svg><span>Topology</span>
@@ -653,8 +657,8 @@
             <section class="view" x-show="activeView==='performance'">
                 <div class="view-head">
                     <div>
-                        <h1>Performance</h1>
-                        <p class="view-sub">events per second across the dispatch pipeline · per-node fire counts · latency percentiles</p>
+                        <h1>Server performance</h1>
+                        <p class="view-sub">Mongoose-internal counters: feed throughput, agent-group idle vs busy, queue depth, per-processor rates. Domain (<code>app.*</code>) counters now live on the <a href="#" @click.prevent="go('app-counters')">App counters</a> view.</p>
                     </div>
                 </div>
 
@@ -758,32 +762,6 @@
                             </table>
                         </div>
                     </div>
-                    <!-- Custom application counters — any counter label that
-                         doesn't match the built-in feed./group./processor./
-                         node./queue. prefixes falls through to this table. The
-                         FX P&L example writes app.{trade,price}.count and
-                         app.mtm.usdCents via MongooseCountersService.counter
-                         from inside its Fluxtion handlers; they show up here. -->
-                    <div class="dash-row" x-show="(throughput?.custom ?? []).length">
-                        <div class="card card-wide">
-                            <div class="card-head">
-                                <h2>Application counters</h2>
-                                <span class="card-meta" x-text="(throughput?.custom?.length ?? 0) + ' counter(s)'"></span>
-                            </div>
-                            <table class="data-table">
-                                <thead><tr><th>Label</th><th class="num">Rate</th><th class="num">Total</th></tr></thead>
-                                <tbody>
-                                    <template x-for="c in (throughput?.custom ?? [])" :key="c.name">
-                                        <tr>
-                                            <td class="mono strong" x-text="c.name"></td>
-                                            <td class="num" :class="c.rate > 0 ? 'rate-live' : ''" x-text="formatRate(c.rate)"></td>
-                                            <td class="num muted" x-text="formatCount(c.total)"></td>
-                                        </tr>
-                                    </template>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
                     <p class="view-sub small" x-show="(throughput?.nodes ?? []).length">
                         Per-node fire counts:
                         <span x-text="(throughput?.nodes?.length ?? 0) + ' node(s) reporting'"></span>
@@ -796,6 +774,77 @@
                         <code>mongoose.performanceMonitoring.enabled: true</code> (and
                         <code>latencyHistograms: true</code> for the latency block)
                         in the server YAML to populate this view.
+                    </p>
+                </div>
+            </section>
+
+            <!-- ─── App counters ─────────────────────────────────────────────
+                 Domain counters the application's Fluxtion handlers write
+                 via MongooseCountersService.counter("app.…"). Filterable
+                 + sortable so a server with many counters stays usable. -->
+            <section class="view" x-show="activeView==='app-counters'">
+                <div class="view-head">
+                    <div>
+                        <h1>App counters</h1>
+                        <p class="view-sub">Domain counters the running processors publish via <code>MongooseCountersService.counter("app.…")</code>. Mongoose-internal feed / agent / processor / queue rates are on the <a href="#" @click.prevent="go('performance')">Server performance</a> view.</p>
+                    </div>
+                </div>
+
+                <div class="card" x-show="throughput">
+                    <div class="card-head">
+                        <h2>Counters</h2>
+                        <span class="card-meta">
+                            <span x-text="appCountersFiltered().length"></span> /
+                            <span x-text="(throughput?.custom?.length ?? 0)"></span>
+                            shown
+                        </span>
+                    </div>
+                    <!-- Filter row: free-text label substring + a clear button. -->
+                    <div class="app-counters-toolbar" x-show="(throughput?.custom?.length ?? 0)">
+                        <input type="search"
+                               class="app-counters-filter"
+                               x-model="appCountersFilter"
+                               placeholder="Filter labels — e.g. app.trade"
+                               aria-label="Filter app counters by label substring">
+                        <button type="button" class="btn btn-ghost btn-sm"
+                                @click="appCountersFilter = ''"
+                                x-show="appCountersFilter">Clear</button>
+                    </div>
+                    <table class="data-table" x-show="appCountersFiltered().length">
+                        <thead>
+                            <tr>
+                                <th class="sortable" @click="appCountersToggleSort('name')">
+                                    Label <span class="sort-ind" x-text="appCountersSortInd('name')"></span>
+                                </th>
+                                <th class="num sortable" @click="appCountersToggleSort('rate')">
+                                    Rate <span class="sort-ind" x-text="appCountersSortInd('rate')"></span>
+                                </th>
+                                <th class="num sortable" @click="appCountersToggleSort('total')">
+                                    Total <span class="sort-ind" x-text="appCountersSortInd('total')"></span>
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template x-for="c in appCountersFiltered()" :key="c.name">
+                                <tr>
+                                    <td class="mono strong" x-text="c.name"></td>
+                                    <td class="num" :class="c.rate > 0 ? 'rate-live' : ''" x-text="formatRate(c.rate)"></td>
+                                    <td class="num muted" x-text="formatCount(c.total)"></td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                    <div class="empty" x-show="!(throughput?.custom?.length ?? 0)">
+                        <p class="muted small">No app counters reporting yet. Handlers publish a counter via <code>counters.counter("app.…").increment()</code> after the <code>@ServiceRegistered MongooseCountersService</code> injection lands — see the FX P&L example's <code>PnlSummaryCalc</code> or the Micrometer example's <code>TradeCounter</code>.</p>
+                    </div>
+                    <div class="empty empty-sm" x-show="(throughput?.custom?.length ?? 0) && !appCountersFiltered().length">
+                        <p class="muted small">No counters match <span class="mono" x-text="appCountersFilter"></span>.</p>
+                    </div>
+                </div>
+                <div class="card" x-show="!throughput">
+                    <p class="view-sub small" style="padding:0.75rem 1rem">
+                        Performance monitoring is off. Set
+                        <code>mongoose.performanceMonitoring.enabled: true</code> in the server YAML to populate this view.
                     </p>
                 </div>
             </section>

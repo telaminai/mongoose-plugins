@@ -211,6 +211,14 @@ document.addEventListener('alpine:init', () => {
         // fqn}. Click a row to centre the graph on that node and jump
         // to its handleEvent declaration in source-nav.
         processorGraphEventsCollapsed: false,
+        // App-counters view — filterable + sortable list of `app.*`
+        // counters separated out of the Server-performance view. Filter
+        // is plain substring; sort key cycles label → rate → total with
+        // a direction toggle (asc / desc).
+        appCountersFilter: '',
+        appCountersSortKey: 'name',     // 'name' | 'rate' | 'total'
+        appCountersSortDir: 'asc',      // 'asc' | 'desc'
+
         // Runtime audit-log level dropdown — last value the operator
         // SET via the dropdown. Mongoose doesn't expose a getter today
         // so we can't read the live processor's current value; the
@@ -2201,6 +2209,50 @@ document.addEventListener('alpine:init', () => {
                 targetLine: row.line
             };
             this._fetchSourceFor(procFqn);
+        },
+
+        // ── App-counters view ────────────────────────────────────────────
+
+        /** Filtered + sorted snapshot of `app.*` counters for the
+         *  App counters view. Pulls from throughput.custom (which the
+         *  monitor WS feeds us) so it stays live as new data arrives.
+         *  Filter is plain substring (case-insensitive); sort key + dir
+         *  toggle via clicks on the table headers. */
+        appCountersFiltered() {
+            const rows = this.throughput?.custom ?? [];
+            const needle = (this.appCountersFilter || '').toLowerCase().trim();
+            let filtered = needle
+                    ? rows.filter(r => (r.name || '').toLowerCase().includes(needle))
+                    : rows.slice();
+            const key = this.appCountersSortKey;
+            const dir = this.appCountersSortDir === 'desc' ? -1 : 1;
+            filtered.sort((a, b) => {
+                const av = a?.[key];
+                const bv = b?.[key];
+                if (typeof av === 'number' && typeof bv === 'number') {
+                    return (av - bv) * dir;
+                }
+                return String(av ?? '').localeCompare(String(bv ?? '')) * dir;
+            });
+            return filtered;
+        },
+
+        /** Click a column header: same key flips direction; new key
+         *  resets to ascending. */
+        appCountersToggleSort(key) {
+            if (this.appCountersSortKey === key) {
+                this.appCountersSortDir = this.appCountersSortDir === 'asc' ? 'desc' : 'asc';
+            } else {
+                this.appCountersSortKey = key;
+                this.appCountersSortDir = 'asc';
+            }
+        },
+
+        /** Header arrow indicator — empty when this isn't the active
+         *  sort key, ▲/▼ when it is. */
+        appCountersSortInd(key) {
+            if (this.appCountersSortKey !== key) return '';
+            return this.appCountersSortDir === 'asc' ? '▲' : '▼';
         },
 
         /** Dispatch a runtime audit-log-level change to the active
