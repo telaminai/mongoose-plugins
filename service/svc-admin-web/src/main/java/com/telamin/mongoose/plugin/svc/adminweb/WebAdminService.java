@@ -250,6 +250,12 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         javalin.post("/api/audit/{processor}/start", this::handleAuditStart);
         javalin.post("/api/audit/{processor}/stop", this::handleAuditStop);
 
+        // Runtime audit-log-level control. Dispatches an EventLogControlEvent
+        // into the named processor — sets the minimum level the
+        // EventLogManager auditor emits at. Use to drop into TRACE for a
+        // brief debugging window then bump back to INFO without restarting.
+        javalin.post("/api/processors/{group}/{name}/audit/level", this::handleSetAuditLogLevel);
+
         // Dispatcher introspection. Services/agents are structured JSON sourced
         // by invoking + parsing the server.service.list / server.processors.list
         // admin commands. Queues read the injected EventFlowManager directly —
@@ -624,6 +630,81 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         ctx.json(Map.of(
                 "processor", processor,
                 "recording", auditCapture.isRecording(processor)));
+    }
+
+    /** Runtime audit-log-level control for a named processor. Dispatches
+     *  an EventLogControlEvent via DataFlow.setAuditLogLevel — that
+     *  sets the MINIMUM level the EventLogManager will trace at, which
+     *  governs whether records actually emit (the runtime log level
+     *  defaults to INFO; setting the gate to TRACE/DEBUG silently
+     *  suppresses emission). Accepts body {level: "TRACE"|"DEBUG"|"INFO"|
+     *  "WARN"|"ERROR"|"NONE"}. */
+    private void handleSetAuditLogLevel(Context ctx) {
+        if (serverController == null) {
+            ctx.status(HttpStatus.NOT_FOUND);
+            ctx.json(Map.of("err", "MongooseServerController not available"));
+            return;
+        }
+        String group = ctx.pathParam("group");
+        String name  = ctx.pathParam("name");
+
+        Map<String, Object> body;
+        try {
+            body = ctx.bodyAsClass(Map.class);
+        } catch (Exception e) {
+            ctx.status(HttpStatus.BAD_REQUEST);
+            ctx.json(Map.of("err", "body must be JSON object {level: \"...\"}"));
+            return;
+        }
+        Object levelRaw = body != null ? body.get("level") : null;
+        if (!(levelRaw instanceof String)) {
+            ctx.status(HttpStatus.BAD_REQUEST);
+            ctx.json(Map.of("err", "level required, e.g. {\"level\": \"INFO\"}"));
+            return;
+        }
+        com.telamin.fluxtion.runtime.audit.EventLogControlEvent.LogLevel level;
+        try {
+            level = com.telamin.fluxtion.runtime.audit.EventLogControlEvent.LogLevel
+                    .valueOf(((String) levelRaw).toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            ctx.status(HttpStatus.BAD_REQUEST);
+            ctx.json(Map.of(
+                    "err", "unknown level: " + levelRaw,
+                    "allowed", java.util.Arrays.stream(
+                            com.telamin.fluxtion.runtime.audit.EventLogControlEvent.LogLevel.values())
+                            .map(Enum::name)
+                            .toList()));
+            return;
+        }
+
+        java.util.Collection<NamedEventProcessor> procs =
+                serverController.registeredProcessors().get(group);
+        if (procs == null) {
+            ctx.status(HttpStatus.NOT_FOUND);
+            ctx.json(Map.of("err", "unknown agent group: " + group));
+            return;
+        }
+        NamedEventProcessor match = null;
+        for (NamedEventProcessor np : procs) {
+            if (name.equals(np.name())) { match = np; break; }
+        }
+        if (match == null || match.eventProcessor() == null) {
+            ctx.status(HttpStatus.NOT_FOUND);
+            ctx.json(Map.of("err", "processor '" + name + "' not registered in group '" + group + "'"));
+            return;
+        }
+        try {
+            match.eventProcessor().setAuditLogLevel(level);
+        } catch (Throwable t) {
+            log.warn("setAuditLogLevel failed for {}/{}: {}", group, name, t.toString());
+            ctx.status(HttpStatus.INTERNAL_SERVER_ERROR);
+            ctx.json(Map.of("err", "dispatch failed: " + t.getMessage()));
+            return;
+        }
+        ctx.json(Map.of(
+                "processor", name,
+                "group", group,
+                "level", level.name()));
     }
 
     private void handleAuditRead(Context ctx) {

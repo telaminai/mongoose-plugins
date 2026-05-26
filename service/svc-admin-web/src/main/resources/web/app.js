@@ -211,6 +211,12 @@ document.addEventListener('alpine:init', () => {
         // fqn}. Click a row to centre the graph on that node and jump
         // to its handleEvent declaration in source-nav.
         processorGraphEventsCollapsed: false,
+        // Runtime audit-log level dropdown — last value the operator
+        // SET via the dropdown. Mongoose doesn't expose a getter today
+        // so we can't read the live processor's current value; the
+        // dropdown reflects the operator's most recent intent within
+        // the session. Default INFO matches the runtime default.
+        processorGraphAuditLevel: 'INFO',
         // Sibling-tab state — 'graph' shows the cytoscape canvas; 'stats'
         // shows a sortable / filterable / downloadable per-node table;
         // 'replay' steps through an audit-log file with the same canvas
@@ -2195,6 +2201,48 @@ document.addEventListener('alpine:init', () => {
                 targetLine: row.line
             };
             this._fetchSourceFor(procFqn);
+        },
+
+        /** Dispatch a runtime audit-log-level change to the active
+         *  processor. POSTs to /api/processors/{group}/{name}/audit/level;
+         *  toasts on success/failure. The dropdown's two-way binding is
+         *  manual (we read $event.target.value, push to server, then
+         *  update local state on success) — Alpine's :value isn't
+         *  reactive here because we want the UI to revert if the
+         *  server rejects the level. */
+        async processorGraphSetAuditLevel(level) {
+            const tgt = this.processorGraphTarget;
+            if (!tgt || !tgt.group || !tgt.name) {
+                this.toast('No processor selected');
+                return;
+            }
+            const prev = this.processorGraphAuditLevel;
+            try {
+                const r = await fetch(
+                    '/api/processors/' + encodeURIComponent(tgt.group)
+                    + '/' + encodeURIComponent(tgt.name) + '/audit/level',
+                    {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-Token': this.csrfToken || ''
+                        },
+                        body: JSON.stringify({ level })
+                    }
+                );
+                if (!r.ok) {
+                    const body = await r.json().catch(() => ({}));
+                    this.toast('Audit level: ' + (body.err || ('HTTP ' + r.status)), 'err');
+                    this.processorGraphAuditLevel = prev;
+                    return;
+                }
+                this.processorGraphAuditLevel = level;
+                this.toast('Audit log level → ' + level);
+            } catch (e) {
+                this.toast('Audit level: ' + (e.message || e), 'err');
+                this.processorGraphAuditLevel = prev;
+            }
         },
 
         /** Open the source-nav panel on the live processor's own class

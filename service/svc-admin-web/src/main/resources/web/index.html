@@ -1557,6 +1557,23 @@
                     <button class="btn btn-ghost btn-sm" @click="processorGraphShowProcessorSource()"
                             :disabled="!processorGraphProcessorFqn"
                             title="Open the generated processor class's own source (handleEvent dispatch table, exported service stubs, bufferEvent buffer-dispatch)">Processor source</button>
+                    <!-- Audit log level — dispatches an EventLogControlEvent
+                         to the live processor. Sets the MINIMUM level the
+                         EventLogManager auditor traces at; the runtime log
+                         level defaults to INFO. Drop to DEBUG/TRACE for a
+                         debug window then bump back without a restart. -->
+                    <label class="ctl">
+                        <span class="ctl-k">Audit</span>
+                        <select :value="processorGraphAuditLevel"
+                                @change="processorGraphSetAuditLevel($event.target.value)">
+                            <option value="NONE">NONE</option>
+                            <option value="ERROR">ERROR</option>
+                            <option value="WARN">WARN</option>
+                            <option value="INFO">INFO</option>
+                            <option value="DEBUG">DEBUG</option>
+                            <option value="TRACE">TRACE</option>
+                        </select>
+                    </label>
                 </div>
 
                 <!-- Sibling tab bar: graph canvas vs per-node stats table.
