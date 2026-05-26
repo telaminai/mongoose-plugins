@@ -39,6 +39,40 @@ document.addEventListener('alpine:init', () => {
             audit: { enabled: false, recordingProcessors: [], fileCount: 0 }
         },
 
+        /** Per-card collapsed state on the Overview. Persisted to
+         *  localStorage so the operator's preference survives reload.
+         *  Default: every card expanded so first-time users see
+         *  everything without hunting for a caret. */
+        overviewCollapsed: (() => {
+            try {
+                const raw = localStorage.getItem('mongoose-admin-overview-collapsed');
+                if (raw) return JSON.parse(raw);
+            } catch (_) { /* fall through to default */ }
+            return { processors: false, feeds: false, sinks: false, services: false, audit: false };
+        })(),
+
+        /** Per-item collapsed state on the Services list view. Keyed by
+         *  service name. Defaults to collapsed (true) so the page shows
+         *  one row per service with summary in the header — operator
+         *  expands the few they care about. */
+        servicesCardCollapsed: (() => {
+            try {
+                const raw = localStorage.getItem('mongoose-admin-services-collapsed');
+                if (raw) return JSON.parse(raw);
+            } catch (_) { /* fall through */ }
+            return {};
+        })(),
+
+        /** Per-item collapsed state on the Agents list view. Same shape
+         *  as servicesCardCollapsed; keyed by agent-group name. */
+        agentsCardCollapsed: (() => {
+            try {
+                const raw = localStorage.getItem('mongoose-admin-agents-collapsed');
+                if (raw) return JSON.parse(raw);
+            } catch (_) { /* fall through */ }
+            return {};
+        })(),
+
         // Left-nav category expand/collapse state. Persisted to
         // localStorage so the user's collapse pattern survives reload.
         // Default: every category expanded so first-time users see
@@ -64,6 +98,14 @@ document.addEventListener('alpine:init', () => {
         configContent: '',
         configPath: '',
         configError: '',
+        // Config view source switch: when null, show the server.yml
+        // panel; when {kind, group, file} show that persisted entry
+        // rendered with the same look. Toggled by nav clicks +
+        // openPersistedInConfig.
+        configActiveSource: null,
+        configPersistedContent: '',
+        configPersistedContentHtml: '',
+        configPersistedError: '',
         theme: document.documentElement.getAttribute('data-theme') || 'light',
         now: Date.now(),
         toasts: [],
@@ -330,6 +372,13 @@ document.addEventListener('alpine:init', () => {
         springPath: '',
         springGroup: '',
         springPersist: false,
+        // feed/sink: no group dimension — feed/sink names are
+        // server-global, so the loaders use a fixed "feeds" / "sinks"
+        // group internally for the persistent dir layout.
+        feedPath: '',
+        feedPersist: false,
+        sinkPath: '',
+        sinkPersist: false,
         loaderOutput: [],
         loaderErr: [],
 
@@ -339,6 +388,12 @@ document.addEventListener('alpine:init', () => {
         // persist / toggle / remove action.
         persistedYaml: [],
         persistedSpring: [],
+        persistedFeed: [],
+        persistedSink: [],
+
+        // Drag-over hint: which kind's dropzone is currently
+        // dragged-over, or null. Toggles the .is-drag visual cue.
+        dragOverKind: null,
         // Inline viewer (modal-ish overlay) for source preview.
         persistViewerOpen: false,
         persistViewerKind: null,   // 'yaml' | 'spring'
@@ -397,6 +452,14 @@ document.addEventListener('alpine:init', () => {
             this.openLogsWs();
             await this.probeLoaderBaseDir();
             await this.loadIntrospection();
+            // Pre-load persisted-config lists so the Config nav-group
+            // can render them without waiting for a Loader-tab visit.
+            // Each call is one admin command per loader present; quiet
+            // failure if persistentConfigDir is unset on a given loader.
+            if (this.hasYamlLoader())   this.loadPersisted('yaml');
+            if (this.hasSpringLoader()) this.loadPersisted('spring');
+            if (this.hasFeedLoader())   this.loadPersisted('feed');
+            if (this.hasSinkLoader())   this.loadPersisted('sink');
             // Overview is the default landing view — kick its initial
             // load so the page isn't blank on first paint after auth.
             if (this.activeView === 'overview') {
@@ -457,6 +520,8 @@ document.addEventListener('alpine:init', () => {
                 // out-of-band.
                 if (this.hasYamlLoader())   this.loadPersisted('yaml');
                 if (this.hasSpringLoader()) this.loadPersisted('spring');
+                if (this.hasFeedLoader())   this.loadPersisted('feed');
+                if (this.hasSinkLoader())   this.loadPersisted('sink');
             }
         },
 
@@ -579,6 +644,129 @@ document.addEventListener('alpine:init', () => {
         overviewOpenProcessor(p) {
             this.processorGraphTarget = { group: p.group, name: p.name };
             this.go('processor-graph');
+        },
+
+        /** Toggle collapsed state for one Overview card. Persists so
+         *  the user's preference survives reload. */
+        toggleOverviewCard(key) {
+            this.overviewCollapsed[key] = !this.overviewCollapsed[key];
+            try {
+                localStorage.setItem('mongoose-admin-overview-collapsed',
+                        JSON.stringify(this.overviewCollapsed));
+            } catch (_) { /* localStorage disabled — session-only */ }
+        },
+
+        /** One-line summary shown in a collapsed Overview card's header.
+         *  Each kind reports its own headline metric — operator can see
+         *  what's there without expanding. */
+        overviewSummary(key) {
+            const d = this.overviewData;
+            switch (key) {
+                case 'processors': {
+                    const total = d.processors.length;
+                    const auditing = d.processors.filter(p => p.auditing).length;
+                    return total === 0 ? 'none registered'
+                            : `${total} registered${auditing ? ` · ${auditing} recording` : ''}`;
+                }
+                case 'feeds':    return d.feeds.length === 0    ? 'none registered' : `${d.feeds.length} registered`;
+                case 'sinks':    return d.sinks.length === 0    ? 'none registered' : `${d.sinks.length} registered`;
+                case 'services': return d.services.length === 0 ? 'none registered' : `${d.services.length} operator-installed`;
+                case 'audit':    return (d.audit.enabled ? 'enabled' : 'disabled')
+                            + ` · ${d.audit.recordingProcessors.length} recording`
+                            + ` · ${d.audit.fileCount} file(s)`;
+                default: return '';
+            }
+        },
+
+        /** Copies the card's underlying data as pretty-printed JSON to
+         *  the clipboard. Each section copies just its slice so the
+         *  operator can paste straight into a ticket / log search. */
+        async copyOverviewSection(key) {
+            const d = this.overviewData;
+            const slice = key === 'audit' ? d.audit : d[key];
+            const json = JSON.stringify(slice, null, 2);
+            try {
+                await navigator.clipboard.writeText(json);
+                this.toast(`Copied ${key} JSON to clipboard`, 'success');
+            } catch (e) {
+                this.toast('Copy failed: ' + e.message, 'error');
+            }
+        },
+
+        // ── Services / Agents card behaviour ────────────────────────
+        // Same shape as the Overview cards: per-item collapsed state
+        // persisted to localStorage, header summary when collapsed,
+        // copy-as-JSON action.
+
+        toggleServicesCard(name) {
+            this.servicesCardCollapsed[name] = !this.servicesCardCollapsed[name];
+            try {
+                localStorage.setItem('mongoose-admin-services-collapsed',
+                        JSON.stringify(this.servicesCardCollapsed));
+            } catch (_) {}
+        },
+
+        toggleAgentsCard(name) {
+            this.agentsCardCollapsed[name] = !this.agentsCardCollapsed[name];
+            try {
+                localStorage.setItem('mongoose-admin-agents-collapsed',
+                        JSON.stringify(this.agentsCardCollapsed));
+            } catch (_) {}
+        },
+
+        /** Service is "collapsed-by-default" — first time we see this
+         *  name, return true (collapsed) unless the operator has
+         *  explicitly expanded it. Stops the page from being a wall of
+         *  expanded cards on first visit. */
+        isServicesCardCollapsed(name) {
+            return this.servicesCardCollapsed[name] !== false;
+        },
+
+        isAgentsCardCollapsed(name) {
+            return this.agentsCardCollapsed[name] !== false;
+        },
+
+        /** One-line summary shown in a collapsed Services card. Picks
+         *  the most useful piece per service kind: rate for feeds, just
+         *  className for sinks + plain services. */
+        serviceCardSummary(s) {
+            const parts = [];
+            if (s.type === 'feed') {
+                const rate = this.feedRateLabel(s.name);
+                if (rate) parts.push(rate);
+            }
+            if (s.className) parts.push(this.simpleClassName(s.className));
+            return parts.join(' · ');
+        },
+
+        /** Summary for an Agent group card: processor count + state +
+         *  rate when available. */
+        agentCardSummary(a) {
+            const parts = [];
+            const procCount = (a.members ?? []).length;
+            parts.push(procCount + (procCount === 1 ? ' processor' : ' processors'));
+            if (a.state) parts.push(a.state);
+            const rate = this.groupRateLabel ? this.groupRateLabel(a.group) : null;
+            if (rate) parts.push(rate);
+            return parts.join(' · ');
+        },
+
+        async copyServiceJson(s) {
+            try {
+                await navigator.clipboard.writeText(JSON.stringify(s, null, 2));
+                this.toast(`Copied ${s.name} JSON`, 'success');
+            } catch (e) {
+                this.toast('Copy failed: ' + e.message, 'error');
+            }
+        },
+
+        async copyAgentJson(a) {
+            try {
+                await navigator.clipboard.writeText(JSON.stringify(a, null, 2));
+                this.toast(`Copied ${a.group} JSON`, 'success');
+            } catch (e) {
+                this.toast('Copy failed: ' + e.message, 'error');
+            }
         },
 
         toggleTheme() {
@@ -4092,7 +4280,12 @@ document.addEventListener('alpine:init', () => {
         },
         hasYamlLoader()   { return this.commands.some(c => c.startsWith('yamlLoader.')); },
         hasSpringLoader() { return this.commands.some(c => c.startsWith('springLoader.')); },
-        hasLoaderCommands() { return this.hasYamlLoader() || this.hasSpringLoader(); },
+        hasFeedLoader()   { return this.commands.some(c => c.startsWith('feedLoader.')); },
+        hasSinkLoader()   { return this.commands.some(c => c.startsWith('sinkLoader.')); },
+        hasLoaderCommands() {
+            return this.hasYamlLoader() || this.hasSpringLoader()
+                || this.hasFeedLoader() || this.hasSinkLoader();
+        },
 
         // ── command invocation helper (no UI runner state) ──
 
@@ -4144,30 +4337,45 @@ document.addEventListener('alpine:init', () => {
 
         async yamlCompile()   { return this._loaderCompile('yaml');   },
         async springCompile() { return this._loaderCompile('spring'); },
+        async feedCompile()   { return this._loaderCompile('feed');   },
+        async sinkCompile()   { return this._loaderCompile('sink');   },
 
-        /** Single compile pipeline. Routes to compileProcessor or
-         *  persistAndCompile based on the kind's Persist checkbox.
-         *  When persistence succeeds, the list refresh + introspection
-         *  refresh both fire so the UI catches up. */
+        /** Per-kind metadata: form field names, command names, label
+         *  used in toasts. yaml/spring have a `group` dimension and use
+         *  `compileProcessor`; feed/sink are single-name and use
+         *  `compile`. */
+        _loaderKindMeta(kind) {
+            switch (kind) {
+                case 'yaml':   return { hasGroup: true,  command: 'compileProcessor', label: 'YAML',   noun: 'processor' };
+                case 'spring': return { hasGroup: true,  command: 'compileProcessor', label: 'Spring', noun: 'processor' };
+                case 'feed':   return { hasGroup: false, command: 'compile',          label: 'Feed',   noun: 'feed' };
+                case 'sink':   return { hasGroup: false, command: 'compile',          label: 'Sink',   noun: 'sink' };
+                default: throw new Error('unknown loader kind: ' + kind);
+            }
+        },
+
+        /** Single compile pipeline for any loader kind. Routes to
+         *  {kind}Loader.{command} or {kind}Loader.persistAndCompile
+         *  based on the kind's Persist checkbox. */
         async _loaderCompile(kind) {
-            const path    = kind === 'yaml' ? this.yamlPath    : this.springPath;
-            const group   = kind === 'yaml' ? this.yamlGroup   : this.springGroup;
-            const persist = kind === 'yaml' ? this.yamlPersist : this.springPersist;
+            const meta    = this._loaderKindMeta(kind);
+            const path    = this[`${kind}Path`];
+            const group   = meta.hasGroup ? this[`${kind}Group`] : '';
+            const persist = this[`${kind}Persist`];
             if (!path) return;
             this.loaderBusy = true;
-            const args = group ? [path, group] : [path];
+            const args = (meta.hasGroup && group) ? [path, group] : [path];
             const cmd = persist
                 ? `${kind}Loader.persistAndCompile`
-                : `${kind}Loader.compileProcessor`;
+                : `${kind}Loader.${meta.command}`;
             const res = await this.invokeRaw(cmd, args);
             this.loaderOutput = res.output || [];
             this.loaderErr    = res.err    || [];
             this.loaderBusy = false;
             const failed = res.err && res.err.length;
-            const label = kind === 'yaml' ? 'YAML' : 'Spring';
             this.toast(failed
-                    ? `${label} compile failed`
-                    : (persist ? `${label} processor persisted + compiled` : `${label} processor compiled`),
+                    ? `${meta.label} compile failed`
+                    : (persist ? `${meta.label} ${meta.noun} persisted + added` : `${meta.label} ${meta.noun} added`),
                 failed ? 'error' : 'success');
             if (!failed) {
                 this._refreshAfterLoaderCompile();
@@ -4208,8 +4416,63 @@ document.addEventListener('alpine:init', () => {
         },
 
         _setPersistedList(kind, entries) {
-            if (kind === 'yaml')  this.persistedYaml  = entries;
-            else                  this.persistedSpring = entries;
+            if      (kind === 'yaml')   this.persistedYaml   = entries;
+            else if (kind === 'spring') this.persistedSpring = entries;
+            else if (kind === 'feed')   this.persistedFeed   = entries;
+            else if (kind === 'sink')   this.persistedSink   = entries;
+        },
+
+        /** Loads a persisted config into the Config main view (same
+         *  shape as the Server YAML panel) instead of the floating
+         *  modal — keeps the "open a config = navigate to a page"
+         *  contract consistent across server.yml and persisted
+         *  entries. */
+        async openPersistedInConfig(kind, group, file) {
+            this.configActiveSource = { kind, group, file };
+            this.configPersistedContent = '';
+            this.configPersistedContentHtml = '';
+            this.configPersistedError = '';
+            this.activeView = 'config';
+            const res = await this.invokeRaw(`${kind}Loader.getPersistedSource`, [group, file]);
+            if (res.err && res.err.length) {
+                this.configPersistedError = res.err.join('\n');
+                return;
+            }
+            const text = (res.output && res.output.join('\n')) || '';
+            this.configPersistedContent = text;
+            const lower = (file || '').toLowerCase();
+            const lang = lower.endsWith('.xml') ? 'xml'
+                    : (lower.endsWith('.yml') || lower.endsWith('.yaml')) ? 'yaml'
+                    : (kind === 'spring' ? 'xml' : 'yaml');
+            this.configPersistedContentHtml = (lang === 'xml')
+                    ? this._highlightXml(text)
+                    : this._highlightYaml(text);
+        },
+
+        /** Switches the Config view back to server.yml mode. */
+        showServerYamlInConfig() {
+            this.configActiveSource = null;
+            this.activeView = 'config';
+            // Lazy-load matches the existing go('config') behaviour.
+            if (!this.configContent && !this.configError) this.loadConfig();
+        },
+
+        /** Flattened view of every persisted config across all four
+         *  loader kinds. Used by the Config nav-group to render a
+         *  dynamic list under "Server YAML" — clicking a row opens
+         *  the source viewer modal. Stable order: yaml → spring →
+         *  feed → sink, then by group/file. */
+        allPersistedConfigs() {
+            const tag = (kind, arr) => arr.map(e => ({
+                kind, group: e.group, file: e.file,
+                enabled: e.enabled, lastError: e.lastError,
+            }));
+            return [
+                ...tag('yaml',   this.persistedYaml),
+                ...tag('spring', this.persistedSpring),
+                ...tag('feed',   this.persistedFeed),
+                ...tag('sink',   this.persistedSink),
+            ];
         },
 
         async togglePersistedEnabled(kind, group, file, nextEnabled) {
@@ -4251,6 +4514,9 @@ document.addEventListener('alpine:init', () => {
                 // fallback. .yml + .yaml → yaml; .xml → xml; anything
                 // else falls back to plain-text (just HTML-escaped).
                 const lower = (file || '').toLowerCase();
+                // Spring uses XML, every other kind uses YAML. Extension
+                // sniff wins when present (operator may name a Spring
+                // file .yaml or vice versa).
                 const lang = lower.endsWith('.xml') ? 'xml'
                         : (lower.endsWith('.yml') || lower.endsWith('.yaml')) ? 'yaml'
                         : (kind === 'spring' ? 'xml' : 'yaml');
@@ -4268,6 +4534,84 @@ document.addEventListener('alpine:init', () => {
             this.persistViewerContent = '';
             this.persistViewerContentHtml = '';
             this.persistViewerErr = '';
+        },
+
+        /** Drag-and-drop handler for any loader dropzone. Reads the
+         *  first dropped file via FileReader, does a lightweight
+         *  client-side parse for friendly errors, then POSTs to
+         *  /api/loader/upload — the server writes it under
+         *  loaderBaseDir/uploads/<filename> and returns the saved
+         *  absolute path which we plug into the kind's Path field.
+         *
+         *  Client-side parse here is "is this YAML-ish or XML-ish",
+         *  not full validation — the loader's compile step does the
+         *  real parse and reports its own errors. We just bail early
+         *  on the obvious cases (binary files, empty, wrong shape
+         *  for the kind) so the round-trip isn't wasted. */
+        async handleDrop(kind, ev) {
+            this.dragOverKind = null;
+            const dt = ev.dataTransfer;
+            if (!dt || !dt.files || !dt.files.length) return;
+            const file = dt.files[0];
+
+            // Read as text — config files are always text. Binary
+            // detection: ArrayBuffer-first would let us check for
+            // NUL bytes, but in practice an operator dragging a
+            // .bin file is a user error we'd rather surface than
+            // silently filter, so let the server reject it.
+            let text;
+            try {
+                text = await file.text();
+            } catch (e) {
+                this.toast('Could not read file: ' + e.message, 'error');
+                return;
+            }
+            if (!text || !text.trim()) {
+                this.toast('Dropped file is empty', 'error');
+                return;
+            }
+
+            // Lightweight shape check by kind. Catches the wrong-file-
+            // on-wrong-card case (drop XML on the YAML card) with a
+            // friendlier message than the server compile error would
+            // produce.
+            const looksXml  = /^\s*<\?xml|^\s*<[A-Za-z]/.test(text);
+            const looksYaml = !looksXml; // anything not XML-prefixed is treated as YAML
+            const expectXml = (kind === 'spring');
+            if (expectXml && !looksXml) {
+                this.toast(`Spring loader expects XML; this looks like YAML`, 'error');
+                return;
+            }
+            if (!expectXml && looksXml) {
+                this.toast(`${kind} loader expects YAML; this looks like XML`, 'error');
+                return;
+            }
+
+            // Upload to server. The Path field gets the returned
+            // saved-path so a follow-up Compile / Persist uses it
+            // directly — no manual copy/paste step.
+            try {
+                const r = await fetch('/api/loader/upload', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'text/plain; charset=utf-8',
+                               'X-Filename': file.name,
+                               ...(this.csrfToken ? { 'X-CSRF': this.csrfToken } : {}) },
+                    body: text,
+                });
+                if (!r.ok) {
+                    const body = await r.text().catch(() => '');
+                    this.toast('Upload failed: ' + (body || r.statusText), 'error');
+                    return;
+                }
+                const json = await r.json();
+                // Auto-fill the relevant Path field.
+                const pathField = `${kind}Path`;
+                this[pathField] = json.path || file.name;
+                this.toast(`Uploaded ${file.name} (${(file.size / 1024).toFixed(1)} KB)`, 'success');
+            } catch (e) {
+                this.toast('Upload failed: ' + e.message, 'error');
+            }
         },
 
         /** Lightweight YAML highlighter — hand-rolled in the same

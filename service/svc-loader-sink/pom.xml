@@ -8,8 +8,8 @@
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
-    <artifactId>svc-admin-telnet</artifactId>
-    <name>telamin :: mongoose-plugins :: svc-admin-telnet</name>
+    <artifactId>svc-loader-sink</artifactId>
+    <name>telamin :: mongoose-plugins :: svc-loader-sink</name>
 
     <properties>
         <maven.compiler.source>21</maven.compiler.source>
@@ -19,9 +19,9 @@
 
     <dependencies>
         <dependency>
-            <groupId>org.jline</groupId>
-            <artifactId>jline</artifactId>
-            <version>3.27.1</version>
+            <groupId>com.telamin</groupId>
+            <artifactId>mongoose</artifactId>
+            <version>${mongoose.version}</version>
         </dependency>
     </dependencies>
 

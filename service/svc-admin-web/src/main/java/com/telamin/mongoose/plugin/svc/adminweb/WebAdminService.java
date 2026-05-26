@@ -283,6 +283,9 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         // Conditional file picker for loader forms. Always mounted, but returns
         // 404 when loaderBaseDir is unset so the UI hides the tab automatically.
         javalin.get("/api/files", this::handleListFiles);
+        // Drag-and-drop upload target for the Loader tab. POSTs the file
+        // text + an X-Filename header; writes to loaderBaseDir/uploads/.
+        javalin.post("/api/loader/upload", this::handleLoaderUpload);
 
         // Source-navigation lookup. Resolves a class FQN to .java text by
         // walking the configured sourceRoots in order, first hit wins.
@@ -2238,6 +2241,73 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
                 "baseDir", base.toAbsolutePath().toString().replace('\\', '/'),
                 "cwd", relForResp,
                 "entries", entries));
+    }
+
+    /** Drag-and-drop upload from the Loader tab. Writes the request
+     *  body (text/plain) to {@code loaderBaseDir/uploads/<filename>}
+     *  and returns the absolute saved path so the client can use it
+     *  as the {@code path} arg to a follow-up compile / persist
+     *  command. {@code X-Filename} carries the operator's filename;
+     *  basename-validated against path traversal. */
+    private void handleLoaderUpload(Context ctx) {
+        if (loaderBaseDir == null || loaderBaseDir.isEmpty()) {
+            ctx.status(HttpStatus.NOT_FOUND);
+            ctx.json(Map.of("err", "loaderBaseDir is not configured"));
+            return;
+        }
+        String filename = ctx.header("X-Filename");
+        if (filename == null || filename.isBlank()) {
+            ctx.status(HttpStatus.BAD_REQUEST);
+            ctx.json(Map.of("err", "X-Filename header required"));
+            return;
+        }
+        // Reject anything that could escape the upload dir. Operator-
+        // supplied filename can only contain word chars, dot, dash;
+        // no slashes, no dot-dot, no NUL.
+        int slash = Math.max(filename.lastIndexOf('/'), filename.lastIndexOf('\\'));
+        if (slash >= 0) filename = filename.substring(slash + 1);
+        if (filename.contains("..") || filename.isBlank() || !filename.matches("[A-Za-z0-9._-]{1,256}")) {
+            ctx.status(HttpStatus.BAD_REQUEST);
+            ctx.json(Map.of("err", "invalid filename: " + filename));
+            return;
+        }
+        String body = ctx.body();
+        if (body == null || body.isEmpty()) {
+            ctx.status(HttpStatus.BAD_REQUEST);
+            ctx.json(Map.of("err", "empty body"));
+            return;
+        }
+        java.nio.file.Path uploadsDir;
+        try {
+            java.nio.file.Path base = java.nio.file.Paths.get(loaderBaseDir).toAbsolutePath();
+            uploadsDir = base.resolve("uploads");
+            java.nio.file.Files.createDirectories(uploadsDir);
+        } catch (java.io.IOException io) {
+            ctx.status(HttpStatus.INTERNAL_SERVER_ERROR);
+            ctx.json(Map.of("err", "uploads dir unusable: " + io.getMessage()));
+            return;
+        }
+        java.nio.file.Path dest = uploadsDir.resolve(filename);
+        // Belt + braces: after resolve, verify the result stays under
+        // uploadsDir. Defends against any pattern that slipped past
+        // the regex above.
+        if (!dest.normalize().startsWith(uploadsDir.normalize())) {
+            ctx.status(HttpStatus.BAD_REQUEST);
+            ctx.json(Map.of("err", "filename resolves outside uploads dir"));
+            return;
+        }
+        try {
+            java.nio.file.Files.writeString(dest, body, StandardCharsets.UTF_8);
+        } catch (java.io.IOException io) {
+            ctx.status(HttpStatus.INTERNAL_SERVER_ERROR);
+            ctx.json(Map.of("err", "write failed: " + io.getMessage()));
+            return;
+        }
+        log.info("uploaded {} bytes to {}", body.length(), dest);
+        ctx.json(Map.of(
+                "path", dest.toString(),
+                "filename", filename,
+                "bytes", body.length()));
     }
 
     // FQN -> .java text lookup. Two-tier resolution:

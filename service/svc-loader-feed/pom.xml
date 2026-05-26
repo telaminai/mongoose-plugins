@@ -8,8 +8,8 @@
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
-    <artifactId>svc-admin-telnet</artifactId>
-    <name>telamin :: mongoose-plugins :: svc-admin-telnet</name>
+    <artifactId>svc-loader-feed</artifactId>
+    <name>telamin :: mongoose-plugins :: svc-loader-feed</name>
 
     <properties>
         <maven.compiler.source>21</maven.compiler.source>
@@ -18,10 +18,15 @@
     </properties>
 
     <dependencies>
+        <!-- mongoose-server: required for MongooseServerController, EventSource,
+             EventFeedConfig (used as the snake-yaml input bean), and the
+             instanceof-cast to MongooseServer for agent-hosted feed
+             registration (the controller interface in 1.0.18 exposes
+             registerEventSource but not the agent variant). -->
         <dependency>
-            <groupId>org.jline</groupId>
-            <artifactId>jline</artifactId>
-            <version>3.27.1</version>
+            <groupId>com.telamin</groupId>
+            <artifactId>mongoose</artifactId>
+            <version>${mongoose.version}</version>
         </dependency>
     </dependencies>
 

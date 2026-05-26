@@ -189,6 +189,14 @@
                         <svg class="ico"><use href="#i-commands"/></svg><span>Commands</span>
                         <span class="nav-count" x-show="commands.length" x-text="commands.length"></span>
                     </button>
+                    <!-- Service config — control surface for what gets registered
+                         into the server (yaml/spring/feed/sink loaders +
+                         persisted-config replay). Renamed from "Loader" in this
+                         pass; the view id is still 'loader' for url stability
+                         + to avoid touching the four kinds of *Loader code. -->
+                    <button class="nav-item" :class="{active: activeView==='loader'}" @click="go('loader')" x-show="hasLoaderCommands()">
+                        <svg class="ico"><use href="#i-loader"/></svg><span>Service config</span>
+                    </button>
                 </div>
             </div>
 
@@ -201,9 +209,30 @@
                     <span class="nav-label">Config</span>
                 </button>
                 <div x-show="navExpanded.config" x-cloak>
-                    <button class="nav-item" :class="{active: activeView==='config'}" @click="go('config')">
+                    <button class="nav-item"
+                            :class="{active: activeView==='config' && !configActiveSource}"
+                            @click="showServerYamlInConfig()">
                         <svg class="ico"><use href="#i-commands"/></svg><span>Server YAML</span>
                     </button>
+                    <!-- Dynamic list of currently-persisted configs across
+                         all four loaders. Auto-refreshes when persist /
+                         remove / toggle actions run via loadPersisted().
+                         Clicking renders the source in the main Config
+                         view (not a modal) — same nav contract as
+                         "Server YAML" above. -->
+                    <template x-for="cfg in allPersistedConfigs()" :key="cfg.kind + ':' + cfg.group + '/' + cfg.file">
+                        <button class="nav-item" type="button"
+                                :class="{active: activeView==='config'
+                                                && configActiveSource
+                                                && configActiveSource.kind === cfg.kind
+                                                && configActiveSource.group === cfg.group
+                                                && configActiveSource.file === cfg.file}"
+                                @click="openPersistedInConfig(cfg.kind, cfg.group, cfg.file)"
+                                :title="cfg.kind + ' — ' + (cfg.lastError ? 'last error: ' + cfg.lastError : (cfg.enabled ? 'enabled' : 'disabled'))">
+                            <svg class="ico"><use href="#i-commands"/></svg>
+                            <span x-text="cfg.file"></span>
+                        </button>
+                    </template>
                 </div>
             </div>
 
@@ -216,9 +245,6 @@
                 <div x-show="navExpanded.plugins" x-cloak>
                     <button class="nav-item" :class="{active: activeView==='cache'}" @click="go('cache')" x-show="hasCacheCommands()">
                         <svg class="ico"><use href="#i-cache"/></svg><span>Cache</span>
-                    </button>
-                    <button class="nav-item" :class="{active: activeView==='loader'}" @click="go('loader')" x-show="hasLoaderCommands()">
-                        <svg class="ico"><use href="#i-loader"/></svg><span>Loader</span>
                     </button>
                 </div>
             </div>
@@ -311,134 +337,198 @@
                 <div class="overview-banner banner-err" x-show="overviewData.loadError"
                      x-text="overviewData.loadError"></div>
 
-                <div class="overview-grid">
+                <!-- One card per row. Each card has a collapsible
+                     body — clicking the header toggles. The header
+                     stays informative when collapsed via the
+                     overviewSummary(key) helper. Copy-to-JSON copies
+                     just that card's slice for paste-into-ticket
+                     workflows. Table cells truncate with ellipsis on
+                     overflow so long FQNs don't break the row layout. -->
+                <div class="overview-stack">
+
                     <!-- Processors -->
-                    <section class="overview-card">
-                        <header class="overview-card-head">
+                    <section class="overview-card" :class="{ collapsed: overviewCollapsed.processors }">
+                        <header class="overview-card-head"
+                                @click="toggleOverviewCard('processors')"
+                                role="button" tabindex="0"
+                                @keydown.enter.prevent="toggleOverviewCard('processors')"
+                                @keydown.space.prevent="toggleOverviewCard('processors')">
+                            <span class="overview-card-caret" x-text="overviewCollapsed.processors ? '▸' : '▾'"></span>
                             <h2>Processors</h2>
                             <span class="overview-card-count" x-text="overviewData.processors.length"></span>
+                            <span class="overview-card-summary muted small" x-text="overviewSummary('processors')"></span>
+                            <button type="button" class="btn btn-ghost btn-sm overview-card-copy"
+                                    @click.stop="copyOverviewSection('processors')"
+                                    :disabled="!overviewData.processors.length"
+                                    title="Copy as JSON">Copy</button>
                         </header>
-                        <div class="overview-empty muted small"
-                             x-show="!overviewData.loading && overviewData.processors.length === 0">
-                            No processors registered.
+                        <div class="overview-card-body" x-show="!overviewCollapsed.processors">
+                            <div class="overview-empty muted small"
+                                 x-show="!overviewData.loading && overviewData.processors.length === 0">
+                                No processors registered.
+                            </div>
+                            <table class="overview-table" x-show="overviewData.processors.length">
+                                <thead><tr>
+                                    <th class="col-name">Name</th><th class="col-meta">Agent</th><th class="col-audit">Audit</th><th class="col-class">Class</th>
+                                </tr></thead>
+                                <tbody>
+                                    <template x-for="p in overviewData.processors" :key="p.group + ':' + p.name">
+                                        <tr class="overview-row-click" @click="overviewOpenProcessor(p)" :title="'Open processor graph for ' + p.name">
+                                            <td class="mono ellipsis" :title="p.name" x-text="p.name"></td>
+                                            <td class="muted small ellipsis" :title="p.group" x-text="p.group"></td>
+                                            <td>
+                                                <span class="pill" :class="p.auditing ? 'pill-ok' : 'pill-muted'"
+                                                      x-text="p.auditing ? 'recording' : 'off'"></span>
+                                            </td>
+                                            <td class="mono small muted ellipsis" :title="p.classFqn"
+                                                x-text="simpleClassName(p.classFqn)"></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
                         </div>
-                        <table class="overview-table" x-show="overviewData.processors.length">
-                            <thead><tr>
-                                <th>Name</th><th>Agent</th><th>Audit</th><th>Class</th>
-                            </tr></thead>
-                            <tbody>
-                                <template x-for="p in overviewData.processors" :key="p.group + ':' + p.name">
-                                    <tr class="overview-row-click" @click="overviewOpenProcessor(p)" :title="'Open processor graph for ' + p.name">
-                                        <td class="mono" x-text="p.name"></td>
-                                        <td class="muted small" x-text="p.group"></td>
-                                        <td>
-                                            <span class="pill" :class="p.auditing ? 'pill-ok' : 'pill-muted'"
-                                                  x-text="p.auditing ? 'recording' : 'off'"></span>
-                                        </td>
-                                        <td class="mono small muted" :title="p.classFqn"
-                                            x-text="simpleClassName(p.classFqn)"></td>
-                                    </tr>
-                                </template>
-                            </tbody>
-                        </table>
                     </section>
 
                     <!-- Feeds -->
-                    <section class="overview-card">
-                        <header class="overview-card-head">
+                    <section class="overview-card" :class="{ collapsed: overviewCollapsed.feeds }">
+                        <header class="overview-card-head"
+                                @click="toggleOverviewCard('feeds')"
+                                role="button" tabindex="0"
+                                @keydown.enter.prevent="toggleOverviewCard('feeds')"
+                                @keydown.space.prevent="toggleOverviewCard('feeds')">
+                            <span class="overview-card-caret" x-text="overviewCollapsed.feeds ? '▸' : '▾'"></span>
                             <h2>Feeds</h2>
                             <span class="overview-card-count" x-text="overviewData.feeds.length"></span>
+                            <span class="overview-card-summary muted small" x-text="overviewSummary('feeds')"></span>
+                            <button type="button" class="btn btn-ghost btn-sm overview-card-copy"
+                                    @click.stop="copyOverviewSection('feeds')"
+                                    :disabled="!overviewData.feeds.length"
+                                    title="Copy as JSON">Copy</button>
                         </header>
-                        <div class="overview-empty muted small"
-                             x-show="!overviewData.loading && overviewData.feeds.length === 0">
-                            No feeds registered.
+                        <div class="overview-card-body" x-show="!overviewCollapsed.feeds">
+                            <div class="overview-empty muted small"
+                                 x-show="!overviewData.loading && overviewData.feeds.length === 0">
+                                No feeds registered.
+                            </div>
+                            <table class="overview-table" x-show="overviewData.feeds.length">
+                                <thead><tr><th class="col-name">Name</th><th class="col-class">Class</th></tr></thead>
+                                <tbody>
+                                    <template x-for="f in overviewData.feeds" :key="f.name">
+                                        <tr>
+                                            <td class="mono ellipsis" :title="f.name" x-text="f.name"></td>
+                                            <td class="mono small muted ellipsis" :title="f.classFqn"
+                                                x-text="simpleClassName(f.classFqn)"></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
                         </div>
-                        <table class="overview-table" x-show="overviewData.feeds.length">
-                            <thead><tr><th>Name</th><th>Class</th></tr></thead>
-                            <tbody>
-                                <template x-for="f in overviewData.feeds" :key="f.name">
-                                    <tr>
-                                        <td class="mono" x-text="f.name"></td>
-                                        <td class="mono small muted" :title="f.classFqn"
-                                            x-text="simpleClassName(f.classFqn)"></td>
-                                    </tr>
-                                </template>
-                            </tbody>
-                        </table>
                     </section>
 
                     <!-- Sinks -->
-                    <section class="overview-card">
-                        <header class="overview-card-head">
+                    <section class="overview-card" :class="{ collapsed: overviewCollapsed.sinks }">
+                        <header class="overview-card-head"
+                                @click="toggleOverviewCard('sinks')"
+                                role="button" tabindex="0"
+                                @keydown.enter.prevent="toggleOverviewCard('sinks')"
+                                @keydown.space.prevent="toggleOverviewCard('sinks')">
+                            <span class="overview-card-caret" x-text="overviewCollapsed.sinks ? '▸' : '▾'"></span>
                             <h2>Sinks</h2>
                             <span class="overview-card-count" x-text="overviewData.sinks.length"></span>
+                            <span class="overview-card-summary muted small" x-text="overviewSummary('sinks')"></span>
+                            <button type="button" class="btn btn-ghost btn-sm overview-card-copy"
+                                    @click.stop="copyOverviewSection('sinks')"
+                                    :disabled="!overviewData.sinks.length"
+                                    title="Copy as JSON">Copy</button>
                         </header>
-                        <div class="overview-empty muted small"
-                             x-show="!overviewData.loading && overviewData.sinks.length === 0">
-                            No sinks registered.
+                        <div class="overview-card-body" x-show="!overviewCollapsed.sinks">
+                            <div class="overview-empty muted small"
+                                 x-show="!overviewData.loading && overviewData.sinks.length === 0">
+                                No sinks registered.
+                            </div>
+                            <table class="overview-table" x-show="overviewData.sinks.length">
+                                <thead><tr><th class="col-name">Name</th><th class="col-class">Class</th></tr></thead>
+                                <tbody>
+                                    <template x-for="s in overviewData.sinks" :key="s.name">
+                                        <tr>
+                                            <td class="mono ellipsis" :title="s.name" x-text="s.name"></td>
+                                            <td class="mono small muted ellipsis" :title="s.classFqn"
+                                                x-text="simpleClassName(s.classFqn)"></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
                         </div>
-                        <table class="overview-table" x-show="overviewData.sinks.length">
-                            <thead><tr><th>Name</th><th>Class</th></tr></thead>
-                            <tbody>
-                                <template x-for="s in overviewData.sinks" :key="s.name">
-                                    <tr>
-                                        <td class="mono" x-text="s.name"></td>
-                                        <td class="mono small muted" :title="s.classFqn"
-                                            x-text="simpleClassName(s.classFqn)"></td>
-                                    </tr>
-                                </template>
-                            </tbody>
-                        </table>
                     </section>
 
-                    <!-- Key services — stock Mongoose plumbing filtered out.
-                         Spans 2 grid columns; service FQNs are long enough
-                         that a single 22rem column wraps awkwardly. -->
-                    <section class="overview-card overview-card-double">
-                        <header class="overview-card-head">
+                    <!-- Services -->
+                    <section class="overview-card" :class="{ collapsed: overviewCollapsed.services }">
+                        <header class="overview-card-head"
+                                @click="toggleOverviewCard('services')"
+                                role="button" tabindex="0"
+                                @keydown.enter.prevent="toggleOverviewCard('services')"
+                                @keydown.space.prevent="toggleOverviewCard('services')">
+                            <span class="overview-card-caret" x-text="overviewCollapsed.services ? '▸' : '▾'"></span>
                             <h2>Services</h2>
                             <span class="overview-card-count" x-text="overviewData.services.length"></span>
+                            <span class="overview-card-summary muted small" x-text="overviewSummary('services')"></span>
+                            <button type="button" class="btn btn-ghost btn-sm overview-card-copy"
+                                    @click.stop="copyOverviewSection('services')"
+                                    :disabled="!overviewData.services.length"
+                                    title="Copy as JSON">Copy</button>
                         </header>
-                        <div class="overview-empty muted small"
-                             x-show="!overviewData.loading && overviewData.services.length === 0">
-                            No operator-installed services — stock Mongoose plumbing is filtered out. See the dedicated <a href="#" @click.prevent="go('services'); servicesTab='service'">Services</a> view for the full list.
+                        <div class="overview-card-body" x-show="!overviewCollapsed.services">
+                            <div class="overview-empty muted small"
+                                 x-show="!overviewData.loading && overviewData.services.length === 0">
+                                No operator-installed services — stock Mongoose plumbing is filtered out. See the dedicated <a href="#" @click.prevent="go('services'); servicesTab='service'">Services</a> view for the full list.
+                            </div>
+                            <table class="overview-table" x-show="overviewData.services.length">
+                                <thead><tr><th class="col-name">Name</th><th class="col-class">Class</th></tr></thead>
+                                <tbody>
+                                    <template x-for="svc in overviewData.services" :key="svc.name">
+                                        <tr>
+                                            <td class="mono ellipsis" :title="svc.name" x-text="svc.name"></td>
+                                            <td class="mono small muted ellipsis" :title="svc.classFqn"
+                                                x-text="simpleClassName(svc.classFqn)"></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
                         </div>
-                        <table class="overview-table" x-show="overviewData.services.length">
-                            <thead><tr><th>Name</th><th>Class</th></tr></thead>
-                            <tbody>
-                                <template x-for="svc in overviewData.services" :key="svc.name">
-                                    <tr>
-                                        <td class="mono" x-text="svc.name"></td>
-                                        <td class="mono small muted" :title="svc.classFqn"
-                                            x-text="simpleClassName(svc.classFqn)"></td>
-                                    </tr>
-                                </template>
-                            </tbody>
-                        </table>
                     </section>
 
-                    <!-- Audit state — capture enabled, what's recording,
-                         and how much it's written. Single card spanning
-                         the row at the bottom of the grid. -->
-                    <section class="overview-card overview-card-wide">
-                        <header class="overview-card-head">
+                    <!-- Audit capture -->
+                    <section class="overview-card" :class="{ collapsed: overviewCollapsed.audit }">
+                        <header class="overview-card-head"
+                                @click="toggleOverviewCard('audit')"
+                                role="button" tabindex="0"
+                                @keydown.enter.prevent="toggleOverviewCard('audit')"
+                                @keydown.space.prevent="toggleOverviewCard('audit')">
+                            <span class="overview-card-caret" x-text="overviewCollapsed.audit ? '▸' : '▾'"></span>
                             <h2>Audit capture</h2>
                             <span class="pill" :class="overviewData.audit.enabled ? 'pill-ok' : 'pill-muted'"
                                   x-text="overviewData.audit.enabled ? 'enabled' : 'disabled'"></span>
+                            <span class="overview-card-summary muted small" x-text="overviewSummary('audit')"></span>
+                            <button type="button" class="btn btn-ghost btn-sm overview-card-copy"
+                                    @click.stop="copyOverviewSection('audit')"
+                                    title="Copy as JSON">Copy</button>
                         </header>
-                        <div class="overview-audit">
-                            <div class="overview-audit-stat">
-                                <div class="muted small">Recording</div>
-                                <div class="mono" x-text="overviewData.audit.recordingProcessors.length + ' processor(s)'"></div>
-                                <div class="mono small muted" x-text="overviewData.audit.recordingProcessors.join(', ') || '—'"></div>
-                            </div>
-                            <div class="overview-audit-stat">
-                                <div class="muted small">Files on disk</div>
-                                <div class="mono" x-text="overviewData.audit.fileCount"></div>
-                            </div>
-                            <div class="overview-audit-stat">
-                                <div class="muted small">Actions</div>
-                                <button class="btn btn-ghost btn-sm" @click="go('replay')">Open replay</button>
+                        <div class="overview-card-body" x-show="!overviewCollapsed.audit">
+                            <div class="overview-audit">
+                                <div class="overview-audit-stat">
+                                    <div class="muted small">Recording</div>
+                                    <div class="mono" x-text="overviewData.audit.recordingProcessors.length + ' processor(s)'"></div>
+                                    <div class="mono small muted ellipsis" :title="overviewData.audit.recordingProcessors.join(', ') || ''"
+                                         x-text="overviewData.audit.recordingProcessors.join(', ') || '—'"></div>
+                                </div>
+                                <div class="overview-audit-stat">
+                                    <div class="muted small">Files on disk</div>
+                                    <div class="mono" x-text="overviewData.audit.fileCount"></div>
+                                </div>
+                                <div class="overview-audit-stat">
+                                    <div class="muted small">Actions</div>
+                                    <button class="btn btn-ghost btn-sm" @click="go('replay')">Open replay</button>
+                                </div>
                             </div>
                         </div>
                     </section>
@@ -604,10 +694,13 @@
                 <div class="view-head">
                     <div>
                         <h1>Server config</h1>
-                        <p class="view-sub">The YAML descriptor mongoose was booted with — read from <code>mongooseServer.config.file</code> at request time.</p>
+                        <p class="view-sub" x-show="!configActiveSource">The YAML descriptor mongoose was booted with — read from <code>mongooseServer.config.file</code> at request time.</p>
+                        <p class="view-sub" x-show="configActiveSource"
+                           x-text="'Persisted ' + (configActiveSource?.kind || '') + ' config — ' + (configActiveSource?.group || '') + ' / ' + (configActiveSource?.file || '')"></p>
                     </div>
                 </div>
-                <div class="card">
+                <!-- Server-YAML mode -->
+                <div class="card" x-show="!configActiveSource">
                     <div class="card-head">
                         <h2>Server YAML</h2>
                         <span class="card-meta" x-show="configPath" x-text="configPath"></span>
@@ -619,6 +712,19 @@
                         <button class="btn btn-ghost btn-sm" @click="configContent=''" x-show="configContent">Hide</button>
                     </div>
                     <pre class="mono small yaml-view" x-show="configContent" x-html="highlightedConfig()"></pre>
+                </div>
+                <!-- Persisted-config mode: same shape, different source.
+                     Loaded via openPersistedInConfig from the nav. -->
+                <div class="card" x-show="configActiveSource">
+                    <div class="card-head">
+                        <h2 x-text="(configActiveSource?.kind || '') + ' — ' + (configActiveSource?.file || '')"></h2>
+                        <span class="card-meta" x-text="(configActiveSource?.group || '')"></span>
+                        <span class="flex-spacer"></span>
+                        <button class="btn btn-ghost btn-sm" type="button"
+                                @click="openPersistedInConfig(configActiveSource.kind, configActiveSource.group, configActiveSource.file)">Refresh</button>
+                    </div>
+                    <pre class="persist-viewer-code" x-show="configPersistedContent" x-html="configPersistedContentHtml"></pre>
+                    <pre class="err" x-show="configPersistedError" x-text="configPersistedError"></pre>
                 </div>
             </section>
 
@@ -1055,35 +1161,60 @@
                                 <input type="search" placeholder="Filter…" x-model="servicesFilter">
                             </div>
                         </div>
-                        <div class="card">
-                            <!-- Seg-tabs removed — the left-nav now serves
-                                 the same purpose with three top-level
-                                 buttons (Services / Feeds / Sinks). -->
-
-                            <table class="data-table sortable clickable-rows" x-show="services.length">
-                                <thead>
-                                    <tr>
-                                        <th><button type="button" class="th-sort" :class="{active: servicesSortCol==='name'}" @click="sortServices('name')">Name <span class="sort-ind" x-text="sortIndicator('name')"></span></button></th>
-                                        <th><button type="button" class="th-sort" :class="{active: servicesSortCol==='type'}" @click="sortServices('type')">Type <span class="sort-ind" x-text="sortIndicator('type')"></span></button></th>
-                                        <th class="num" x-show="throughput">Rate</th>
-                                        <th><button type="button" class="th-sort" :class="{active: servicesSortCol==='className'}" @click="sortServices('className')">Implementation <span class="sort-ind" x-text="sortIndicator('className')"></span></button></th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <template x-for="s in sortedFilteredServices()" :key="s.name">
-                                        <tr class="clickable" @click="openService(s.name)" :title="'Open ' + s.name">
-                                            <td class="mono strong" x-text="s.name"></td>
-                                            <td><span class="tag" :class="{ok: s.type==='feed', warn: s.type==='sink'}" x-text="s.type || 'service'"></span></td>
-                                            <td class="num" x-show="throughput" x-text="feedRateLabel(s.name)" :class="feedRateClass(s.name)"></td>
-                                            <td class="mono muted" x-text="s.className"></td>
-                                        </tr>
-                                    </template>
-                                    <template x-if="services.length>0 && sortedFilteredServices().length===0">
-                                        <tr><td colspan="4" class="empty empty-sm"><svg class="ico"><use href="#i-search"/></svg><span>No match for “<span x-text="servicesFilter"></span>”</span></td></tr>
-                                    </template>
-                                </tbody>
-                            </table>
-                            <div class="empty" x-show="!services.length">
+                        <!-- One overview-style card per service. Same
+                             collapsible / summary / copy-JSON shape as
+                             the Overview page cards. Header click =
+                             toggle expand; click on the name itself
+                             still navigates to the dedicated detail
+                             page (which retains the full kv/consumers/
+                             config richness). Empty state + filter
+                             miss + no-services-at-all kept beneath. -->
+                        <div class="overview-stack">
+                            <template x-for="s in sortedFilteredServices()" :key="s.name">
+                                <section class="overview-card" :class="{ collapsed: isServicesCardCollapsed(s.name) }">
+                                    <header class="overview-card-head"
+                                            @click="toggleServicesCard(s.name)"
+                                            role="button" tabindex="0"
+                                            @keydown.enter.prevent="toggleServicesCard(s.name)"
+                                            @keydown.space.prevent="toggleServicesCard(s.name)">
+                                        <span class="overview-card-caret" x-text="isServicesCardCollapsed(s.name) ? '▸' : '▾'"></span>
+                                        <h2 class="mono" x-text="s.name"></h2>
+                                        <span class="tag" :class="{ok: s.type==='feed', warn: s.type==='sink'}" x-text="s.type || 'service'"></span>
+                                        <span class="overview-card-summary muted small" x-text="serviceCardSummary(s)"></span>
+                                        <button type="button" class="btn btn-ghost btn-sm overview-card-copy"
+                                                @click.stop="copyServiceJson(s)"
+                                                title="Copy as JSON">Copy</button>
+                                        <button type="button" class="btn btn-ghost btn-sm"
+                                                @click.stop="openService(s.name)"
+                                                title="Open detail page">Open</button>
+                                    </header>
+                                    <div class="overview-card-body" x-show="!isServicesCardCollapsed(s.name)">
+                                        <div class="kv-grid kv-grid-1">
+                                            <div class="kv">
+                                                <span class="kv-k">Type</span>
+                                                <span class="kv-v" x-text="s.type || 'service'"></span>
+                                            </div>
+                                            <div class="kv">
+                                                <span class="kv-k">Implementation</span>
+                                                <span class="kv-v mono ellipsis" :title="s.className" x-text="s.className || '—'"></span>
+                                            </div>
+                                            <div class="kv" x-show="throughput && s.type === 'feed' && feedRateLabel(s.name)">
+                                                <span class="kv-k">Rate</span>
+                                                <span class="kv-v mono" :class="feedRateClass(s.name)" x-text="feedRateLabel(s.name)"></span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </section>
+                            </template>
+                        </div>
+                        <div class="card" x-show="services.length>0 && sortedFilteredServices().length===0">
+                            <div class="empty empty-sm">
+                                <svg class="ico"><use href="#i-search"/></svg>
+                                <span>No match for &ldquo;<span x-text="servicesFilter"></span>&rdquo;</span>
+                            </div>
+                        </div>
+                        <div class="card" x-show="!services.length">
+                            <div class="empty">
                                 <svg class="ico ico-lg"><use href="#i-services"/></svg>
                                 <p>No services reported.</p>
                             </div>
@@ -1264,35 +1395,50 @@
                                 <p class="view-sub">Agent groups — the threads that run processors and worker services. Click a card for detail.</p>
                             </div>
                         </div>
-                        <div class="agent-grid" x-show="agents.length">
+                        <!-- One overview-style card per agent group. Same
+                             collapsible / summary / copy-JSON shape as the
+                             Overview + Services pages. -->
+                        <div class="overview-stack" x-show="agents.length">
                             <template x-for="a in agents" :key="a.group">
-                                <div class="card agent-card clickable" @click="openAgent(a.group)" :title="'Open ' + a.group">
-                                    <div class="agent-head">
-                                        <div>
-                                            <div class="agent-name mono" x-text="a.group"></div>
-                                            <div class="agent-type" x-text="(a.type || 'agent') + ' group'"></div>
-                                        </div>
-                                        <span class="tag tag-rate" x-show="throughput && groupRateLabel(a.group)" :class="groupRateClass(a.group)" x-text="groupRateLabel(a.group)"></span>
+                                <section class="overview-card" :class="{ collapsed: isAgentsCardCollapsed(a.group) }">
+                                    <header class="overview-card-head"
+                                            @click="toggleAgentsCard(a.group)"
+                                            role="button" tabindex="0"
+                                            @keydown.enter.prevent="toggleAgentsCard(a.group)"
+                                            @keydown.space.prevent="toggleAgentsCard(a.group)">
+                                        <span class="overview-card-caret" x-text="isAgentsCardCollapsed(a.group) ? '▸' : '▾'"></span>
+                                        <h2 class="mono" x-text="a.group"></h2>
                                         <span class="tag" :class="threadTagClass(a.state)" x-show="a.state" x-text="a.state"></span>
-                                        <span class="nav-count" x-show="!a.state" x-text="(a.members ?? []).length"></span>
+                                        <span class="overview-card-count" x-text="(a.members ?? []).length"></span>
+                                        <span class="overview-card-summary muted small" x-text="agentCardSummary(a)"></span>
+                                        <button type="button" class="btn btn-ghost btn-sm overview-card-copy"
+                                                @click.stop="copyAgentJson(a)"
+                                                title="Copy as JSON">Copy</button>
+                                        <button type="button" class="btn btn-ghost btn-sm"
+                                                @click.stop="openAgent(a.group)"
+                                                title="Open detail page">Open</button>
+                                    </header>
+                                    <div class="overview-card-body" x-show="!isAgentsCardCollapsed(a.group)">
+                                        <div class="kv-grid kv-grid-1">
+                                            <div class="kv">
+                                                <span class="kv-k">Type</span>
+                                                <span class="kv-v" x-text="(a.type || 'agent') + ' group'"></span>
+                                            </div>
+                                            <div class="kv" x-show="a.thread"><span class="kv-k">Thread</span><span class="kv-v mono" x-text="a.thread"></span></div>
+                                            <div class="kv" x-show="a.idleStrategy"><span class="kv-k">Idle strategy</span><span class="kv-v mono ellipsis" :title="a.idleStrategy" x-text="a.idleStrategy"></span></div>
+                                            <div class="kv" x-show="(a.feeds ?? []).length"><span class="kv-k">Feeds</span><span class="kv-v" x-text="(a.feeds ?? []).length + ' subscribed'"></span></div>
+                                        </div>
+                                        <div class="agent-members" style="margin-top:.7rem">
+                                            <span class="field-label">Processors</span>
+                                            <ul class="member-list">
+                                                <template x-for="m in (a.members ?? [])" :key="m.name">
+                                                    <li><span class="dot-mini" :class="m.kind"></span><span class="mono" x-text="m.name"></span><span class="muted" x-text="m.kind"></span></li>
+                                                </template>
+                                                <li x-show="!(a.members ?? []).length" class="muted">(no processors)</li>
+                                            </ul>
+                                        </div>
                                     </div>
-                                    <div class="kv-grid kv-grid-1" x-show="a.thread || a.idleStrategy">
-                                        <div class="kv" x-show="a.thread"><span class="kv-k">Thread</span><span class="kv-v mono" x-text="a.thread"></span></div>
-                                        <div class="kv" x-show="a.idleStrategy"><span class="kv-k">Idle strategy</span><span class="kv-v mono" x-text="a.idleStrategy"></span></div>
-                                    </div>
-                                    <div class="agent-members">
-                                        <span class="field-label">Processors</span>
-                                        <ul class="member-list">
-                                            <template x-for="m in (a.members ?? [])" :key="m.name">
-                                                <li><span class="dot-mini" :class="m.kind"></span><span class="mono" x-text="m.name"></span><span class="muted" x-text="m.kind"></span></li>
-                                            </template>
-                                            <li x-show="!(a.members ?? []).length" class="muted">(no processors)</li>
-                                        </ul>
-                                    </div>
-                                    <div class="kv-grid kv-grid-1" x-show="(a.feeds ?? []).length">
-                                        <div class="kv"><span class="kv-k">Feeds</span><span class="kv-v" x-text="(a.feeds ?? []).length + ' subscribed'"></span></div>
-                                    </div>
-                                </div>
+                                </section>
                             </template>
                         </div>
                         <div class="card" x-show="!agents.length">
@@ -2352,72 +2498,63 @@
                 </div>
             </section>
 
-            <!-- ─── Loader ─────────────────────────────────────────────── -->
+            <!-- ─── Service config ──────────────────────────────────────────
+                 Control surface for what gets registered into the running
+                 server. Forms for one-shot + persistent registration of
+                 yaml processors / spring processors / feeds / sinks; tables
+                 below for managing the persisted entries that replay on
+                 boot. Renamed from "Loader" in May 2026; view id stays
+                 'loader' for url stability + the four *Loader services. -->
             <section class="view" x-show="activeView==='loader'">
                 <div class="view-head">
                     <div>
-                        <h1>Loader</h1>
-                        <p class="view-sub">Compile processors through the configured loader plugins.</p>
+                        <h1>Service config</h1>
+                        <p class="view-sub">Add processors, feeds, and sinks to the running server. Tick "Persist for restart" to make a config survive reboot.</p>
                     </div>
                 </div>
 
-                <div class="loader-cards">
-                    <div class="card" x-show="hasYamlLoader()">
+                <!-- Per-kind rows: each loader gets its own row with the
+                     compile form on the left and the persisted-configs
+                     table on the right. Horizontal rule between rows
+                     keeps the visual break clean. Drag-and-drop:
+                     dropping a file onto the dropzone uploads it to
+                     loaderBaseDir/uploads/<file> on the server and
+                     auto-fills the Path field. -->
+
+                <!-- YAML loader row -->
+                <div class="loader-kind-row" x-show="hasYamlLoader()">
+                    <div class="card">
                         <div class="card-head"><h2>YAML loader</h2></div>
-                        <form @submit.prevent="yamlCompile()">
-                            <label class="field-label">Path</label>
-                            <div class="input-with-btn">
-                                <input type="text" x-model="yamlPath" placeholder="processor.yaml">
-                                <button class="btn btn-ghost btn-sm" type="button" @click="openPicker('yamlPath')" x-show="loaderBaseDirAvailable">
-                                    <svg class="ico"><use href="#i-folder"/></svg>Browse
+                        <form class="loader-compact-form" @submit.prevent="yamlCompile()">
+                            <div class="loader-form-row">
+                                <label class="loader-form-label">Path</label>
+                                <div class="input-with-btn loader-dropzone"
+                                     :class="{ 'is-drag': dragOverKind === 'yaml' }"
+                                     @dragover.prevent="dragOverKind = 'yaml'"
+                                     @dragleave.prevent="dragOverKind = null"
+                                     @drop.prevent="handleDrop('yaml', $event)">
+                                    <input type="text" x-model="yamlPath" placeholder="processor.yaml or drop a file here">
+                                    <button class="btn btn-ghost btn-sm" type="button" @click="openPicker('yamlPath')" x-show="loaderBaseDirAvailable">
+                                        <svg class="ico"><use href="#i-folder"/></svg>Browse
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="loader-form-row">
+                                <label class="loader-form-label">Group</label>
+                                <input type="text" x-model="yamlGroup" placeholder="default">
+                            </div>
+                            <div class="loader-form-row loader-form-actions">
+                                <label class="loader-form-checkbox">
+                                    <input type="checkbox" x-model="yamlPersist">
+                                    Persist for restart
+                                </label>
+                                <button type="submit" class="btn btn-primary" :disabled="loaderBusy || !yamlPath">
+                                    <span x-text="yamlPersist ? 'Persist + compile' : 'Compile processor'"></span>
                                 </button>
                             </div>
-                            <label class="field-label">Group</label>
-                            <input type="text" x-model="yamlGroup" placeholder="default">
-                            <label class="field-label" style="margin-top:.5rem">
-                                <input type="checkbox" x-model="yamlPersist">
-                                Persist for restart
-                            </label>
-                            <button type="submit" class="btn btn-primary" :disabled="loaderBusy || !yamlPath">
-                                <span x-text="yamlPersist ? 'Persist + compile' : 'Compile processor'"></span>
-                            </button>
                         </form>
                     </div>
-                    <div class="card" x-show="hasSpringLoader()">
-                        <div class="card-head"><h2>Spring loader</h2></div>
-                        <form @submit.prevent="springCompile()">
-                            <label class="field-label">Path</label>
-                            <div class="input-with-btn">
-                                <input type="text" x-model="springPath" placeholder="processor.xml">
-                                <button class="btn btn-ghost btn-sm" type="button" @click="openPicker('springPath')" x-show="loaderBaseDirAvailable">
-                                    <svg class="ico"><use href="#i-folder"/></svg>Browse
-                                </button>
-                            </div>
-                            <label class="field-label">Group</label>
-                            <input type="text" x-model="springGroup" placeholder="default">
-                            <label class="field-label" style="margin-top:.5rem">
-                                <input type="checkbox" x-model="springPersist">
-                                Persist for restart
-                            </label>
-                            <button type="submit" class="btn btn-primary" :disabled="loaderBusy || !springPath">
-                                <span x-text="springPersist ? 'Persist + compile' : 'Compile processor'"></span>
-                            </button>
-                        </form>
-                    </div>
-                </div>
-                <div class="card" x-show="loaderOutput.length || loaderErr.length">
-                    <div class="card-head"><h2>Result</h2></div>
-                    <pre class="out" x-show="loaderOutput.length"><template x-for="(line, i) in loaderOutput" :key="i"><span x-text="line + '\n'"></span></template></pre>
-                    <pre class="err" x-show="loaderErr.length"><template x-for="(line, i) in loaderErr" :key="i"><span x-text="line + '\n'"></span></template></pre>
-                </div>
-
-                <!-- Persisted configs: per-kind table; enable / view /
-                     remove. Auto-refreshes after persist / toggle /
-                     delete actions in app.js. The "Refresh" button is
-                     also a lazy-load on first visit since the panel
-                     starts empty. -->
-                <div class="loader-cards" x-show="hasYamlLoader() || hasSpringLoader()">
-                    <div class="card" x-show="hasYamlLoader()">
+                    <div class="card">
                         <div class="card-head">
                             <h2>Persisted YAML configs</h2>
                             <button type="button" class="btn btn-ghost btn-sm" @click="loadPersisted('yaml')">Refresh</button>
@@ -2435,16 +2572,51 @@
                                         <span x-show="e.lastError" class="err persist-err-cell" :title="e.lastError || ''" x-text="(e.lastError || '').split('\n')[0]"></span>
                                     </td>
                                     <td>
-                                        <button class="btn btn-ghost btn-sm" type="button" @click="viewPersisted('yaml', e.group, e.file)">View</button>
+                                        <button class="btn btn-ghost btn-sm" type="button" @click="openPersistedInConfig('yaml', e.group, e.file)">View</button>
                                         <button class="btn btn-ghost btn-sm" type="button" @click="removePersisted('yaml', e.group, e.file)">Remove</button>
                                     </td>
                                 </tr>
                             </template>
                             </tbody>
                         </table>
-                        <p class="muted" x-show="!persistedYaml.length">No persisted YAML configs. Tick "Persist for restart" above and submit one to populate this list.</p>
+                        <p class="muted" x-show="!persistedYaml.length">No persisted YAML configs. Tick "Persist for restart" and submit one to populate this list.</p>
                     </div>
-                    <div class="card" x-show="hasSpringLoader()">
+                </div>
+
+                <!-- Spring loader row -->
+                <div class="loader-kind-row" x-show="hasSpringLoader()">
+                    <div class="card">
+                        <div class="card-head"><h2>Spring loader</h2></div>
+                        <form class="loader-compact-form" @submit.prevent="springCompile()">
+                            <div class="loader-form-row">
+                                <label class="loader-form-label">Path</label>
+                                <div class="input-with-btn loader-dropzone"
+                                     :class="{ 'is-drag': dragOverKind === 'spring' }"
+                                     @dragover.prevent="dragOverKind = 'spring'"
+                                     @dragleave.prevent="dragOverKind = null"
+                                     @drop.prevent="handleDrop('spring', $event)">
+                                    <input type="text" x-model="springPath" placeholder="processor.xml or drop a file here">
+                                    <button class="btn btn-ghost btn-sm" type="button" @click="openPicker('springPath')" x-show="loaderBaseDirAvailable">
+                                        <svg class="ico"><use href="#i-folder"/></svg>Browse
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="loader-form-row">
+                                <label class="loader-form-label">Group</label>
+                                <input type="text" x-model="springGroup" placeholder="default">
+                            </div>
+                            <div class="loader-form-row loader-form-actions">
+                                <label class="loader-form-checkbox">
+                                    <input type="checkbox" x-model="springPersist">
+                                    Persist for restart
+                                </label>
+                                <button type="submit" class="btn btn-primary" :disabled="loaderBusy || !springPath">
+                                    <span x-text="springPersist ? 'Persist + compile' : 'Compile processor'"></span>
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                    <div class="card">
                         <div class="card-head">
                             <h2>Persisted Spring configs</h2>
                             <button type="button" class="btn btn-ghost btn-sm" @click="loadPersisted('spring')">Refresh</button>
@@ -2462,32 +2634,137 @@
                                         <span x-show="e.lastError" class="err persist-err-cell" :title="e.lastError || ''" x-text="(e.lastError || '').split('\n')[0]"></span>
                                     </td>
                                     <td>
-                                        <button class="btn btn-ghost btn-sm" type="button" @click="viewPersisted('spring', e.group, e.file)">View</button>
+                                        <button class="btn btn-ghost btn-sm" type="button" @click="openPersistedInConfig('spring', e.group, e.file)">View</button>
                                         <button class="btn btn-ghost btn-sm" type="button" @click="removePersisted('spring', e.group, e.file)">Remove</button>
                                     </td>
                                 </tr>
                             </template>
                             </tbody>
                         </table>
-                        <p class="muted" x-show="!persistedSpring.length">No persisted Spring configs. Tick "Persist for restart" above and submit one to populate this list.</p>
+                        <p class="muted" x-show="!persistedSpring.length">No persisted Spring configs. Tick "Persist for restart" and submit one to populate this list.</p>
                     </div>
                 </div>
 
-                <!-- Persisted-source viewer. Click-outside or Close
-                     dismisses. .modal-wide gives ~80vw so wrapped
-                     XML/YAML stays readable. Token classes match
-                     the .proc-sourcenav-code Java highlighter
-                     palette for cross-view consistency. -->
-                <div class="modal-overlay" x-show="persistViewerOpen" @click.self="closePersistViewer()" style="display:none">
-                    <div class="modal modal-wide">
-                        <div class="modal-head">
-                            <h2 x-text="persistViewerKind + ': ' + persistViewerGroup + ' / ' + persistViewerFile"></h2>
-                            <button class="btn btn-ghost btn-sm" type="button" @click="closePersistViewer()">Close</button>
+                <!-- Feed loader row -->
+                <div class="loader-kind-row" x-show="hasFeedLoader()">
+                    <div class="card">
+                        <div class="card-head"><h2>Feed loader</h2></div>
+                        <form class="loader-compact-form" @submit.prevent="feedCompile()">
+                            <div class="loader-form-row">
+                                <label class="loader-form-label">Path</label>
+                                <div class="input-with-btn loader-dropzone"
+                                     :class="{ 'is-drag': dragOverKind === 'feed' }"
+                                     @dragover.prevent="dragOverKind = 'feed'"
+                                     @dragleave.prevent="dragOverKind = null"
+                                     @drop.prevent="handleDrop('feed', $event)">
+                                    <input type="text" x-model="feedPath" placeholder="feed.yaml or drop a file here">
+                                    <button class="btn btn-ghost btn-sm" type="button" @click="openPicker('feedPath')" x-show="loaderBaseDirAvailable">
+                                        <svg class="ico"><use href="#i-folder"/></svg>Browse
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="loader-form-row loader-form-actions">
+                                <label class="loader-form-checkbox">
+                                    <input type="checkbox" x-model="feedPersist">
+                                    Persist for restart
+                                </label>
+                                <button type="submit" class="btn btn-primary" :disabled="loaderBusy || !feedPath">
+                                    <span x-text="feedPersist ? 'Persist + add' : 'Add feed'"></span>
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                    <div class="card">
+                        <div class="card-head">
+                            <h2>Persisted feeds</h2>
+                            <button type="button" class="btn btn-ghost btn-sm" @click="loadPersisted('feed')">Refresh</button>
                         </div>
-                        <pre class="persist-viewer-code" x-show="persistViewerContent" x-html="persistViewerContentHtml"></pre>
-                        <pre class="err" x-show="persistViewerErr" x-text="persistViewerErr"></pre>
+                        <table class="tbl" x-show="persistedFeed.length">
+                            <thead><tr><th>File</th><th>Enabled</th><th>Last error</th><th></th></tr></thead>
+                            <tbody>
+                            <template x-for="e in persistedFeed" :key="e.group + '/' + e.file">
+                                <tr>
+                                    <td x-text="e.file"></td>
+                                    <td><input type="checkbox" :checked="e.enabled" @change="togglePersistedEnabled('feed', e.group, e.file, $event.target.checked)"></td>
+                                    <td>
+                                        <span x-show="!e.lastError" class="muted">OK</span>
+                                        <span x-show="e.lastError" class="err persist-err-cell" :title="e.lastError || ''" x-text="(e.lastError || '').split('\n')[0]"></span>
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-ghost btn-sm" type="button" @click="openPersistedInConfig('feed', e.group, e.file)">View</button>
+                                        <button class="btn btn-ghost btn-sm" type="button" @click="removePersisted('feed', e.group, e.file)">Remove</button>
+                                    </td>
+                                </tr>
+                            </template>
+                            </tbody>
+                        </table>
+                        <p class="muted" x-show="!persistedFeed.length">No persisted feeds. Tick "Persist for restart" and submit one to populate this list.</p>
                     </div>
                 </div>
+
+                <!-- Sink loader row -->
+                <div class="loader-kind-row" x-show="hasSinkLoader()">
+                    <div class="card">
+                        <div class="card-head"><h2>Sink loader</h2></div>
+                        <form class="loader-compact-form" @submit.prevent="sinkCompile()">
+                            <div class="loader-form-row">
+                                <label class="loader-form-label">Path</label>
+                                <div class="input-with-btn loader-dropzone"
+                                     :class="{ 'is-drag': dragOverKind === 'sink' }"
+                                     @dragover.prevent="dragOverKind = 'sink'"
+                                     @dragleave.prevent="dragOverKind = null"
+                                     @drop.prevent="handleDrop('sink', $event)">
+                                    <input type="text" x-model="sinkPath" placeholder="sink.yaml or drop a file here">
+                                    <button class="btn btn-ghost btn-sm" type="button" @click="openPicker('sinkPath')" x-show="loaderBaseDirAvailable">
+                                        <svg class="ico"><use href="#i-folder"/></svg>Browse
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="loader-form-row loader-form-actions">
+                                <label class="loader-form-checkbox">
+                                    <input type="checkbox" x-model="sinkPersist">
+                                    Persist for restart
+                                </label>
+                                <button type="submit" class="btn btn-primary" :disabled="loaderBusy || !sinkPath">
+                                    <span x-text="sinkPersist ? 'Persist + add' : 'Add sink'"></span>
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                    <div class="card">
+                        <div class="card-head">
+                            <h2>Persisted sinks</h2>
+                            <button type="button" class="btn btn-ghost btn-sm" @click="loadPersisted('sink')">Refresh</button>
+                        </div>
+                        <table class="tbl" x-show="persistedSink.length">
+                            <thead><tr><th>File</th><th>Enabled</th><th>Last error</th><th></th></tr></thead>
+                            <tbody>
+                            <template x-for="e in persistedSink" :key="e.group + '/' + e.file">
+                                <tr>
+                                    <td x-text="e.file"></td>
+                                    <td><input type="checkbox" :checked="e.enabled" @change="togglePersistedEnabled('sink', e.group, e.file, $event.target.checked)"></td>
+                                    <td>
+                                        <span x-show="!e.lastError" class="muted">OK</span>
+                                        <span x-show="e.lastError" class="err persist-err-cell" :title="e.lastError || ''" x-text="(e.lastError || '').split('\n')[0]"></span>
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-ghost btn-sm" type="button" @click="openPersistedInConfig('sink', e.group, e.file)">View</button>
+                                        <button class="btn btn-ghost btn-sm" type="button" @click="removePersisted('sink', e.group, e.file)">Remove</button>
+                                    </td>
+                                </tr>
+                            </template>
+                            </tbody>
+                        </table>
+                        <p class="muted" x-show="!persistedSink.length">No persisted sinks. Tick "Persist for restart" and submit one to populate this list.</p>
+                    </div>
+                </div>
+
+                <div class="card" x-show="loaderOutput.length || loaderErr.length">
+                    <div class="card-head"><h2>Result</h2></div>
+                    <pre class="out" x-show="loaderOutput.length"><template x-for="(line, i) in loaderOutput" :key="i"><span x-text="line + '\n'"></span></template></pre>
+                    <pre class="err" x-show="loaderErr.length"><template x-for="(line, i) in loaderErr" :key="i"><span x-text="line + '\n'"></span></template></pre>
+                </div>
+
             </section>
 
             <!-- ─── Settings ─────────────────────────────────────────────

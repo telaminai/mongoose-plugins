@@ -10,7 +10,7 @@
     <groupId>com.telamin</groupId>
 
     <artifactId>mongoose-plugins</artifactId>
-    <version>1.0.25-SNAPSHOT</version>
+    <version>1.0.26-SNAPSHOT</version>
     <name>telamin :: mongoose-plugins</name>
     <packaging>pom</packaging>
 
@@ -89,6 +89,8 @@
         <module>service/svc-jdbc</module>
         <module>service/svc-loader-yaml</module>
         <module>service/svc-loader-spring</module>
+        <module>service/svc-loader-feed</module>
+        <module>service/svc-loader-sink</module>
         <module>connector/connector-aeron</module>
         <module>connector/connector-chronicle</module>
         <module>connector/connector-file</module>
