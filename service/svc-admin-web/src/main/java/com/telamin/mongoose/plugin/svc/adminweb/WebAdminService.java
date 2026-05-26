@@ -974,67 +974,94 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
     }
 
     /** Reports deployed-artefact versions for the Settings view's
-     *  version panel. Each entry uses Class.getPackage().getImplementationVersion()
-     *  which reads the {@code Implementation-Version} manifest entry —
-     *  populated by Maven's jar-plugin by default for everything we
-     *  ship. The "app" entry reads the JVM's main-class package's
-     *  version (best-effort; null when the entry-point hasn't been
-     *  given an explicit version, e.g. running from an IDE class path
-     *  rather than a fat jar). */
+     *  version panel. Reads {@code META-INF/maven/<groupId>/<artifactId>/pom.properties}
+     *  files — Maven embeds these in every dep jar, and unlike
+     *  per-package {@code Implementation-Version} manifest entries they
+     *  SURVIVE shading (maven-shade-plugin treats them as resources,
+     *  not manifest data). Falls back to "unknown" when the artefact
+     *  isn't on the classpath. */
     private void handleVersion(Context ctx) {
         Map<String, String> versions = new LinkedHashMap<>();
-        versions.put("mongoose", versionFor("com.telamin.mongoose.MongooseServer"));
-        versions.put("mongoose-plugins-admin-web", versionFor(WebAdminService.class.getName()));
-        versions.put("fluxtion-runtime", versionFor("com.telamin.fluxtion.runtime.DataFlow"));
-        versions.put("fluxtion-builder", versionFor("com.telamin.fluxtion.builder.compile.config.FluxtionCompilerConfig"));
-        // App version: walk the system property the JVM sets on launch
-        // for `java -jar`. Without it (e.g. running from an IDE) we
-        // fall back to the JVM's sun.java.command if that hints at a
-        // main class.
-        versions.put("app", appVersionBestEffort());
+        versions.put("mongoose", resolveDependencyVersion("com.telamin", "mongoose"));
+        versions.put("svc-admin-web", resolveDependencyVersion("com.telamin", "svc-admin-web"));
+        versions.put("svc-micrometer", resolveDependencyVersion("com.telamin", "svc-micrometer"));
+        versions.put("fluxtion-runtime", resolveDependencyVersion("com.telamin.fluxtion", "fluxtion-runtime"));
+        versions.put("fluxtion-runtime-java8", resolveDependencyVersion("com.telamin.fluxtion", "fluxtion-runtime-java8"));
+        versions.put("fluxtion-builder", resolveDependencyVersion("com.telamin.fluxtion", "fluxtion-builder"));
+        versions.put("app", resolveAppVersion());
         ctx.json(Map.of("versions", versions));
     }
 
-    private static String versionFor(String fqn) {
-        try {
-            Class<?> c = Class.forName(fqn);
-            String v = c.getPackage().getImplementationVersion();
-            return v != null ? v : "unknown";
-        } catch (ClassNotFoundException e) {
-            return "absent";
+    /** Resolve a single (groupId, artifactId) version. Reads
+     *  pom.properties from the classloader; survives shading because
+     *  it's a resource path, not a manifest entry. */
+    private static String resolveDependencyVersion(String groupId, String artifactId) {
+        String resource = "META-INF/maven/" + groupId + "/" + artifactId + "/pom.properties";
+        try (java.io.InputStream in = WebAdminService.class.getClassLoader()
+                .getResourceAsStream(resource)) {
+            if (in == null) return "absent";
+            java.util.Properties p = new java.util.Properties();
+            p.load(in);
+            String v = p.getProperty("version");
+            return (v == null || v.isEmpty()) ? "unknown" : v;
+        } catch (java.io.IOException e) {
+            return "unknown";
         }
     }
 
-    /** Best-effort app-version lookup. Reads the manifest of the jar
-     *  that defined the JVM's main class (system property
-     *  {@code sun.java.command}). Returns "unknown" when the JVM was
-     *  launched in a way that doesn't surface a single jar (IDE
-     *  classpath, modular launch, etc). */
-    private static String appVersionBestEffort() {
+    /** Best-effort app-version lookup. Opens the launched jar (from
+     *  {@code sun.java.command}), reads its Main-Class, derives the
+     *  expected groupId prefix from the first dot-segment of the
+     *  main-class package, and finds a pom.properties under
+     *  {@code META-INF/maven/<prefix>.*\/.../pom.properties}.
+     *
+     *  <p>Returns "<artifactId> <version>" so the UI can distinguish a
+     *  versionless 1.0.0-SNAPSHOT from "the app".
+     *
+     *  <p>Returns "unknown" when the JVM was launched in a way that
+     *  doesn't surface a single jar (IDE classpath, modular launch,
+     *  jar without a Main-Class entry, etc). */
+    private static String resolveAppVersion() {
         try {
             String cmd = System.getProperty("sun.java.command", "");
-            // `java -jar foo.jar args…` → cmd starts with "foo.jar".
-            if (cmd.endsWith(".jar") || cmd.contains(".jar ")) {
-                String jarPath = cmd.split("\\s")[0];
-                java.io.File jarFile = new java.io.File(jarPath);
-                if (jarFile.isFile()) {
-                    try (java.util.jar.JarFile jar = new java.util.jar.JarFile(jarFile)) {
-                        java.util.jar.Manifest mf = jar.getManifest();
-                        if (mf != null) {
-                            String v = mf.getMainAttributes().getValue("Implementation-Version");
-                            if (v != null && !v.isEmpty()) return v;
-                            String iTitle = mf.getMainAttributes().getValue("Implementation-Title");
-                            return iTitle != null ? iTitle : "unknown";
+            if (cmd.isEmpty()) return "unknown";
+            String jarPath = cmd.split("\\s")[0];
+            if (!jarPath.endsWith(".jar")) return "unknown";
+            java.io.File jarFile = new java.io.File(jarPath);
+            if (!jarFile.isFile()) return "unknown";
+            try (java.util.jar.JarFile jar = new java.util.jar.JarFile(jarFile)) {
+                java.util.jar.Manifest mf = jar.getManifest();
+                if (mf == null) return "unknown";
+                String mainClass = mf.getMainAttributes().getValue("Main-Class");
+                if (mainClass == null || !mainClass.contains(".")) {
+                    // No package on the main class — fall back to
+                    // Implementation-Version on the manifest if present.
+                    String v = mf.getMainAttributes().getValue("Implementation-Version");
+                    return (v != null && !v.isEmpty()) ? v : "unknown";
+                }
+                String firstSegment = mainClass.split("\\.")[0];
+                String matchPrefix = "META-INF/maven/" + firstSegment + ".";
+
+                java.util.Enumeration<java.util.jar.JarEntry> entries = jar.entries();
+                while (entries.hasMoreElements()) {
+                    java.util.jar.JarEntry entry = entries.nextElement();
+                    String name = entry.getName();
+                    if (name.startsWith(matchPrefix) && name.endsWith("/pom.properties")) {
+                        try (java.io.InputStream in = jar.getInputStream(entry)) {
+                            java.util.Properties p = new java.util.Properties();
+                            p.load(in);
+                            String v = p.getProperty("version", "");
+                            String aid = p.getProperty("artifactId", "");
+                            if (!v.isEmpty()) {
+                                return aid.isEmpty() ? v : (aid + " " + v);
+                            }
                         }
                     }
                 }
-            }
-            // Otherwise — the main-class's class-loader package may carry
-            // a version (less reliable; fat jars usually rewrite this).
-            String mainClass = cmd.split("\\s")[0];
-            if (mainClass.contains(".")) {
-                String v = versionFor(mainClass);
-                if (!"absent".equals(v) && !"unknown".equals(v)) return v;
+                // No matching pom.properties — try the manifest's
+                // Implementation-Version as a last resort.
+                String v = mf.getMainAttributes().getValue("Implementation-Version");
+                if (v != null && !v.isEmpty()) return v;
             }
         } catch (Throwable ignore) { /* fall through */ }
         return "unknown";

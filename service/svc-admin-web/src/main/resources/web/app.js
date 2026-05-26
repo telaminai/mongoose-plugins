@@ -595,7 +595,14 @@ document.addEventListener('alpine:init', () => {
         versionRows() {
             const v = this.versions;
             if (!v) return [];
-            return Object.entries(v).map(([key, value]) => ({ key, value }));
+            // Hide rows that report `absent` — those are optional deps
+            // not on the runtime classpath (fluxtion-builder is
+            // `provided`, fluxtion-runtime-java8 only ships in CheerpJ
+            // bundles, svc-micrometer only when the bridge is wired).
+            // Keeping them visible just adds noise.
+            return Object.entries(v)
+                    .filter(([_, value]) => value !== 'absent')
+                    .map(([key, value]) => ({ key, value }));
         },
 
         // ── toasts ──
