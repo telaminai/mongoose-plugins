@@ -2374,7 +2374,13 @@
                             </div>
                             <label class="field-label">Group</label>
                             <input type="text" x-model="yamlGroup" placeholder="default">
-                            <button type="submit" class="btn btn-primary" :disabled="loaderBusy || !yamlPath">Compile processor</button>
+                            <label class="field-label" style="margin-top:.5rem">
+                                <input type="checkbox" x-model="yamlPersist">
+                                Persist for restart
+                            </label>
+                            <button type="submit" class="btn btn-primary" :disabled="loaderBusy || !yamlPath">
+                                <span x-text="yamlPersist ? 'Persist + compile' : 'Compile processor'"></span>
+                            </button>
                         </form>
                     </div>
                     <div class="card" x-show="hasSpringLoader()">
@@ -2389,7 +2395,13 @@
                             </div>
                             <label class="field-label">Group</label>
                             <input type="text" x-model="springGroup" placeholder="default">
-                            <button type="submit" class="btn btn-primary" :disabled="loaderBusy || !springPath">Compile processor</button>
+                            <label class="field-label" style="margin-top:.5rem">
+                                <input type="checkbox" x-model="springPersist">
+                                Persist for restart
+                            </label>
+                            <button type="submit" class="btn btn-primary" :disabled="loaderBusy || !springPath">
+                                <span x-text="springPersist ? 'Persist + compile' : 'Compile processor'"></span>
+                            </button>
                         </form>
                     </div>
                 </div>
@@ -2397,6 +2409,78 @@
                     <div class="card-head"><h2>Result</h2></div>
                     <pre class="out" x-show="loaderOutput.length"><template x-for="(line, i) in loaderOutput" :key="i"><span x-text="line + '\n'"></span></template></pre>
                     <pre class="err" x-show="loaderErr.length"><template x-for="(line, i) in loaderErr" :key="i"><span x-text="line + '\n'"></span></template></pre>
+                </div>
+
+                <!-- Persisted configs: per-kind table; enable / view /
+                     remove. Auto-refreshes after persist / toggle /
+                     delete actions in app.js. The "Refresh" button is
+                     also a lazy-load on first visit since the panel
+                     starts empty. -->
+                <div class="loader-cards" x-show="hasYamlLoader() || hasSpringLoader()">
+                    <div class="card" x-show="hasYamlLoader()">
+                        <div class="card-head">
+                            <h2>Persisted YAML configs</h2>
+                            <button type="button" class="btn btn-ghost btn-sm" @click="loadPersisted('yaml')">Refresh</button>
+                        </div>
+                        <table class="tbl" x-show="persistedYaml.length">
+                            <thead><tr><th>Group</th><th>File</th><th>Enabled</th><th>Last error</th><th></th></tr></thead>
+                            <tbody>
+                            <template x-for="e in persistedYaml" :key="e.group + '/' + e.file">
+                                <tr>
+                                    <td x-text="e.group"></td>
+                                    <td x-text="e.file"></td>
+                                    <td><input type="checkbox" :checked="e.enabled" @change="togglePersistedEnabled('yaml', e.group, e.file, $event.target.checked)"></td>
+                                    <td><span class="err" x-text="e.lastError || ''"></span></td>
+                                    <td>
+                                        <button class="btn btn-ghost btn-sm" type="button" @click="viewPersisted('yaml', e.group, e.file)">View</button>
+                                        <button class="btn btn-ghost btn-sm" type="button" @click="removePersisted('yaml', e.group, e.file)">Remove</button>
+                                    </td>
+                                </tr>
+                            </template>
+                            </tbody>
+                        </table>
+                        <p class="muted" x-show="!persistedYaml.length">No persisted YAML configs. Tick "Persist for restart" above and submit one to populate this list.</p>
+                    </div>
+                    <div class="card" x-show="hasSpringLoader()">
+                        <div class="card-head">
+                            <h2>Persisted Spring configs</h2>
+                            <button type="button" class="btn btn-ghost btn-sm" @click="loadPersisted('spring')">Refresh</button>
+                        </div>
+                        <table class="tbl" x-show="persistedSpring.length">
+                            <thead><tr><th>Group</th><th>File</th><th>Enabled</th><th>Last error</th><th></th></tr></thead>
+                            <tbody>
+                            <template x-for="e in persistedSpring" :key="e.group + '/' + e.file">
+                                <tr>
+                                    <td x-text="e.group"></td>
+                                    <td x-text="e.file"></td>
+                                    <td><input type="checkbox" :checked="e.enabled" @change="togglePersistedEnabled('spring', e.group, e.file, $event.target.checked)"></td>
+                                    <td><span class="err" x-text="e.lastError || ''"></span></td>
+                                    <td>
+                                        <button class="btn btn-ghost btn-sm" type="button" @click="viewPersisted('spring', e.group, e.file)">View</button>
+                                        <button class="btn btn-ghost btn-sm" type="button" @click="removePersisted('spring', e.group, e.file)">Remove</button>
+                                    </td>
+                                </tr>
+                            </template>
+                            </tbody>
+                        </table>
+                        <p class="muted" x-show="!persistedSpring.length">No persisted Spring configs. Tick "Persist for restart" above and submit one to populate this list.</p>
+                    </div>
+                </div>
+
+                <!-- Persisted-source viewer: simple <pre> for now. The
+                     full syntax-highlight path lives in _highlightJava
+                     (prism); plain text keeps this panel small and
+                     readable until we wire prism's yaml + xml grammars
+                     into the bundle. -->
+                <div class="modal-backdrop" x-show="persistViewerOpen" @click="closePersistViewer()" style="display:none">
+                </div>
+                <div class="modal" x-show="persistViewerOpen" style="display:none">
+                    <div class="modal-head">
+                        <h2 x-text="persistViewerKind + ': ' + persistViewerGroup + ' / ' + persistViewerFile"></h2>
+                        <button class="btn btn-ghost btn-sm" type="button" @click="closePersistViewer()">Close</button>
+                    </div>
+                    <pre class="out" x-show="persistViewerContent" x-text="persistViewerContent"></pre>
+                    <pre class="err" x-show="persistViewerErr" x-text="persistViewerErr"></pre>
                 </div>
             </section>
 

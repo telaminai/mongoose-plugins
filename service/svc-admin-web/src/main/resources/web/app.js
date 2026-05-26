@@ -326,10 +326,26 @@ document.addEventListener('alpine:init', () => {
         pickerBaseDir: '',
         yamlPath: '',
         yamlGroup: '',
+        yamlPersist: false,
         springPath: '',
         springGroup: '',
+        springPersist: false,
         loaderOutput: [],
         loaderErr: [],
+
+        // ── persisted-configs panel ──
+        // Per-kind cached list of entries from listPersisted. Loaded
+        // lazily on first Loader-tab visit; kept fresh on every
+        // persist / toggle / remove action.
+        persistedYaml: [],
+        persistedSpring: [],
+        // Inline viewer (modal-ish overlay) for source preview.
+        persistViewerOpen: false,
+        persistViewerKind: null,   // 'yaml' | 'spring'
+        persistViewerGroup: '',
+        persistViewerFile: '',
+        persistViewerContent: '',
+        persistViewerErr: '',
 
         // ── file picker ──
         pickerOpen: false,
@@ -431,6 +447,15 @@ document.addEventListener('alpine:init', () => {
                 // Lazy-load versions on first settings visit; subsequent
                 // visits show the cached set until Refresh is clicked.
                 this.loadVersions();
+            } else if (view === 'loader') {
+                // Auto-load persisted-config lists when the Loader view
+                // opens. Cheap (one admin command per kind) and saves
+                // the operator a Refresh click on first visit. We
+                // refetch every visit because another admin client (or
+                // a CLI) could have edited the persistent dir
+                // out-of-band.
+                if (this.hasYamlLoader())   this.loadPersisted('yaml');
+                if (this.hasSpringLoader()) this.loadPersisted('spring');
             }
         },
 
@@ -4116,31 +4141,37 @@ document.addEventListener('alpine:init', () => {
 
         // ── loader panel ──
 
-        async yamlCompile() {
-            if (!this.yamlPath) return;
+        async yamlCompile()   { return this._loaderCompile('yaml');   },
+        async springCompile() { return this._loaderCompile('spring'); },
+
+        /** Single compile pipeline. Routes to compileProcessor or
+         *  persistAndCompile based on the kind's Persist checkbox.
+         *  When persistence succeeds, the list refresh + introspection
+         *  refresh both fire so the UI catches up. */
+        async _loaderCompile(kind) {
+            const path    = kind === 'yaml' ? this.yamlPath    : this.springPath;
+            const group   = kind === 'yaml' ? this.yamlGroup   : this.springGroup;
+            const persist = kind === 'yaml' ? this.yamlPersist : this.springPersist;
+            if (!path) return;
             this.loaderBusy = true;
-            const args = this.yamlGroup ? [this.yamlPath, this.yamlGroup] : [this.yamlPath];
-            const res = await this.invokeRaw('yamlLoader.compileProcessor', args);
+            const args = group ? [path, group] : [path];
+            const cmd = persist
+                ? `${kind}Loader.persistAndCompile`
+                : `${kind}Loader.compileProcessor`;
+            const res = await this.invokeRaw(cmd, args);
             this.loaderOutput = res.output || [];
             this.loaderErr    = res.err    || [];
             this.loaderBusy = false;
             const failed = res.err && res.err.length;
-            this.toast(failed ? 'YAML compile failed' : 'YAML processor compiled',
-                       failed ? 'error' : 'success');
-            if (!failed) this._refreshAfterLoaderCompile();
-        },
-        async springCompile() {
-            if (!this.springPath) return;
-            this.loaderBusy = true;
-            const args = this.springGroup ? [this.springPath, this.springGroup] : [this.springPath];
-            const res = await this.invokeRaw('springLoader.compileProcessor', args);
-            this.loaderOutput = res.output || [];
-            this.loaderErr    = res.err    || [];
-            this.loaderBusy = false;
-            const failed = res.err && res.err.length;
-            this.toast(failed ? 'Spring compile failed' : 'Spring processor compiled',
-                       failed ? 'error' : 'success');
-            if (!failed) this._refreshAfterLoaderCompile();
+            const label = kind === 'yaml' ? 'YAML' : 'Spring';
+            this.toast(failed
+                    ? `${label} compile failed`
+                    : (persist ? `${label} processor persisted + compiled` : `${label} processor compiled`),
+                failed ? 'error' : 'success');
+            if (!failed) {
+                this._refreshAfterLoaderCompile();
+                if (persist) this.loadPersisted(kind);
+            }
         },
 
         /** Kick the data sources that show the new processor: the
@@ -4156,6 +4187,74 @@ document.addEventListener('alpine:init', () => {
             if (this.overviewData && this.overviewData.processors) {
                 try { await this.fetchOverview(); } catch (_) {}
             }
+        },
+
+        /** Fetches the persisted-configs list for a kind. The command
+         *  returns a single JSON-array string in output[0]; we parse
+         *  defensively so a malformed payload doesn't blank the UI. */
+        async loadPersisted(kind) {
+            const res = await this.invokeRaw(`${kind}Loader.listPersisted`, []);
+            // Persistence-disabled servers return [] via the err
+            // path; treat that as "no entries", not a hard error.
+            if (res.err && res.err.length && (!res.output || !res.output.length)) {
+                this._setPersistedList(kind, []);
+                return;
+            }
+            const raw = (res.output && res.output[0]) || '[]';
+            let parsed = [];
+            try { parsed = JSON.parse(raw); } catch (_) { parsed = []; }
+            this._setPersistedList(kind, parsed);
+        },
+
+        _setPersistedList(kind, entries) {
+            if (kind === 'yaml')  this.persistedYaml  = entries;
+            else                  this.persistedSpring = entries;
+        },
+
+        async togglePersistedEnabled(kind, group, file, nextEnabled) {
+            const res = await this.invokeRaw(`${kind}Loader.setPersistedEnabled`,
+                [group, file, String(!!nextEnabled)]);
+            const failed = res.err && res.err.length;
+            this.toast(failed
+                    ? 'Toggle failed: ' + res.err.join(' ')
+                    : `${file} ${nextEnabled ? 'enabled' : 'disabled'}`,
+                failed ? 'error' : 'success');
+            this.loadPersisted(kind);
+        },
+
+        async removePersisted(kind, group, file) {
+            if (!confirm(`Remove persisted config "${group}/${file}"? It will not be replayed on next restart.`)) return;
+            const res = await this.invokeRaw(`${kind}Loader.removePersisted`, [group, file]);
+            const failed = res.err && res.err.length;
+            this.toast(failed
+                    ? 'Remove failed: ' + res.err.join(' ')
+                    : `${file} removed`,
+                failed ? 'error' : 'success');
+            this.loadPersisted(kind);
+        },
+
+        async viewPersisted(kind, group, file) {
+            this.persistViewerOpen = true;
+            this.persistViewerKind = kind;
+            this.persistViewerGroup = group;
+            this.persistViewerFile = file;
+            this.persistViewerContent = '';
+            this.persistViewerErr = '';
+            const res = await this.invokeRaw(`${kind}Loader.getPersistedSource`, [group, file]);
+            if (res.err && res.err.length) {
+                this.persistViewerErr = res.err.join('\n');
+            } else {
+                this.persistViewerContent = (res.output && res.output.join('\n')) || '';
+            }
+        },
+
+        closePersistViewer() {
+            this.persistViewerOpen = false;
+            this.persistViewerKind = null;
+            this.persistViewerGroup = '';
+            this.persistViewerFile = '';
+            this.persistViewerContent = '';
+            this.persistViewerErr = '';
         },
 
         // ── file picker (loaderBaseDir-rooted) ──
