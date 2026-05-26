@@ -53,6 +53,10 @@ public class SpringEventHandlerLoader implements Lifecycle {
     /** Java package for runtime-generated processor classes. */
     @Getter @Setter private String packageName = "com.telamin.mongoose.runtime.loaded.spring";
 
+    /** Filesystem directory backing operator-marked persistent configs.
+     *  Opt-in by design — see EventHandlerLoader#persistentConfigDir. */
+    @Getter @Setter private String persistentConfigDir;
+
     public void init() {
     }
 
@@ -65,6 +69,14 @@ public class SpringEventHandlerLoader implements Lifecycle {
         adminCommandRegistry.registerCommand("springLoader.reloadInterpretProcessor", this::compileReloadProcessor);
         adminCommandRegistry.registerCommand("springLoader.reloadCompileProcessor", this::interpretReloadProcessor);
         adminCommandRegistry.registerCommand("springLoader.listLoaded", this::listProcessors);
+        // Persistence surface — mirrors svc-loader-yaml. Guards
+        // against persistentConfigDir being unset.
+        adminCommandRegistry.registerCommand("springLoader.persistAndCompile",   this::persistAndCompileCmd);
+        adminCommandRegistry.registerCommand("springLoader.persistAndInterpret", this::persistAndInterpretCmd);
+        adminCommandRegistry.registerCommand("springLoader.listPersisted",       this::listPersistedCmd);
+        adminCommandRegistry.registerCommand("springLoader.setPersistedEnabled", this::setPersistedEnabledCmd);
+        adminCommandRegistry.registerCommand("springLoader.removePersisted",     this::removePersistedCmd);
+        adminCommandRegistry.registerCommand("springLoader.getPersistedSource",  this::getPersistedSourceCmd);
     }
 
     @ServiceRegistered
@@ -87,6 +99,41 @@ public class SpringEventHandlerLoader implements Lifecycle {
         addEventAuditor = true;
         traceLogLevel = null;
         initialLogLevel = EventLogControlEvent.LogLevel.INFO;
+
+        replayPersisted();
+    }
+
+    private void replayPersisted() {
+        java.nio.file.Path base;
+        try { base = PersistedConfigStore.resolveBaseDir(persistentConfigDir); }
+        catch (java.io.IOException io) { log.error("persistentConfigDir unreachable: {}", persistentConfigDir, io); return; }
+        if (base == null) return;
+
+        java.util.List<PersistedConfigStore.Entry> entries;
+        try { entries = PersistedConfigStore.list(base); }
+        catch (java.io.IOException io) { log.error("listing persisted configs failed", io); return; }
+
+        for (PersistedConfigStore.Entry e : entries) {
+            if (!e.enabled) {
+                log.info("skipping disabled persistent config {}/{}", e.group, e.file);
+                continue;
+            }
+            java.nio.file.Path src = PersistedConfigStore.resolveAbsoluteSourcePath(base, e.group, e.file);
+            log.info("replaying persisted spring: {}/{}", e.group, e.file);
+            StringBuilder errSink = new StringBuilder();
+            try {
+                loadProcessor(e.compile,
+                        List.of("loadProcessor", src.toString(), e.group),
+                        log::info,
+                        msg -> { errSink.append(msg).append('\n'); log.error(msg); });
+                String captured = errSink.length() == 0 ? null : errSink.toString().trim();
+                PersistedConfigStore.updateLastError(base, e.group, e.file, captured);
+            } catch (Exception ex) {
+                log.error("replay failed for {}/{}", e.group, e.file, ex);
+                try { PersistedConfigStore.updateLastError(base, e.group, e.file, ex.getMessage()); }
+                catch (java.io.IOException ignored) {}
+            }
+        }
     }
 
     public void tearDown() {
@@ -229,6 +276,101 @@ public class SpringEventHandlerLoader implements Lifecycle {
             sanitised = "P_" + sanitised;
         }
         return sanitised;
+    }
+
+    // ---- persistence admin commands ----
+
+    private java.nio.file.Path persistentBaseOrError(Consumer<String> err) {
+        try {
+            java.nio.file.Path base = PersistedConfigStore.resolveBaseDir(persistentConfigDir);
+            if (base == null) {
+                err.accept("persistentConfigDir not set on springEventHandlerLoader — persistence disabled");
+            }
+            return base;
+        } catch (java.io.IOException io) {
+            err.accept("persistentConfigDir unusable: " + io.getMessage());
+            return null;
+        }
+    }
+
+    private void persistAndCompileCmd(List<String> args, Consumer<String> out, Consumer<String> err) {
+        persistAndLoad(true, args, out, err);
+    }
+
+    private void persistAndInterpretCmd(List<String> args, Consumer<String> out, Consumer<String> err) {
+        persistAndLoad(false, args, out, err);
+    }
+
+    /** Compile/interpret first via the existing loader, persist only
+     *  on success — same shape as svc-loader-yaml. */
+    private void persistAndLoad(boolean compileProcessor, List<String> args, Consumer<String> out, Consumer<String> err) {
+        if (args.size() < 2) { err.accept("Missing arguments — usage: persistAndCompile <springPath> [group]"); return; }
+        java.nio.file.Path base = persistentBaseOrError(err);
+        if (base == null) return;
+
+        String springPath = args.get(1);
+        String group = args.size() > 2 ? args.get(2) : DEFAULT_GROUP;
+        boolean[] hadError = { false };
+        loadProcessor(compileProcessor,
+                List.of("loadProcessor", springPath, group),
+                out,
+                msg -> { hadError[0] = true; err.accept(msg); });
+        if (hadError[0]) {
+            out.accept("compile failed — not persisting");
+            return;
+        }
+        try {
+            PersistedConfigStore.Entry persisted =
+                    PersistedConfigStore.persist(base, group, java.nio.file.Path.of(springPath), compileProcessor);
+            out.accept("persisted as " + persisted.group + "/" + persisted.file);
+        } catch (Exception io) {
+            err.accept("persist failed: " + io.getMessage());
+        }
+    }
+
+    private void listPersistedCmd(List<String> args, Consumer<String> out, Consumer<String> err) {
+        java.nio.file.Path base = persistentBaseOrError(err);
+        if (base == null) { out.accept("[]"); return; }
+        try {
+            out.accept(PersistedConfigStore.toJsonArray(PersistedConfigStore.list(base)));
+        } catch (java.io.IOException io) {
+            err.accept("list failed: " + io.getMessage());
+        }
+    }
+
+    private void setPersistedEnabledCmd(List<String> args, Consumer<String> out, Consumer<String> err) {
+        if (args.size() < 4) { err.accept("Missing arguments — usage: setPersistedEnabled <group> <file> <true|false>"); return; }
+        java.nio.file.Path base = persistentBaseOrError(err);
+        if (base == null) return;
+        try {
+            PersistedConfigStore.setEnabled(base, args.get(1), args.get(2), Boolean.parseBoolean(args.get(3)));
+            out.accept("ok");
+        } catch (Exception e) {
+            err.accept("setEnabled failed: " + e.getMessage());
+        }
+    }
+
+    private void removePersistedCmd(List<String> args, Consumer<String> out, Consumer<String> err) {
+        if (args.size() < 3) { err.accept("Missing arguments — usage: removePersisted <group> <file>"); return; }
+        java.nio.file.Path base = persistentBaseOrError(err);
+        if (base == null) return;
+        try {
+            PersistedConfigStore.remove(base, args.get(1), args.get(2));
+            out.accept("ok");
+        } catch (Exception e) {
+            err.accept("remove failed: " + e.getMessage());
+        }
+    }
+
+    private void getPersistedSourceCmd(List<String> args, Consumer<String> out, Consumer<String> err) {
+        if (args.size() < 3) { err.accept("Missing arguments — usage: getPersistedSource <group> <file>"); return; }
+        java.nio.file.Path base = persistentBaseOrError(err);
+        if (base == null) return;
+        try {
+            out.accept(PersistedConfigStore.readSource(base, args.get(1), args.get(2)));
+        } catch (Exception e) {
+            err.accept("read failed: " + e.getMessage());
+        }
     }
 
     @Data

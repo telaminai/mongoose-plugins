@@ -326,10 +326,27 @@ document.addEventListener('alpine:init', () => {
         pickerBaseDir: '',
         yamlPath: '',
         yamlGroup: '',
+        yamlPersist: false,
         springPath: '',
         springGroup: '',
+        springPersist: false,
         loaderOutput: [],
         loaderErr: [],
+
+        // ── persisted-configs panel ──
+        // Per-kind cached list of entries from listPersisted. Loaded
+        // lazily on first Loader-tab visit; kept fresh on every
+        // persist / toggle / remove action.
+        persistedYaml: [],
+        persistedSpring: [],
+        // Inline viewer (modal-ish overlay) for source preview.
+        persistViewerOpen: false,
+        persistViewerKind: null,   // 'yaml' | 'spring'
+        persistViewerGroup: '',
+        persistViewerFile: '',
+        persistViewerContent: '',
+        persistViewerContentHtml: '',
+        persistViewerErr: '',
 
         // ── file picker ──
         pickerOpen: false,
@@ -431,6 +448,15 @@ document.addEventListener('alpine:init', () => {
                 // Lazy-load versions on first settings visit; subsequent
                 // visits show the cached set until Refresh is clicked.
                 this.loadVersions();
+            } else if (view === 'loader') {
+                // Auto-load persisted-config lists when the Loader view
+                // opens. Cheap (one admin command per kind) and saves
+                // the operator a Refresh click on first visit. We
+                // refetch every visit because another admin client (or
+                // a CLI) could have edited the persistent dir
+                // out-of-band.
+                if (this.hasYamlLoader())   this.loadPersisted('yaml');
+                if (this.hasSpringLoader()) this.loadPersisted('spring');
             }
         },
 
@@ -4116,31 +4142,37 @@ document.addEventListener('alpine:init', () => {
 
         // ── loader panel ──
 
-        async yamlCompile() {
-            if (!this.yamlPath) return;
+        async yamlCompile()   { return this._loaderCompile('yaml');   },
+        async springCompile() { return this._loaderCompile('spring'); },
+
+        /** Single compile pipeline. Routes to compileProcessor or
+         *  persistAndCompile based on the kind's Persist checkbox.
+         *  When persistence succeeds, the list refresh + introspection
+         *  refresh both fire so the UI catches up. */
+        async _loaderCompile(kind) {
+            const path    = kind === 'yaml' ? this.yamlPath    : this.springPath;
+            const group   = kind === 'yaml' ? this.yamlGroup   : this.springGroup;
+            const persist = kind === 'yaml' ? this.yamlPersist : this.springPersist;
+            if (!path) return;
             this.loaderBusy = true;
-            const args = this.yamlGroup ? [this.yamlPath, this.yamlGroup] : [this.yamlPath];
-            const res = await this.invokeRaw('yamlLoader.compileProcessor', args);
+            const args = group ? [path, group] : [path];
+            const cmd = persist
+                ? `${kind}Loader.persistAndCompile`
+                : `${kind}Loader.compileProcessor`;
+            const res = await this.invokeRaw(cmd, args);
             this.loaderOutput = res.output || [];
             this.loaderErr    = res.err    || [];
             this.loaderBusy = false;
             const failed = res.err && res.err.length;
-            this.toast(failed ? 'YAML compile failed' : 'YAML processor compiled',
-                       failed ? 'error' : 'success');
-            if (!failed) this._refreshAfterLoaderCompile();
-        },
-        async springCompile() {
-            if (!this.springPath) return;
-            this.loaderBusy = true;
-            const args = this.springGroup ? [this.springPath, this.springGroup] : [this.springPath];
-            const res = await this.invokeRaw('springLoader.compileProcessor', args);
-            this.loaderOutput = res.output || [];
-            this.loaderErr    = res.err    || [];
-            this.loaderBusy = false;
-            const failed = res.err && res.err.length;
-            this.toast(failed ? 'Spring compile failed' : 'Spring processor compiled',
-                       failed ? 'error' : 'success');
-            if (!failed) this._refreshAfterLoaderCompile();
+            const label = kind === 'yaml' ? 'YAML' : 'Spring';
+            this.toast(failed
+                    ? `${label} compile failed`
+                    : (persist ? `${label} processor persisted + compiled` : `${label} processor compiled`),
+                failed ? 'error' : 'success');
+            if (!failed) {
+                this._refreshAfterLoaderCompile();
+                if (persist) this.loadPersisted(kind);
+            }
         },
 
         /** Kick the data sources that show the new processor: the
@@ -4156,6 +4188,215 @@ document.addEventListener('alpine:init', () => {
             if (this.overviewData && this.overviewData.processors) {
                 try { await this.fetchOverview(); } catch (_) {}
             }
+        },
+
+        /** Fetches the persisted-configs list for a kind. The command
+         *  returns a single JSON-array string in output[0]; we parse
+         *  defensively so a malformed payload doesn't blank the UI. */
+        async loadPersisted(kind) {
+            const res = await this.invokeRaw(`${kind}Loader.listPersisted`, []);
+            // Persistence-disabled servers return [] via the err
+            // path; treat that as "no entries", not a hard error.
+            if (res.err && res.err.length && (!res.output || !res.output.length)) {
+                this._setPersistedList(kind, []);
+                return;
+            }
+            const raw = (res.output && res.output[0]) || '[]';
+            let parsed = [];
+            try { parsed = JSON.parse(raw); } catch (_) { parsed = []; }
+            this._setPersistedList(kind, parsed);
+        },
+
+        _setPersistedList(kind, entries) {
+            if (kind === 'yaml')  this.persistedYaml  = entries;
+            else                  this.persistedSpring = entries;
+        },
+
+        async togglePersistedEnabled(kind, group, file, nextEnabled) {
+            const res = await this.invokeRaw(`${kind}Loader.setPersistedEnabled`,
+                [group, file, String(!!nextEnabled)]);
+            const failed = res.err && res.err.length;
+            this.toast(failed
+                    ? 'Toggle failed: ' + res.err.join(' ')
+                    : `${file} ${nextEnabled ? 'enabled' : 'disabled'}`,
+                failed ? 'error' : 'success');
+            this.loadPersisted(kind);
+        },
+
+        async removePersisted(kind, group, file) {
+            if (!confirm(`Remove persisted config "${group}/${file}"? It will not be replayed on next restart.`)) return;
+            const res = await this.invokeRaw(`${kind}Loader.removePersisted`, [group, file]);
+            const failed = res.err && res.err.length;
+            this.toast(failed
+                    ? 'Remove failed: ' + res.err.join(' ')
+                    : `${file} removed`,
+                failed ? 'error' : 'success');
+            this.loadPersisted(kind);
+        },
+
+        async viewPersisted(kind, group, file) {
+            this.persistViewerOpen = true;
+            this.persistViewerKind = kind;
+            this.persistViewerGroup = group;
+            this.persistViewerFile = file;
+            this.persistViewerContent = '';
+            this.persistViewerContentHtml = '';
+            this.persistViewerErr = '';
+            const res = await this.invokeRaw(`${kind}Loader.getPersistedSource`, [group, file]);
+            if (res.err && res.err.length) {
+                this.persistViewerErr = res.err.join('\n');
+            } else {
+                this.persistViewerContent = (res.output && res.output.join('\n')) || '';
+                // Pick highlighter by file extension first, kind as
+                // fallback. .yml + .yaml → yaml; .xml → xml; anything
+                // else falls back to plain-text (just HTML-escaped).
+                const lower = (file || '').toLowerCase();
+                const lang = lower.endsWith('.xml') ? 'xml'
+                        : (lower.endsWith('.yml') || lower.endsWith('.yaml')) ? 'yaml'
+                        : (kind === 'spring' ? 'xml' : 'yaml');
+                this.persistViewerContentHtml = (lang === 'xml')
+                        ? this._highlightXml(this.persistViewerContent)
+                        : this._highlightYaml(this.persistViewerContent);
+            }
+        },
+
+        closePersistViewer() {
+            this.persistViewerOpen = false;
+            this.persistViewerKind = null;
+            this.persistViewerGroup = '';
+            this.persistViewerFile = '';
+            this.persistViewerContent = '';
+            this.persistViewerContentHtml = '';
+            this.persistViewerErr = '';
+        },
+
+        /** Lightweight YAML highlighter — hand-rolled in the same
+         *  shape as _highlightJava (zero new deps). Token order
+         *  matters: comments first (eat the whole line), then
+         *  strings, then per-line key/scalar split. Uses the same
+         *  j-* CSS classes as the Java highlighter for visual
+         *  consistency across views. */
+        _highlightYaml(source) {
+            if (!source) return '';
+            const esc = (s) => String(s)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const lines = source.split('\n');
+            const out = [];
+            for (const raw of lines) {
+                // Whole-line comment
+                if (/^\s*#/.test(raw)) {
+                    out.push('<span class="j-com">' + esc(raw) + '</span>');
+                    continue;
+                }
+                // Pull inline trailing-comment off first so we don't
+                // tokenise inside it. Naive about `#` in strings —
+                // acceptable for config files in practice.
+                let body = raw, trailing = '';
+                const hashIdx = (() => {
+                    let inSingle = false, inDouble = false;
+                    for (let i = 0; i < raw.length; i++) {
+                        const c = raw[i];
+                        if (c === '\\') { i++; continue; }
+                        if (!inSingle && c === '"') inDouble = !inDouble;
+                        else if (!inDouble && c === "'") inSingle = !inSingle;
+                        else if (!inSingle && !inDouble && c === '#' && (i === 0 || /\s/.test(raw[i - 1]))) return i;
+                    }
+                    return -1;
+                })();
+                if (hashIdx >= 0) {
+                    body = raw.slice(0, hashIdx);
+                    trailing = raw.slice(hashIdx);
+                }
+
+                // Indent + list-dash prefix
+                const indentMatch = body.match(/^(\s*-?\s*)/);
+                const indent = indentMatch ? indentMatch[1] : '';
+                let rest = body.slice(indent.length);
+
+                // key: value split — only at the first `:` not inside
+                // quotes. Without a colon, the whole line is a scalar.
+                let key = '', sep = '', value = rest;
+                const colon = (() => {
+                    let inSingle = false, inDouble = false;
+                    for (let i = 0; i < rest.length; i++) {
+                        const c = rest[i];
+                        if (c === '\\') { i++; continue; }
+                        if (!inSingle && c === '"') inDouble = !inDouble;
+                        else if (!inDouble && c === "'") inSingle = !inSingle;
+                        else if (!inSingle && !inDouble && c === ':' && (i === rest.length - 1 || /\s/.test(rest[i + 1]))) return i;
+                    }
+                    return -1;
+                })();
+                if (colon >= 0) {
+                    key = rest.slice(0, colon);
+                    sep = ':';
+                    value = rest.slice(colon + 1);
+                }
+
+                let html = esc(indent);
+                if (key) {
+                    html += '<span class="j-kw">' + esc(key) + '</span>' + esc(sep);
+                }
+                html += this._highlightYamlScalar(value);
+                if (trailing) html += '<span class="j-com">' + esc(trailing) + '</span>';
+                out.push(html);
+            }
+            return out.join('\n');
+        },
+
+        /** Tokenises the right-hand-side of a YAML mapping (or a
+         *  standalone scalar line): strings, tags (!!fqn / !tag),
+         *  anchors (&id), aliases (*id), bool/null literals,
+         *  numbers. */
+        _highlightYamlScalar(value) {
+            if (!value) return '';
+            const esc = (s) => String(s)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            // Single + double quoted strings — placeholdered first so
+            // later passes don't tokenise inside them.
+            const strings = [];
+            let h = esc(value);
+            h = h.replace(/(&quot;(?:[^&\\]|\\.)*?&quot;|'(?:[^']|'')*')/g, (m) => {
+                strings.push(m);
+                return 's' + (strings.length - 1) + '';
+            });
+            // Tags + anchors + aliases
+            h = h.replace(/(!![\w.$]+|![\w.-]+)/g, '<span class="j-type">$1</span>');
+            h = h.replace(/(?:^|\s)(&[\w-]+)/g, (m, a) => m.replace(a, '<span class="j-ann">' + a + '</span>'));
+            h = h.replace(/(?:^|\s)(\*[\w-]+)/g, (m, a) => m.replace(a, '<span class="j-ann">' + a + '</span>'));
+            // Booleans + null
+            h = h.replace(/\b(true|false|null|yes|no|on|off)\b/g, '<span class="j-kw">$1</span>');
+            // Numbers (including negative + decimal + scientific)
+            h = h.replace(/(?:^|[\s:,\[\{])(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\b/g,
+                    (m, n) => m.replace(n, '<span class="j-num">' + n + '</span>'));
+            // Restore strings
+            h = h.replace(/s(\d+)/g,
+                    (_, i) => '<span class="j-str">' + strings[+i] + '</span>');
+            return h;
+        },
+
+        /** Lightweight XML highlighter — comments, tag brackets,
+         *  element + attribute names, attribute values. Sufficient
+         *  for Spring XML; not full XML 1.0 (no PIs, no DTD, no
+         *  CDATA — we don't need them for loader configs). */
+        _highlightXml(source) {
+            if (!source) return '';
+            const esc = (s) => String(s)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            let h = esc(source);
+            // Comments
+            h = h.replace(/(&lt;!--[\s\S]*?--&gt;)/g, '<span class="j-com">$1</span>');
+            // Tags — split open `<el ...>` into bracket + name + attrs
+            h = h.replace(/(&lt;\/?)([A-Za-z_][\w:.-]*)([^&]*?)(\/?&gt;)/g,
+                    (_, lt, name, attrs, gt) => {
+                        const attrsHtml = attrs.replace(/([A-Za-z_][\w:.-]*)=(&quot;[^&]*?&quot;|'[^']*?')/g,
+                                (_, n, v) => '<span class="j-type">' + n + '</span>=<span class="j-str">' + v + '</span>');
+                        return '<span class="j-kw">' + lt + '</span>'
+                             + '<span class="j-type">' + name + '</span>'
+                             + attrsHtml
+                             + '<span class="j-kw">' + gt + '</span>';
+                    });
+            return h;
         },
 
         // ── file picker (loaderBaseDir-rooted) ──

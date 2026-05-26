@@ -64,6 +64,14 @@ public class EventHandlerLoader implements Lifecycle {
     /** Java package for runtime-generated processor classes. */
     @Getter @Setter private String packageName = "com.telamin.mongoose.runtime.loaded.yaml";
 
+    /** Filesystem directory backing operator-marked persistent configs.
+     *  When null/blank, the persist commands return an error (opt-in
+     *  by design — silent persistence of admin-uploaded code would be
+     *  a quiet privilege escalation). When set, configs marked
+     *  persistent land at {@code <persistentConfigDir>/<group>/<file>}
+     *  and are replayed on next boot. */
+    @Getter @Setter private String persistentConfigDir;
+
     @ServiceRegistered
     public void adminRegistry(AdminCommandRegistry adminCommandRegistry, String name) {
         log.info("Admin registry: '{}' name: '{}'", adminCommandRegistry, name);
@@ -71,6 +79,15 @@ public class EventHandlerLoader implements Lifecycle {
         adminCommandRegistry.registerCommand("javaLoader.interpretProcessor", this::interpretProcessor);
         adminCommandRegistry.registerCommand("yamlLoader.compileProcessor", this::compileProcessorYaml);
         adminCommandRegistry.registerCommand("yamlLoader.interpretProcessor", this::interpretProcessorYaml);
+        // Persistence surface — all guard against persistentConfigDir
+        // being unset, returning an error so the admin UI can show
+        // "persistence not enabled on this server".
+        adminCommandRegistry.registerCommand("yamlLoader.persistAndCompile",   this::persistAndCompileCmd);
+        adminCommandRegistry.registerCommand("yamlLoader.persistAndInterpret", this::persistAndInterpretCmd);
+        adminCommandRegistry.registerCommand("yamlLoader.listPersisted",       this::listPersistedCmd);
+        adminCommandRegistry.registerCommand("yamlLoader.setPersistedEnabled", this::setPersistedEnabledCmd);
+        adminCommandRegistry.registerCommand("yamlLoader.removePersisted",     this::removePersistedCmd);
+        adminCommandRegistry.registerCommand("yamlLoader.getPersistedSource",  this::getPersistedSourceCmd);
     }
 
     @ServiceRegistered
@@ -98,6 +115,45 @@ public class EventHandlerLoader implements Lifecycle {
         initialLogLevel = EventLogControlEvent.LogLevel.INFO;
         traceLogLevel = null;
         addEventAuditor = false;
+
+        replayPersisted();
+    }
+
+    /** Iterates the persistent dir on boot, replaying every enabled
+     *  entry. Per-entry try/catch ensures one bad config doesn't
+     *  cascade — error captured in the entry's {@code lastError} so
+     *  the admin UI can surface it. */
+    private void replayPersisted() {
+        Path base;
+        try { base = PersistedConfigStore.resolveBaseDir(persistentConfigDir); }
+        catch (IOException io) { log.error("persistentConfigDir unreachable: {}", persistentConfigDir, io); return; }
+        if (base == null) return;
+
+        List<PersistedConfigStore.Entry> entries;
+        try { entries = PersistedConfigStore.list(base); }
+        catch (IOException io) { log.error("listing persisted configs failed", io); return; }
+
+        for (PersistedConfigStore.Entry e : entries) {
+            if (!e.enabled) {
+                log.info("skipping disabled persistent config {}/{}", e.group, e.file);
+                continue;
+            }
+            Path src = PersistedConfigStore.resolveAbsoluteSourcePath(base, e.group, e.file);
+            log.info("replaying persisted yaml: {}/{}", e.group, e.file);
+            StringBuilder errSink = new StringBuilder();
+            try {
+                loadProcessorYaml(e.compile,
+                        List.of("loadProcessor", src.toString(), e.group),
+                        log::info,
+                        msg -> { errSink.append(msg).append('\n'); log.error(msg); });
+                String captured = errSink.length() == 0 ? null : errSink.toString().trim();
+                PersistedConfigStore.updateLastError(base, e.group, e.file, captured);
+            } catch (Exception ex) {
+                log.error("replay failed for {}/{}", e.group, e.file, ex);
+                try { PersistedConfigStore.updateLastError(base, e.group, e.file, ex.getMessage()); }
+                catch (IOException ignored) {}
+            }
+        }
     }
 
     @Override
@@ -274,6 +330,103 @@ public class EventHandlerLoader implements Lifecycle {
             sanitised = "P_" + sanitised;
         }
         return sanitised;
+    }
+
+    // ---- persistence admin commands ----
+
+    private Path persistentBaseOrError(Consumer<String> err) {
+        try {
+            Path base = PersistedConfigStore.resolveBaseDir(persistentConfigDir);
+            if (base == null) {
+                err.accept("persistentConfigDir not set on yamlEventHandlerLoader — persistence disabled");
+            }
+            return base;
+        } catch (IOException io) {
+            err.accept("persistentConfigDir unusable: " + io.getMessage());
+            return null;
+        }
+    }
+
+    private void persistAndCompileCmd(List<String> args, Consumer<String> out, Consumer<String> err) {
+        persistAndLoad(true, args, out, err);
+    }
+
+    private void persistAndInterpretCmd(List<String> args, Consumer<String> out, Consumer<String> err) {
+        persistAndLoad(false, args, out, err);
+    }
+
+    /** Two-phase: compile/interpret first via the existing loader,
+     *  then — only on success — copy the source into the persistent
+     *  dir. We never persist a config that wouldn't load, so the
+     *  next-boot replay can trust every entry on disk. */
+    private void persistAndLoad(boolean compileProcessor, List<String> args, Consumer<String> out, Consumer<String> err) {
+        if (args.size() < 2) { err.accept("Missing arguments — usage: persistAndCompile <yamlPath> [group]"); return; }
+        Path base = persistentBaseOrError(err);
+        if (base == null) return;
+
+        String yamlPath = args.get(1);
+        String group = args.size() > 2 ? args.get(2) : DEFAULT_GROUP_YAML;
+        boolean[] hadError = { false };
+        loadProcessorYaml(compileProcessor,
+                List.of("loadProcessor", yamlPath, group),
+                out,
+                msg -> { hadError[0] = true; err.accept(msg); });
+        if (hadError[0]) {
+            out.accept("compile failed — not persisting");
+            return;
+        }
+        try {
+            PersistedConfigStore.Entry persisted =
+                    PersistedConfigStore.persist(base, group, Path.of(yamlPath), compileProcessor);
+            out.accept("persisted as " + persisted.group + "/" + persisted.file);
+        } catch (Exception io) {
+            err.accept("persist failed: " + io.getMessage());
+        }
+    }
+
+    private void listPersistedCmd(List<String> args, Consumer<String> out, Consumer<String> err) {
+        Path base = persistentBaseOrError(err);
+        if (base == null) { out.accept("[]"); return; }
+        try {
+            out.accept(PersistedConfigStore.toJsonArray(PersistedConfigStore.list(base)));
+        } catch (IOException io) {
+            err.accept("list failed: " + io.getMessage());
+        }
+    }
+
+    private void setPersistedEnabledCmd(List<String> args, Consumer<String> out, Consumer<String> err) {
+        if (args.size() < 4) { err.accept("Missing arguments — usage: setPersistedEnabled <group> <file> <true|false>"); return; }
+        Path base = persistentBaseOrError(err);
+        if (base == null) return;
+        try {
+            PersistedConfigStore.setEnabled(base, args.get(1), args.get(2), Boolean.parseBoolean(args.get(3)));
+            out.accept("ok");
+        } catch (Exception e) {
+            err.accept("setEnabled failed: " + e.getMessage());
+        }
+    }
+
+    private void removePersistedCmd(List<String> args, Consumer<String> out, Consumer<String> err) {
+        if (args.size() < 3) { err.accept("Missing arguments — usage: removePersisted <group> <file>"); return; }
+        Path base = persistentBaseOrError(err);
+        if (base == null) return;
+        try {
+            PersistedConfigStore.remove(base, args.get(1), args.get(2));
+            out.accept("ok");
+        } catch (Exception e) {
+            err.accept("remove failed: " + e.getMessage());
+        }
+    }
+
+    private void getPersistedSourceCmd(List<String> args, Consumer<String> out, Consumer<String> err) {
+        if (args.size() < 3) { err.accept("Missing arguments — usage: getPersistedSource <group> <file>"); return; }
+        Path base = persistentBaseOrError(err);
+        if (base == null) return;
+        try {
+            out.accept(PersistedConfigStore.readSource(base, args.get(1), args.get(2)));
+        } catch (Exception e) {
+            err.accept("read failed: " + e.getMessage());
+        }
     }
 
     @Data
