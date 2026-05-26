@@ -168,8 +168,18 @@ public class EventHandlerLoader implements Lifecycle {
 
         out.accept("loading yaml file:" + javaSourceFiler);
 
-        try {
-            Yaml yaml = new Yaml();
+        try {// Default `new Yaml()` uses the SAFE constructor, which
+            // rejects arbitrary `!!FQN` global tags as a security
+            // default — node classes the user references via
+            // `!!com.example.MyNode` in the graph YAML would fail with
+            // "Global tag is not allowed". Use the explicit
+            // (non-safe) Constructor rooted at EventProcessorYamlCfg
+            // so SnakeYAML resolves FQN tags by instantiating the
+            // named class — that's the whole point of this loader.
+            org.yaml.snakeyaml.LoaderOptions opts = new org.yaml.snakeyaml.LoaderOptions();
+            org.yaml.snakeyaml.constructor.Constructor ctor =
+                    new org.yaml.snakeyaml.constructor.Constructor(EventProcessorYamlCfg.class, opts);
+            Yaml yaml = new Yaml(ctor);
             EventProcessorYamlCfg yamlCfg = yaml.loadAs(Files.readString(javaSourceFilePath), EventProcessorYamlCfg.class);
 
             SerializableConsumer<EventProcessorConfig> buildGraph = cfg -> {
