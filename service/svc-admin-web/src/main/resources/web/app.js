@@ -39,6 +39,18 @@ document.addEventListener('alpine:init', () => {
             audit: { enabled: false, recordingProcessors: [], fileCount: 0 }
         },
 
+        /** Per-card collapsed state on the Overview. Persisted to
+         *  localStorage so the operator's preference survives reload.
+         *  Default: every card expanded so first-time users see
+         *  everything without hunting for a caret. */
+        overviewCollapsed: (() => {
+            try {
+                const raw = localStorage.getItem('mongoose-admin-overview-collapsed');
+                if (raw) return JSON.parse(raw);
+            } catch (_) { /* fall through to default */ }
+            return { processors: false, feeds: false, sinks: false, services: false, audit: false };
+        })(),
+
         // Left-nav category expand/collapse state. Persisted to
         // localStorage so the user's collapse pattern survives reload.
         // Default: every category expanded so first-time users see
@@ -64,6 +76,14 @@ document.addEventListener('alpine:init', () => {
         configContent: '',
         configPath: '',
         configError: '',
+        // Config view source switch: when null, show the server.yml
+        // panel; when {kind, group, file} show that persisted entry
+        // rendered with the same look. Toggled by nav clicks +
+        // openPersistedInConfig.
+        configActiveSource: null,
+        configPersistedContent: '',
+        configPersistedContentHtml: '',
+        configPersistedError: '',
         theme: document.documentElement.getAttribute('data-theme') || 'light',
         now: Date.now(),
         toasts: [],
@@ -602,6 +622,53 @@ document.addEventListener('alpine:init', () => {
         overviewOpenProcessor(p) {
             this.processorGraphTarget = { group: p.group, name: p.name };
             this.go('processor-graph');
+        },
+
+        /** Toggle collapsed state for one Overview card. Persists so
+         *  the user's preference survives reload. */
+        toggleOverviewCard(key) {
+            this.overviewCollapsed[key] = !this.overviewCollapsed[key];
+            try {
+                localStorage.setItem('mongoose-admin-overview-collapsed',
+                        JSON.stringify(this.overviewCollapsed));
+            } catch (_) { /* localStorage disabled — session-only */ }
+        },
+
+        /** One-line summary shown in a collapsed Overview card's header.
+         *  Each kind reports its own headline metric — operator can see
+         *  what's there without expanding. */
+        overviewSummary(key) {
+            const d = this.overviewData;
+            switch (key) {
+                case 'processors': {
+                    const total = d.processors.length;
+                    const auditing = d.processors.filter(p => p.auditing).length;
+                    return total === 0 ? 'none registered'
+                            : `${total} registered${auditing ? ` · ${auditing} recording` : ''}`;
+                }
+                case 'feeds':    return d.feeds.length === 0    ? 'none registered' : `${d.feeds.length} registered`;
+                case 'sinks':    return d.sinks.length === 0    ? 'none registered' : `${d.sinks.length} registered`;
+                case 'services': return d.services.length === 0 ? 'none registered' : `${d.services.length} operator-installed`;
+                case 'audit':    return (d.audit.enabled ? 'enabled' : 'disabled')
+                            + ` · ${d.audit.recordingProcessors.length} recording`
+                            + ` · ${d.audit.fileCount} file(s)`;
+                default: return '';
+            }
+        },
+
+        /** Copies the card's underlying data as pretty-printed JSON to
+         *  the clipboard. Each section copies just its slice so the
+         *  operator can paste straight into a ticket / log search. */
+        async copyOverviewSection(key) {
+            const d = this.overviewData;
+            const slice = key === 'audit' ? d.audit : d[key];
+            const json = JSON.stringify(slice, null, 2);
+            try {
+                await navigator.clipboard.writeText(json);
+                this.toast(`Copied ${key} JSON to clipboard`, 'success');
+            } catch (e) {
+                this.toast('Copy failed: ' + e.message, 'error');
+            }
         },
 
         toggleTheme() {
@@ -4255,6 +4322,41 @@ document.addEventListener('alpine:init', () => {
             else if (kind === 'spring') this.persistedSpring = entries;
             else if (kind === 'feed')   this.persistedFeed   = entries;
             else if (kind === 'sink')   this.persistedSink   = entries;
+        },
+
+        /** Loads a persisted config into the Config main view (same
+         *  shape as the Server YAML panel) instead of the floating
+         *  modal — keeps the "open a config = navigate to a page"
+         *  contract consistent across server.yml and persisted
+         *  entries. */
+        async openPersistedInConfig(kind, group, file) {
+            this.configActiveSource = { kind, group, file };
+            this.configPersistedContent = '';
+            this.configPersistedContentHtml = '';
+            this.configPersistedError = '';
+            this.activeView = 'config';
+            const res = await this.invokeRaw(`${kind}Loader.getPersistedSource`, [group, file]);
+            if (res.err && res.err.length) {
+                this.configPersistedError = res.err.join('\n');
+                return;
+            }
+            const text = (res.output && res.output.join('\n')) || '';
+            this.configPersistedContent = text;
+            const lower = (file || '').toLowerCase();
+            const lang = lower.endsWith('.xml') ? 'xml'
+                    : (lower.endsWith('.yml') || lower.endsWith('.yaml')) ? 'yaml'
+                    : (kind === 'spring' ? 'xml' : 'yaml');
+            this.configPersistedContentHtml = (lang === 'xml')
+                    ? this._highlightXml(text)
+                    : this._highlightYaml(text);
+        },
+
+        /** Switches the Config view back to server.yml mode. */
+        showServerYamlInConfig() {
+            this.configActiveSource = null;
+            this.activeView = 'config';
+            // Lazy-load matches the existing go('config') behaviour.
+            if (!this.configContent && !this.configError) this.loadConfig();
         },
 
         /** Flattened view of every persisted config across all four
