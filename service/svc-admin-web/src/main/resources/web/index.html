@@ -449,8 +449,8 @@
             <section class="view" x-show="activeView==='dashboard'">
                 <div class="view-head">
                     <div>
-                        <h1>Dashboard</h1>
-                        <p class="view-sub">Live server identity and JVM health.</p>
+                        <h1>Virtual machine</h1>
+                        <p class="view-sub">JVM heap / threads / GC and server identity. Mongoose-internal counters live on <a href="#" @click.prevent="go('performance')">Server performance</a>; domain counters on <a href="#" @click.prevent="go('app-counters')">App counters</a>.</p>
                     </div>
                     <div class="dashboard-controls">
                         <label class="refresh-control" title="JVM-snapshot push rate. Lower = less server-side allocation; Off pauses sampling entirely.">

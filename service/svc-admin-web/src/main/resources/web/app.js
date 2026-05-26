@@ -2192,12 +2192,14 @@ document.addEventListener('alpine:init', () => {
             return out;
         },
 
-        /** Click handler for an events-handled row. Centres the graph on
-         *  the matching cytoscape node, then dispatches the same tap
-         *  handler the user would get by clicking the node directly —
-         *  highlight + source-nav scrolled to handleEvent(SimpleName ...).
-         *  Smooth-animates the camera so the user sees the connection
-         *  between table row and node. */
+        /** Click handler for an events-handled row. Positions the
+         *  matching cytoscape node at the LEFT edge (for horizontal
+         *  layouts) or TOP edge (for vertical layouts) of the canvas
+         *  so the downstream dispatch chain fills the rest of the
+         *  panel — centring the event would push half its consumers
+         *  off-screen. Then dispatches the same tap handler the user
+         *  would get by clicking the node directly: highlight +
+         *  source-nav scrolled to handleEvent(SimpleName typedEvent). */
         processorGraphJumpToEvent(row) {
             const r = this.processorGraphRenderer;
             if (!r || !r.cy) return;
@@ -2209,19 +2211,56 @@ document.addEventListener('alpine:init', () => {
                 this._jumpToEventSourceOnly(row);
                 return;
             }
-            // Smooth pan to centre the node, then trigger the tap
-            // handler — the existing event-node routing already lands
-            // on handleEvent(SimpleName typedEvent).
             try {
-                r.cy.animate({
-                    center: { eles: node },
-                    duration: 300
-                });
+                this._panNodeToEdge(r.cy, node);
             } catch (_) {
-                // Older cytoscape versions / non-animatable states.
-                try { r.cy.center(node); } catch (_2) {}
+                // Older cytoscape / non-animatable state — fall back to
+                // a plain centre rather than failing the click entirely.
+                try { r.cy.animate({ center: { eles: node }, duration: 300 }); }
+                catch (_2) { try { r.cy.center(node); } catch (_3) {} }
             }
             this._onProcessorGraphNodeTap(node);
+        },
+
+        /** Pan the cytoscape viewport so `node` sits at the layout's
+         *  "input edge" — left edge for horizontal layouts (dagre-lr,
+         *  breadthfirst sideways) and top edge for vertical layouts
+         *  (dagre top-down, default). Leaves a small padding so the
+         *  node isn't flush against the canvas border. */
+        _panNodeToEdge(cy, node) {
+            const orientation = this._layoutOrientation();
+            // padding from the panel edge in screen pixels — leaves room
+            // for the highlight border + the row's label.
+            const PAD = 64;
+            // duration ≈ centre-animate duration; same smoothness.
+            const DURATION = 300;
+            // Compute the rendered (pixel-space) position the node will
+            // sit at AFTER the pan. We pan by (target - current) on the
+            // relevant axis.
+            const renderedNow = node.renderedPosition();
+            const pan = cy.pan();
+            let nextPan;
+            if (orientation === 'horizontal') {
+                const dx = PAD - renderedNow.x;
+                nextPan = { x: pan.x + dx, y: pan.y };
+            } else {
+                const dy = PAD - renderedNow.y;
+                nextPan = { x: pan.x, y: pan.y + dy };
+            }
+            cy.animate({ pan: nextPan, duration: DURATION });
+        },
+
+        /** 'horizontal' (event flows left → right) or 'vertical'
+         *  (event flows top → bottom). Drives the edge-pan logic so
+         *  downstream nodes fill the canvas after a jump. */
+        _layoutOrientation() {
+            const lay = this.processorGraphLayout || '';
+            // dagre-lr + breadthfirst-lr are left-to-right; plain
+            // dagre + breadthfirst are top-down. Everything else
+            // (cose, concentric, circle, grid) has no flow direction —
+            // treat as vertical for the pan default (top edge).
+            if (lay.endsWith('-lr')) return 'horizontal';
+            return 'vertical';
         },
 
         /** Fallback when the event's cytoscape node isn't currently in
