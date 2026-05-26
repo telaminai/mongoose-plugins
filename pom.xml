@@ -89,6 +89,8 @@
         <module>service/svc-jdbc</module>
         <module>service/svc-loader-yaml</module>
         <module>service/svc-loader-spring</module>
+        <module>service/svc-loader-feed</module>
+        <module>service/svc-loader-sink</module>
         <module>connector/connector-aeron</module>
         <module>connector/connector-chronicle</module>
         <module>connector/connector-file</module>
