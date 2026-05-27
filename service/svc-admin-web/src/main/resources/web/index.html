@@ -475,6 +475,54 @@
                         </div>
                     </section>
 
+                    <!-- Pipes — one logical card per HandlerPipeConfig
+                         entry. Each pipe row shows both endpoint names
+                         (feed name + sink name) so the operator sees
+                         the pair, not two unrelated services. The raw
+                         halves are hidden from the Feeds + Sinks cards
+                         to avoid double-counting; they're still visible
+                         in the Services list view. -->
+                    <section class="overview-card" :class="{ collapsed: overviewCollapsed.pipes }"
+                             x-show="overviewData.pipes && overviewData.pipes.length">
+                        <header class="overview-card-head"
+                                @click="toggleOverviewCard('pipes')"
+                                role="button" tabindex="0"
+                                @keydown.enter.prevent="toggleOverviewCard('pipes')"
+                                @keydown.space.prevent="toggleOverviewCard('pipes')">
+                            <span class="overview-card-caret" x-text="overviewCollapsed.pipes ? '▸' : '▾'"></span>
+                            <h2>Pipes</h2>
+                            <span class="overview-card-count" x-text="(overviewData.pipes||[]).length"></span>
+                            <span class="overview-card-summary muted small" x-text="overviewSummary('pipes')"></span>
+                            <button type="button" class="btn btn-ghost btn-sm overview-card-copy"
+                                    @click.stop="copyOverviewSection('pipes')"
+                                    :disabled="!(overviewData.pipes||[]).length"
+                                    title="Copy as JSON">Copy</button>
+                        </header>
+                        <div class="overview-card-body" x-show="!overviewCollapsed.pipes">
+                            <table class="overview-table">
+                                <thead><tr>
+                                    <th class="col-name">Feed name</th>
+                                    <th class="col-name">Sink name</th>
+                                    <th class="col-meta">Agent</th>
+                                    <th class="col-audit">Flags</th>
+                                </tr></thead>
+                                <tbody>
+                                    <template x-for="p in overviewData.pipes" :key="p.name">
+                                        <tr>
+                                            <td class="mono ellipsis" :title="p.name" x-text="p.name"></td>
+                                            <td class="mono small muted ellipsis" :title="p.sinkName" x-text="p.sinkName"></td>
+                                            <td class="muted small ellipsis" :title="p.agentName || ''" x-text="p.agentName || '—'"></td>
+                                            <td>
+                                                <span class="pill pill-muted" x-show="p.broadcast" title="broadcasts to every subscriber">bcast</span>
+                                                <span class="pill pill-muted" x-show="p.cacheEventLog" title="caches pre-start events for replay">cache</span>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+
                     <!-- Services -->
                     <section class="overview-card" :class="{ collapsed: overviewCollapsed.services }">
                         <header class="overview-card-head"

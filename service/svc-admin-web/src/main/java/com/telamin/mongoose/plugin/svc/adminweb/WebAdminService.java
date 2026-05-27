@@ -276,6 +276,11 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         javalin.get("/api/services", this::handleServices);
         javalin.get("/api/services/{name}/config", this::handleServiceConfig);
         javalin.get("/api/agents", this::handleAgents);
+        // Pipes — surfaces MongooseServerController.registeredPipes() so
+        // the admin UI can render pipes as one logical entity instead of
+        // as two separate Feed + Sink rows that happen to share a name
+        // pattern.
+        javalin.get("/api/pipes", this::handlePipes);
         javalin.get("/api/queues", this::handleQueues);
         javalin.get("/api/processors/{group}/{name}/graphml", this::handleProcessorGraphml);
         javalin.get("/api/processors/{group}/{name}/compliance", this::handleProcessorCompliance);
@@ -1263,6 +1268,33 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
             log.warn("introspection.feedTopology() failed; falling back to empty topology", e);
         }
         return out;
+    }
+
+    /** Returns the server's configured pipes as JSON:
+     *  {@code { pipes: [{name, sinkName, agentName, broadcast, cacheEventLog}] }}.
+     *  Empty array when no pipes are configured (the common case today).
+     *  Each pipe corresponds to exactly one {@code HandlerPipeConfig}
+     *  entry on the server config and exactly two service registrations
+     *  in {@code registeredServices()} — the feed-side under {@code name}
+     *  and the sink-side under {@code sinkName}. */
+    private void handlePipes(Context ctx) {
+        if (serverController == null) {
+            ctx.status(HttpStatus.NOT_FOUND);
+            ctx.json(Map.of("err", "MongooseServerController not available"));
+            return;
+        }
+        var pipes = serverController.registeredPipes();
+        List<Map<String, Object>> out = new java.util.ArrayList<>(pipes.size());
+        for (var p : pipes) {
+            Map<String, Object> row = new java.util.LinkedHashMap<>();
+            row.put("name", p.name());
+            row.put("sinkName", p.sinkName());
+            row.put("agentName", p.agentName());
+            row.put("broadcast", p.broadcast());
+            row.put("cacheEventLog", p.cacheEventLog());
+            out.add(row);
+        }
+        ctx.json(Map.of("pipes", out));
     }
 
     private void handleAgents(Context ctx) {

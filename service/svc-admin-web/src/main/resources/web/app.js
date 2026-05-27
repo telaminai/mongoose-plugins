@@ -35,6 +35,7 @@ document.addEventListener('alpine:init', () => {
             processors: [],   // {name, group, classFqn, auditing}
             feeds: [],        // {name, classFqn}
             sinks: [],        // {name, classFqn}
+            pipes: [],        // {name, sinkName, agentName, broadcast, cacheEventLog}
             services: [],     // {name, classFqn} — filtered by denylist
             audit: { enabled: false, recordingProcessors: [], fileCount: 0 }
         },
@@ -48,7 +49,7 @@ document.addEventListener('alpine:init', () => {
                 const raw = localStorage.getItem('mongoose-admin-overview-collapsed');
                 if (raw) return JSON.parse(raw);
             } catch (_) { /* fall through to default */ }
-            return { processors: false, feeds: false, sinks: false, services: false, audit: false };
+            return { processors: false, feeds: false, sinks: false, pipes: false, services: false, audit: false };
         })(),
 
         /** Per-item collapsed state on the Services list view. Keyed by
@@ -190,6 +191,11 @@ document.addEventListener('alpine:init', () => {
         agents: [],
         agentsAvailable: false,
         agentDetail: null,               // currently-open agent group in detail mode
+        // Configured pipes — {name, sinkName, agentName, broadcast, cacheEventLog}.
+        // Loaded by loadIntrospection from /api/pipes; the topology view uses
+        // this to merge the two underlying service halves into one logical
+        // pipe node with both endpoints (publishers + subscribers) visible.
+        pipes: [],
         processorDetail: null,           // { group, name, className } open under an agent detail
         eventSources: [],
         queuesAvailable: false,
@@ -597,20 +603,33 @@ document.addEventListener('alpine:init', () => {
                 // dependencies between them. /api/audit/files often 404s
                 // (audit capture optional); treat that as "no audit".
                 const opts = { credentials: 'same-origin' };
-                const [svcRes, agentsRes, auditRes] = await Promise.all([
+                const [svcRes, agentsRes, auditRes, pipesRes] = await Promise.all([
                     fetch('/api/services', opts),
                     fetch('/api/agents', opts),
-                    fetch('/api/audit/files', opts)
+                    fetch('/api/audit/files', opts),
+                    fetch('/api/pipes', opts)
                 ]);
 
                 const services = svcRes.ok ? (await svcRes.json()).services ?? [] : [];
                 const agents   = agentsRes.ok ? (await agentsRes.json()).agents ?? [] : [];
                 const audit    = auditRes.ok ? await auditRes.json() : null;
+                const pipes    = pipesRes.ok ? (await pipesRes.json()).pipes ?? [] : [];
+
+                // Build a set of service names that are pipe halves so the
+                // Feeds + Sinks cards don't double-count them — they already
+                // show in the Pipes card. Operators who want to see the raw
+                // halves can still find them via the Services list view.
+                const pipeNames = new Set();
+                for (const p of pipes) {
+                    if (p.name)     pipeNames.add(p.name);
+                    if (p.sinkName) pipeNames.add(p.sinkName);
+                }
 
                 const feeds = [];
                 const sinks = [];
                 const otherSvcs = [];
                 for (const s of services) {
+                    if (pipeNames.has(s.name)) continue; // surface via Pipes card instead
                     if (s.type === 'feed') feeds.push({ name: s.name, classFqn: s.className });
                     else if (s.type === 'sink') sinks.push({ name: s.name, classFqn: s.className });
                     else if (!this._stockServiceFqns.has(s.className)) {
@@ -657,6 +676,7 @@ document.addEventListener('alpine:init', () => {
                 this.overviewData.processors = processors;
                 this.overviewData.feeds = feeds;
                 this.overviewData.sinks = sinks;
+                this.overviewData.pipes = pipes;
                 this.overviewData.services = otherSvcs;
                 this.overviewData.audit = {
                     enabled: auditEnabled,
@@ -711,6 +731,11 @@ document.addEventListener('alpine:init', () => {
                 }
                 case 'feeds':    return d.feeds.length === 0    ? 'none registered' : `${d.feeds.length} registered`;
                 case 'sinks':    return d.sinks.length === 0    ? 'none registered' : `${d.sinks.length} registered`;
+                case 'pipes': {
+                    if (!d.pipes || d.pipes.length === 0) return 'none configured';
+                    const agentHosted = d.pipes.filter(p => p.agentName).length;
+                    return `${d.pipes.length} configured${agentHosted ? ` · ${agentHosted} agent-hosted` : ''}`;
+                }
                 case 'services': return d.services.length === 0 ? 'none registered' : `${d.services.length} operator-installed`;
                 case 'audit':    return (d.audit.enabled ? 'enabled' : 'disabled')
                             + ` · ${d.audit.recordingProcessors.length} recording`
@@ -964,6 +989,10 @@ document.addEventListener('alpine:init', () => {
         async loadIntrospection() {
             this.servicesAvailable = await this._loadInto('/api/services', 'services', 'services');
             this.agentsAvailable   = await this._loadInto('/api/agents',   'agents',   'agents');
+            // Pipes are an additive surface — fetch failure is non-fatal
+            // (the view falls back to showing the two halves as separate
+            // nodes, same as pre-1.0.19 behaviour).
+            try { await this._loadInto('/api/pipes', 'pipes', 'pipes'); } catch (_) { this.pipes = []; }
             await this.loadEventSources();
         },
 
@@ -1445,8 +1474,19 @@ document.addEventListener('alpine:init', () => {
         // mouseover handler trivial.
         _buildOuterElements() {
             const els = [];
-            // Feeds: any service classified as type=feed.
-            const feeds = (this.services || []).filter(s => s.type === 'feed');
+            // Pipe-half detection: a pipe registered as "X" produces a
+            // feed-side service named "X" and a sink-side named "X.sink".
+            // Hide both halves from the Feed + Sink node lists and emit a
+            // single combined "pipe:X" node further below — so the
+            // topology shows one logical pipe with both endpoints (read +
+            // write) instead of two unrelated nodes.
+            const pipeList = this.pipes || [];
+            const pipeFeedNames = new Set(pipeList.map(p => p.name));
+            const pipeSinkNames = new Set(pipeList.map(p => p.sinkName));
+            const pipeByFeedName = new Map(pipeList.map(p => [p.name, p]));
+            // Feeds: any service classified as type=feed, minus pipe halves.
+            const feeds = (this.services || []).filter(
+                    s => s.type === 'feed' && !pipeFeedNames.has(s.name));
             const feedsByName = new Map();
             for (const f of feeds) {
                 const id = 'feed:' + f.name;
@@ -1532,10 +1572,10 @@ document.addEventListener('alpine:init', () => {
                     });
                 }
             }
-            // Sinks: any service classified as type=sink. Each sink carries a
-            // `consumers` array — one entry per processor that writes to it
-            // (computed server-side from each processor's ServiceRegistryQuery).
-            const sinks = (this.services || []).filter(s => s.type === 'sink');
+            // Sinks: any service classified as type=sink, minus pipe halves.
+            // The Pipes loop further below builds combined nodes for those.
+            const sinks = (this.services || []).filter(
+                    s => s.type === 'sink' && !pipeSinkNames.has(s.name));
             const sinksByName = new Map();
             for (const s of sinks) {
                 const id = 'sink:' + s.name;
@@ -1548,6 +1588,83 @@ document.addEventListener('alpine:init', () => {
                         { k: 'Producers',      v: String((s.consumers || []).length) + ' processor(s)' },
                     ],
                 } });
+            }
+
+            // Pipes — one node per HandlerPipeConfig entry. Combines the
+            // edges from both underlying service halves: incoming arrows
+            // from publisher processors (sink-side) + outgoing arrows to
+            // subscriber agent groups (feed-side). Same node, both
+            // directions — that's the visual that distinguishes a pipe
+            // from a one-direction feed or sink.
+            const pipesByName = new Map();
+            const servicesByName = new Map((this.services || []).map(s => [s.name, s]));
+            for (const p of pipeList) {
+                const id = 'pipe:' + p.name;
+                pipesByName.set(p.name, id);
+                const feedSvc = servicesByName.get(p.name);     // type=feed
+                const sinkSvc = servicesByName.get(p.sinkName); // type=sink
+                const subscriberCount = (feedSvc && feedSvc.consumers) ? feedSvc.consumers.length : 0;
+                const producerCount   = (sinkSvc && sinkSvc.consumers) ? sinkSvc.consumers.length : 0;
+                const tip = [
+                    { k: 'Pipe',       v: p.name },
+                    { k: 'Sink name',  v: p.sinkName },
+                    { k: 'Subscribers',v: subscriberCount + ' agent group(s)' },
+                    { k: 'Publishers', v: producerCount   + ' processor(s)' },
+                ];
+                if (p.agentName)     tip.push({ k: 'Agent',    v: p.agentName });
+                if (p.broadcast)     tip.push({ k: 'Broadcast', v: 'true' });
+                if (p.cacheEventLog) tip.push({ k: 'Cache',    v: 'pre-start events replayed on subscribe' });
+                els.push({ data: {
+                    id, label: p.name, kind: 'pipe', pipeName: p.name, sinkName: p.sinkName,
+                    tipLines: tip,
+                } });
+
+                // Outgoing edges: pipe → agent groups that subscribe.
+                if (feedSvc) {
+                    for (const c of (feedSvc.consumers || [])) {
+                        const groupId = groupsByName.get(c.agentGroup);
+                        if (!groupId) continue;
+                        els.push({
+                            data: {
+                                id: 'e:' + id + '>' + groupId + ':' + c.callback,
+                                source: id,
+                                target: groupId,
+                                label: c.callback,
+                                kind: 'fg', // reuse feed→group styling
+                                tipLines: [
+                                    { k: 'Subscription', v: p.name + ' → ' + c.agentGroup },
+                                    { k: 'Callback',     v: c.callback },
+                                    { k: 'Queue path',   v: c.path || '—' },
+                                    { k: 'Processors',
+                                      v: (c.processors && c.processors.length)
+                                              ? c.processors.join(', ')
+                                              : '(none)' },
+                                ],
+                            }
+                        });
+                    }
+                }
+                // Incoming edges: processor → pipe (the publish side).
+                if (sinkSvc) {
+                    for (const c of (sinkSvc.consumers || [])) {
+                        const procId = 'proc:' + c.group + '/' + c.processor;
+                        const nodes = c.nodes || [];
+                        els.push({
+                            data: {
+                                id: 'e:' + procId + '>' + id,
+                                source: procId,
+                                target: id,
+                                label: nodes.length === 1 ? nodes[0] : (nodes.length + ' nodes'),
+                                kind: 'ps', // reuse processor→sink styling
+                                tipLines: [
+                                    { k: 'Writes to', v: c.processor + ' → ' + p.name + ' (pipe)' },
+                                    { k: 'Group',     v: c.group },
+                                    { k: 'Via nodes', v: nodes.length ? nodes.join(', ') : '(any-name dispatch)' },
+                                ],
+                            }
+                        });
+                    }
+                }
             }
             // Processor → sink edges, derived from each sink's consumers.
             // Multiple nodes inside one processor can all write to the same
@@ -1649,6 +1766,14 @@ document.addEventListener('alpine:init', () => {
                 // Reddish-purple to contrast with the cool blue of feeds.
                 { selector: 'node[kind="sink"]',
                   style: { 'background-color': '#a855f7', 'color': '#fff', 'border-color': '#6b21a8', 'shape': 'round-rectangle' } },
+                // Pipe — bridge between two processors; visually a hybrid
+                // of feed + sink colour-warmth via teal, with a diamond
+                // shape to signal "I have both ends connected" — distinct
+                // from the one-direction feed (circle) and sink
+                // (round-rectangle).
+                { selector: 'node[kind="pipe"]',
+                  style: { 'background-color': '#14b8a6', 'color': '#003a32', 'border-color': '#0d5a52',
+                           'shape': 'diamond', 'font-weight': 'bold' } },
                 // Processor → sink edge — same visual weight as feed → group
                 // edges but distinct via a warmer line colour.
                 { selector: 'edge[kind="ps"]',
