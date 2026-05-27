@@ -266,6 +266,17 @@
         <!-- content -->
         <main class="content">
 
+            <!-- Settling banner — shown for the first ~15s after auth
+                 while the server's persisted-config boot replay
+                 finishes registering processors / feeds / sinks. Honest
+                 affordance: tells the operator why counts may be
+                 briefly low rather than letting an empty Overview look
+                 like the server actually has nothing. -->
+            <div class="settling-banner" x-show="settling" x-cloak>
+                <span class="settling-spinner" aria-hidden="true"></span>
+                <span>Server still settling — refreshing snapshot as persisted configs finish booting…</span>
+            </div>
+
             <!-- Integration tab strip — shared across the 5 detail views
                  (Agents / Services / Feeds / Sinks / Queues). Lets the user
                  switch facets without rebounding to the sidebar. Hidden on
@@ -1160,9 +1171,10 @@
                                    x-text="servicesTab === 'feed' ? 'Event feeds registered with the Mongoose runtime. Click a row for detail.' : (servicesTab === 'sink' ? 'Event sinks registered with the Mongoose runtime. Click a row for detail.' : 'Services registered with the Mongoose runtime. Click a row for detail.')"></p>
                             </div>
                             <div class="input-icon" style="width:18rem">
-                                <svg class="ico"><use href="#i-search"/></svg>
-                                <input type="search" placeholder="Filter…" x-model="servicesFilter">
+                                <svg class="ico" aria-hidden="true"><use href="#i-search"/></svg>
+                                <input type="search" placeholder="Filter…" x-model="servicesFilter" aria-label="Filter services">
                             </div>
+                            <button type="button" class="btn btn-ghost btn-sm" @click="loadIntrospection()" title="Reload from the running server">Refresh</button>
                         </div>
                         <!-- One overview-style card per service. Same
                              collapsible / summary / copy-JSON shape as
@@ -1401,6 +1413,7 @@
                                 <h1>Agents</h1>
                                 <p class="view-sub">Agent groups — the threads that run processors and worker services. Click a card for detail.</p>
                             </div>
+                            <button type="button" class="btn btn-ghost btn-sm" @click="loadIntrospection()" title="Reload from the running server">Refresh</button>
                         </div>
                         <!-- One overview-style card per agent group. Same
                              collapsible / summary / copy-JSON shape as the
@@ -2905,7 +2918,7 @@
     <div class="modal">
         <div class="modal-head">
             <span class="mono"><svg class="ico"><use href="#i-folder"/></svg>/<span x-text="pickerCwd"></span></span>
-            <button class="icon-btn" @click="pickerOpen=false"><svg class="ico"><use href="#i-close"/></svg></button>
+            <button class="icon-btn" type="button" @click="pickerOpen=false" aria-label="Close file picker" title="Close"><svg class="ico" aria-hidden="true"><use href="#i-close"/></svg></button>
         </div>
         <ul class="picker-list">
             <li x-show="pickerCwd">

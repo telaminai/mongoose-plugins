@@ -359,6 +359,11 @@ document.addEventListener('alpine:init', () => {
         cacheErr: [],
 
         // ── loader panel ──
+        // True for the first ~15s after auth. Drives a "Server still
+        // settling" banner that explains why empty states might be
+        // briefly visible — boot replay of persisted configs can take
+        // a beat after the SPA finishes its initial fetch.
+        settling: false,
         loaderBusy: false,
         loaderBaseDirAvailable: false,
         // Absolute filesystem path of the server's loaderBaseDir, set
@@ -473,11 +478,16 @@ document.addEventListener('alpine:init', () => {
             // seconds. Stagger three re-fetches at 1.5 / 5 / 15s after
             // auth — catches both fast and slow replays without
             // hammering. After that, manual Refresh or user actions
-            // drive updates.
+            // drive updates. settling=true drives the "still catching
+            // up" banner across views; cleared after the last refresh.
+            this.settling = true;
             this._postBootRefresh = [
                 setTimeout(() => this._refreshIntrospection(),  1500),
                 setTimeout(() => this._refreshIntrospection(),  5000),
-                setTimeout(() => this._refreshIntrospection(), 15000),
+                setTimeout(() => {
+                    this._refreshIntrospection();
+                    this.settling = false;
+                }, 15000),
             ];
         },
 
