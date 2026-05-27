@@ -97,6 +97,7 @@
         <module>connector/connector-kafka</module>
         <module>connector/connector-multicast</module>
         <module>library/lib-jsonserialiser</module>
+        <module>library/lib-fanout</module>
         <module>test-support/mongoose-test-support</module>
     </modules>
 
