@@ -2106,9 +2106,49 @@ textarea { resize: vertical; font-family: ui-monospace, Menlo, monospace; font-s
     white-space: nowrap;
     max-width: 0; /* required for ellipsis inside fixed-layout tables */
 }
+/* Empty-state inside an overview-card-body. First <p> is the
+ * primary "nothing here" line; second <p> is the action-affordance
+ * hint with a link. Centred + tinted to match the canonical .empty
+ * pattern without the icon overhead. */
 .overview-empty {
-    padding: 0.6rem 0;
+    padding: 1.1rem 0.5rem;
+    text-align: center;
+    color: var(--fg-muted);
 }
+.overview-empty p { margin: 0; font-size: 0.86rem; }
+.overview-empty p + p { margin-top: 0.4rem; font-size: 0.8rem; color: var(--fg-faint); }
+.overview-empty a {
+    color: var(--accent);
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.overview-empty a:hover { text-decoration-color: var(--accent); }
+
+/* Settling banner — first ~15s after auth. Visible at the top of
+ * every view; thin so it doesn't push content down significantly. */
+.settling-banner {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin: 0 0 0.85rem;
+    padding: 0.5rem 0.85rem;
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--accent) 9%, var(--surface));
+    border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--border));
+    color: var(--fg);
+    font-size: 0.85rem;
+}
+.settling-spinner {
+    width: 0.95rem;
+    height: 0.95rem;
+    border: 2px solid color-mix(in srgb, var(--accent) 25%, transparent);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    display: inline-block;
+    animation: settling-spin 0.9s linear infinite;
+    flex-shrink: 0;
+}
+@keyframes settling-spin { to { transform: rotate(360deg); } }
 .overview-table {
     width: 100%;
     border-collapse: collapse;

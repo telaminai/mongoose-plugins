@@ -266,6 +266,17 @@
         <!-- content -->
         <main class="content">
 
+            <!-- Settling banner — shown for the first ~15s after auth
+                 while the server's persisted-config boot replay
+                 finishes registering processors / feeds / sinks. Honest
+                 affordance: tells the operator why counts may be
+                 briefly low rather than letting an empty Overview look
+                 like the server actually has nothing. -->
+            <div class="settling-banner" x-show="settling" x-cloak>
+                <span class="settling-spinner" aria-hidden="true"></span>
+                <span>Server still settling — refreshing snapshot as persisted configs finish booting…</span>
+            </div>
+
             <!-- Integration tab strip — shared across the 5 detail views
                  (Agents / Services / Feeds / Sinks / Queues). Lets the user
                  switch facets without rebounding to the sidebar. Hidden on
@@ -365,7 +376,8 @@
                         <div class="overview-card-body" x-show="!overviewCollapsed.processors">
                             <div class="overview-empty muted small"
                                  x-show="!overviewData.loading && overviewData.processors.length === 0">
-                                No processors registered.
+                                <p>No processors registered.</p>
+                                <p x-show="hasLoaderCommands()">Add one through <a href="#" @click.prevent="go('loader')">Service config</a> — yaml or spring graph, compiled into the running server.</p>
                             </div>
                             <table class="overview-table" x-show="overviewData.processors.length">
                                 <thead><tr>
@@ -408,7 +420,8 @@
                         <div class="overview-card-body" x-show="!overviewCollapsed.feeds">
                             <div class="overview-empty muted small"
                                  x-show="!overviewData.loading && overviewData.feeds.length === 0">
-                                No feeds registered.
+                                <p>No feeds registered.</p>
+                                <p x-show="hasFeedLoader()">Add one through <a href="#" @click.prevent="go('loader')">Service config → Feed loader</a>, or declare in <code>server.yml</code>.</p>
                             </div>
                             <table class="overview-table" x-show="overviewData.feeds.length">
                                 <thead><tr><th class="col-name">Name</th><th class="col-class">Class</th></tr></thead>
@@ -444,7 +457,8 @@
                         <div class="overview-card-body" x-show="!overviewCollapsed.sinks">
                             <div class="overview-empty muted small"
                                  x-show="!overviewData.loading && overviewData.sinks.length === 0">
-                                No sinks registered.
+                                <p>No sinks registered.</p>
+                                <p x-show="hasSinkLoader()">Add one through <a href="#" @click.prevent="go('loader')">Service config → Sink loader</a>, or declare in <code>server.yml</code>.</p>
                             </div>
                             <table class="overview-table" x-show="overviewData.sinks.length">
                                 <thead><tr><th class="col-name">Name</th><th class="col-class">Class</th></tr></thead>
@@ -454,6 +468,54 @@
                                             <td class="mono ellipsis" :title="s.name" x-text="s.name"></td>
                                             <td class="mono small muted ellipsis" :title="s.classFqn"
                                                 x-text="simpleClassName(s.classFqn)"></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+
+                    <!-- Pipes — one logical card per HandlerPipeConfig
+                         entry. Each pipe row shows both endpoint names
+                         (feed name + sink name) so the operator sees
+                         the pair, not two unrelated services. The raw
+                         halves are hidden from the Feeds + Sinks cards
+                         to avoid double-counting; they're still visible
+                         in the Services list view. -->
+                    <section class="overview-card" :class="{ collapsed: overviewCollapsed.pipes }"
+                             x-show="overviewData.pipes && overviewData.pipes.length">
+                        <header class="overview-card-head"
+                                @click="toggleOverviewCard('pipes')"
+                                role="button" tabindex="0"
+                                @keydown.enter.prevent="toggleOverviewCard('pipes')"
+                                @keydown.space.prevent="toggleOverviewCard('pipes')">
+                            <span class="overview-card-caret" x-text="overviewCollapsed.pipes ? '▸' : '▾'"></span>
+                            <h2>Pipes</h2>
+                            <span class="overview-card-count" x-text="(overviewData.pipes||[]).length"></span>
+                            <span class="overview-card-summary muted small" x-text="overviewSummary('pipes')"></span>
+                            <button type="button" class="btn btn-ghost btn-sm overview-card-copy"
+                                    @click.stop="copyOverviewSection('pipes')"
+                                    :disabled="!(overviewData.pipes||[]).length"
+                                    title="Copy as JSON">Copy</button>
+                        </header>
+                        <div class="overview-card-body" x-show="!overviewCollapsed.pipes">
+                            <table class="overview-table">
+                                <thead><tr>
+                                    <th class="col-name">Feed name</th>
+                                    <th class="col-name">Sink name</th>
+                                    <th class="col-meta">Agent</th>
+                                    <th class="col-audit">Flags</th>
+                                </tr></thead>
+                                <tbody>
+                                    <template x-for="p in overviewData.pipes" :key="p.name">
+                                        <tr>
+                                            <td class="mono ellipsis" :title="p.name" x-text="p.name"></td>
+                                            <td class="mono small muted ellipsis" :title="p.sinkName" x-text="p.sinkName"></td>
+                                            <td class="muted small ellipsis" :title="p.agentName || ''" x-text="p.agentName || '—'"></td>
+                                            <td>
+                                                <span class="pill pill-muted" x-show="p.broadcast" title="broadcasts to every subscriber">bcast</span>
+                                                <span class="pill pill-muted" x-show="p.cacheEventLog" title="caches pre-start events for replay">cache</span>
+                                            </td>
                                         </tr>
                                     </template>
                                 </tbody>
@@ -1157,9 +1219,10 @@
                                    x-text="servicesTab === 'feed' ? 'Event feeds registered with the Mongoose runtime. Click a row for detail.' : (servicesTab === 'sink' ? 'Event sinks registered with the Mongoose runtime. Click a row for detail.' : 'Services registered with the Mongoose runtime. Click a row for detail.')"></p>
                             </div>
                             <div class="input-icon" style="width:18rem">
-                                <svg class="ico"><use href="#i-search"/></svg>
-                                <input type="search" placeholder="Filter…" x-model="servicesFilter">
+                                <svg class="ico" aria-hidden="true"><use href="#i-search"/></svg>
+                                <input type="search" placeholder="Filter…" x-model="servicesFilter" aria-label="Filter services">
                             </div>
+                            <button type="button" class="btn btn-ghost btn-sm" @click="loadIntrospection()" title="Reload from the running server">Refresh</button>
                         </div>
                         <!-- One overview-style card per service. Same
                              collapsible / summary / copy-JSON shape as
@@ -1217,6 +1280,10 @@
                             <div class="empty">
                                 <svg class="ico ico-lg"><use href="#i-services"/></svg>
                                 <p>No services reported.</p>
+                                <p class="muted small" x-show="hasLoaderCommands()">
+                                    Services are registered either at boot via <code>server.yml</code>
+                                    or at runtime via <a href="#" @click.prevent="go('loader')">Service config</a>.
+                                </p>
                             </div>
                         </div>
                     </div>
@@ -1394,6 +1461,7 @@
                                 <h1>Agents</h1>
                                 <p class="view-sub">Agent groups — the threads that run processors and worker services. Click a card for detail.</p>
                             </div>
+                            <button type="button" class="btn btn-ghost btn-sm" @click="loadIntrospection()" title="Reload from the running server">Refresh</button>
                         </div>
                         <!-- One overview-style card per agent group. Same
                              collapsible / summary / copy-JSON shape as the
@@ -1445,6 +1513,11 @@
                             <div class="empty">
                                 <svg class="ico ico-lg"><use href="#i-agents"/></svg>
                                 <p>No agent groups reported.</p>
+                                <p class="muted small">
+                                    Agent groups appear when processors or worker services are registered.
+                                    If the server just booted, this list may still be settling —
+                                    use the Refresh control or wait a moment.
+                                </p>
                             </div>
                         </div>
                     </div>
@@ -2893,7 +2966,7 @@
     <div class="modal">
         <div class="modal-head">
             <span class="mono"><svg class="ico"><use href="#i-folder"/></svg>/<span x-text="pickerCwd"></span></span>
-            <button class="icon-btn" @click="pickerOpen=false"><svg class="ico"><use href="#i-close"/></svg></button>
+            <button class="icon-btn" type="button" @click="pickerOpen=false" aria-label="Close file picker" title="Close"><svg class="ico" aria-hidden="true"><use href="#i-close"/></svg></button>
         </div>
         <ul class="picker-list">
             <li x-show="pickerCwd">
