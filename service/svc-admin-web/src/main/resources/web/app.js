@@ -126,6 +126,11 @@ document.addEventListener('alpine:init', () => {
 
         // ── command runner ──
         commands: [],
+        // True when the server has an AdminCommandRegistry wired. Default
+        // true so a back-level server (no adminAvailable field on
+        // /api/commands) keeps current behaviour. Set by boot() / fetched
+        // alongside the command list.
+        adminAvailable: true,
         filter: '',
         selected: null,
         argsText: '',
@@ -452,6 +457,8 @@ document.addEventListener('alpine:init', () => {
             // 200 OK — either NONE mode or a pre-existing session.
             const data = await r.json();
             this.commands = data.commands || [];
+            // adminAvailable absent on back-level servers — default true.
+            this.adminAvailable = data.adminAvailable !== false;
             await this.bootstrapSession();
             await this.afterAuth();
         },
@@ -5166,7 +5173,11 @@ document.addEventListener('alpine:init', () => {
             this.loginPass = '';
             this.loginToken = '';
             const cmds = await fetch('/api/commands', { credentials: 'same-origin' });
-            if (cmds.ok) this.commands = (await cmds.json()).commands || [];
+            if (cmds.ok) {
+                const cmdsData = await cmds.json();
+                this.commands = cmdsData.commands || [];
+                this.adminAvailable = cmdsData.adminAvailable !== false;
+            }
             await this.afterAuth();
             this.toast('Signed in as ' + this.userId);
         },

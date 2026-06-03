@@ -235,6 +235,10 @@ code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
 }
 .nav-item:hover { background: var(--surface-2); color: var(--fg); }
 .nav-item.active { background: var(--accent-weak); color: var(--accent); font-weight: 600; }
+.nav-item.disabled,
+.nav-item:disabled { opacity: 0.45; cursor: not-allowed; }
+.nav-item.disabled:hover,
+.nav-item:disabled:hover { background: transparent; color: var(--fg-faint); }
 .nav-item.active .ico { color: var(--accent); }
 .nav-item .ico { color: var(--fg-faint); }
 .nav-item:hover .ico { color: inherit; }
