@@ -185,7 +185,11 @@
                     <button class="nav-item" :class="{active: activeView==='console'}" @click="go('console')">
                         <svg class="ico"><use href="#i-console"/></svg><span>Console</span>
                     </button>
-                    <button class="nav-item" :class="{active: activeView==='commands'}" @click="go('commands')">
+                    <button class="nav-item"
+                            :class="{active: activeView==='commands', disabled: !adminAvailable}"
+                            :disabled="!adminAvailable"
+                            :title="!adminAvailable ? 'AdminCommandRegistry not registered — add the service to enable command dispatch.' : null"
+                            @click="adminAvailable && go('commands')">
                         <svg class="ico"><use href="#i-commands"/></svg><span>Commands</span>
                         <span class="nav-count" x-show="commands.length" x-text="commands.length"></span>
                     </button>

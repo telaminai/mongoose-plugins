@@ -126,6 +126,11 @@ document.addEventListener('alpine:init', () => {
 
         // ── command runner ──
         commands: [],
+        // True when the server has an AdminCommandRegistry wired. Default
+        // true so a back-level server (no adminAvailable field on
+        // /api/commands) keeps current behaviour. Set by boot() / fetched
+        // alongside the command list.
+        adminAvailable: true,
         filter: '',
         selected: null,
         argsText: '',
@@ -452,6 +457,8 @@ document.addEventListener('alpine:init', () => {
             // 200 OK — either NONE mode or a pre-existing session.
             const data = await r.json();
             this.commands = data.commands || [];
+            // adminAvailable absent on back-level servers — default true.
+            this.adminAvailable = data.adminAvailable !== false;
             await this.bootstrapSession();
             await this.afterAuth();
         },
@@ -2214,7 +2221,18 @@ document.addEventListener('alpine:init', () => {
                     return;
                 }
                 const data = await res.json();
-                live.sourceText = data.source ?? '';
+                let sourceText = data.source ?? '';
+                // Format Java sources through prettier-plugin-java so the
+                // panel always shows clean code even when on-disk content
+                // is a single line (fluxtion-generated dispatcher with
+                // formatSource=false, etc). On-disk file is untouched.
+                // Other extensions (.kt, .scala, ...) pass through raw.
+                if (sourceText && /\.java$/i.test(data.path ?? '')) {
+                    const { formatted, error } = await this._formatJava(sourceText);
+                    sourceText = formatted;
+                    live.sourceFormatError = error || '';
+                }
+                live.sourceText = sourceText;
                 live.sourceFoundPath = data.path ?? null;
                 // Resolve any jumpHint into a 1-indexed line number now that we
                 // have the source text. jumpHint is set by the caller before
@@ -2237,6 +2255,25 @@ document.addEventListener('alpine:init', () => {
                     live.sourceState = 'error';
                     live.sourceErr = String(e);
                 }
+            }
+        },
+
+        /** Lazy-load the prettier-plugin-java bundle once and run it
+         *  against `src`. Returns { formatted, error } — error is non-null
+         *  when the formatter couldn't parse the input (caller still gets
+         *  the raw source so the panel never goes blank). The 480 KB
+         *  bundle is fetched on first source-panel open; subsequent calls
+         *  hit the cached module. */
+        async _formatJava(src) {
+            if (!src) return { formatted: src, error: null };
+            try {
+                if (!this._formatJavaMod) {
+                    this._formatJavaMod = await import('/vendor/format-java.mjs');
+                }
+                return await this._formatJavaMod.formatJava(src);
+            } catch (err) {
+                console.warn('format-java bundle failed to load; showing raw source', err);
+                return { formatted: src, error: String(err && err.message || err) };
             }
         },
 
@@ -5166,7 +5203,11 @@ document.addEventListener('alpine:init', () => {
             this.loginPass = '';
             this.loginToken = '';
             const cmds = await fetch('/api/commands', { credentials: 'same-origin' });
-            if (cmds.ok) this.commands = (await cmds.json()).commands || [];
+            if (cmds.ok) {
+                const cmdsData = await cmds.json();
+                this.commands = cmdsData.commands || [];
+                this.adminAvailable = cmdsData.adminAvailable !== false;
+            }
             await this.afterAuth();
             this.toast('Signed in as ' + this.userId);
         },

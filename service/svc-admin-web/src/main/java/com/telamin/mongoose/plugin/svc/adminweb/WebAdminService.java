@@ -511,10 +511,17 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
     // -------- admin command surface --------
 
     private void handleListCommands(Context ctx) {
-        List<String> commands = adminCommandRegistry == null
-                ? Collections.emptyList()
-                : adminCommandRegistry.commandList();
-        ctx.json(Map.of("commands", commands));
+        boolean adminAvailable = adminCommandRegistry != null;
+        List<String> commands = adminAvailable
+                ? adminCommandRegistry.commandList()
+                : Collections.emptyList();
+        // adminAvailable distinguishes "registry registered but no commands yet"
+        // from "registry missing entirely" — the latter means the Commands tab
+        // (and any view dispatching through admin commands) cannot function.
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("commands", commands);
+        body.put("adminAvailable", adminAvailable);
+        ctx.json(body);
     }
 
     private void handleInvokeCommand(Context ctx) {
@@ -1150,9 +1157,14 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
             entry.put("name", name);
             String type = classifyService(instance);
             entry.put("type", type);
-            entry.put("className", svcClass != null
-                    ? svcClass.getName()
-                    : (instance != null ? instance.getClass().getName() : ""));
+            // Prefer the concrete instance class — that's the actual
+            // implementation operators want to see in the "Implementation"
+            // column. svcClass is typically the registered interface
+            // (MessageSink, EventSource, NamedFeed, ...) which is uninformative
+            // for distinguishing "which sink is this?".
+            entry.put("className", instance != null
+                    ? instance.getClass().getName()
+                    : (svcClass != null ? svcClass.getName() : ""));
             if ("feed".equals(type)) {
                 entry.put("consumers", consumersByFeed.getOrDefault(name, Collections.emptyList()));
             } else if ("sink".equals(type)) {
