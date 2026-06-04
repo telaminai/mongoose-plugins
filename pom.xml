@@ -211,11 +211,19 @@
         </plugins>
     </build>
 
+<!--    <distributionManagement>-->
+<!--        <repository>-->
+<!--            <id>repsy-fluxtion</id>-->
+<!--            <name>Fluxtion private maven repo on Repsy</name>-->
+<!--            <url>https://repo.repsy.io/mvn/fluxtion/fluxtion-private</url>-->
+<!--        </repository>-->
+<!--    </distributionManagement>-->
+
     <distributionManagement>
         <repository>
-            <id>repsy-fluxtion</id>
-            <name>Fluxtion private maven repo on Repsy</name>
-            <url>https://repo.repsy.io/mvn/fluxtion/fluxtion-private</url>
+            <id>repsy</id>
+            <name>My Private Maven Repository on Repsy</name>
+            <url>https://repo.repsy.io/fluxtion/fluxtion-public</url>
         </repository>
     </distributionManagement>
 </project>
