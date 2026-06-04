@@ -10,7 +10,7 @@
     <groupId>com.telamin</groupId>
 
     <artifactId>mongoose-plugins</artifactId>
-    <version>1.0.28-SNAPSHOT</version>
+    <version>1.0.30-SNAPSHOT</version>
     <name>telamin :: mongoose-plugins</name>
     <packaging>pom</packaging>
 
@@ -211,11 +211,19 @@
         </plugins>
     </build>
 
+<!--    <distributionManagement>-->
+<!--        <repository>-->
+<!--            <id>repsy-fluxtion</id>-->
+<!--            <name>Fluxtion private maven repo on Repsy</name>-->
+<!--            <url>https://repo.repsy.io/mvn/fluxtion/fluxtion-private</url>-->
+<!--        </repository>-->
+<!--    </distributionManagement>-->
+
     <distributionManagement>
         <repository>
             <id>repsy-fluxtion</id>
-            <name>Fluxtion private maven repo on Repsy</name>
-            <url>https://repo.repsy.io/mvn/fluxtion/fluxtion-private</url>
+            <name>My Public Maven Repository on Repsy</name>
+            <url>https://repo.repsy.io/fluxtion/fluxtion-public</url>
         </repository>
     </distributionManagement>
 </project>

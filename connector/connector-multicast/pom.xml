@@ -22,7 +22,7 @@
     <parent>
         <groupId>com.telamin</groupId>
         <artifactId>mongoose-plugins</artifactId>
-        <version>1.0.28-SNAPSHOT</version>
+        <version>1.0.30-SNAPSHOT</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
