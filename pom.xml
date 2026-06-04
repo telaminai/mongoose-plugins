@@ -221,8 +221,8 @@
 
     <distributionManagement>
         <repository>
-            <id>repsy</id>
-            <name>My Private Maven Repository on Repsy</name>
+            <id>repsy-fluxtion</id>
+            <name>My Public Maven Repository on Repsy</name>
             <url>https://repo.repsy.io/fluxtion/fluxtion-public</url>
         </repository>
     </distributionManagement>
