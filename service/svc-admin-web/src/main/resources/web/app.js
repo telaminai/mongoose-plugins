@@ -1854,6 +1854,8 @@ document.addEventListener('alpine:init', () => {
                 const detailModifier = e && (e.shiftKey || e.metaKey || e.ctrlKey);
                 if (data.kind === 'feed' && data.feedName) {
                     self.openService(data.feedName);
+                } else if (data.kind === 'sink' && data.sinkName) {
+                    self.openService(data.sinkName);
                 } else if (data.kind === 'group' && data.groupName) {
                     self.openAgent(data.groupName);
                 } else if (data.kind === 'processor' && data.groupName && data.procName) {
@@ -1899,6 +1901,7 @@ document.addEventListener('alpine:init', () => {
 
         _tipTitle(data) {
             if (data.kind === 'feed')      return 'Feed';
+            if (data.kind === 'sink')      return 'Sink';
             if (data.kind === 'group')     return 'Agent group';
             if (data.kind === 'processor') return 'Processor';
             if (data.kind === 'fg' || data.kind === 'gp' || data.kind === 'inner') return 'Edge';
