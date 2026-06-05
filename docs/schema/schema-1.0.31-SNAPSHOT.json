@@ -1,0 +1,845 @@
+{
+  "schemaVersion" : 1,
+  "pluginsVersion" : "1.0.31-SNAPSHOT",
+  "plugins" : [ {
+    "artifactId" : "mongoose",
+    "kind" : "source",
+    "yamlKey" : "eventFeeds",
+    "yamlBindKey" : "instance",
+    "instanceFqn" : "com.telamin.mongoose.connector.file.FileEventSource",
+    "sourceVersion" : "1.0.20",
+    "doc" : "Built-in (mongoose-core): tail a file as an event source.",
+    "fields" : [ {
+      "name" : "cacheEventLog",
+      "type" : "boolean",
+      "required" : false,
+      "default" : false,
+      "doc" : "Retain published lines in memory for replay."
+    }, {
+      "name" : "filename",
+      "type" : "string",
+      "required" : true,
+      "format" : "path",
+      "doc" : "Path to the file to tail."
+    }, {
+      "name" : "readStrategy",
+      "type" : "enum",
+      "required" : false,
+      "default" : "COMMITED",
+      "enumValues" : [ "COMMITED", "EARLIEST", "LATEST", "ONCE_EARLIEST", "ONCE_LATEST" ],
+      "doc" : "How much of the file to replay on start."
+    } ]
+  }, {
+    "artifactId" : "mongoose",
+    "kind" : "sink",
+    "yamlKey" : "eventSinks",
+    "yamlBindKey" : "instance",
+    "instanceFqn" : "com.telamin.mongoose.connector.file.FileMessageSink",
+    "sourceVersion" : "1.0.20",
+    "doc" : "Built-in (mongoose-core): append messages to a file.",
+    "fields" : [ {
+      "name" : "filename",
+      "type" : "string",
+      "required" : true,
+      "format" : "path",
+      "doc" : "Path of the output file."
+    } ]
+  }, {
+    "artifactId" : "mongoose",
+    "kind" : "source",
+    "yamlKey" : "eventFeeds",
+    "yamlBindKey" : "instance",
+    "instanceFqn" : "com.telamin.mongoose.connector.memory.InMemoryEventSource",
+    "sourceVersion" : "1.0.20",
+    "doc" : "Built-in (mongoose-core): in-memory event source (tests / in-process).",
+    "fields" : [ {
+      "name" : "cacheEventLog",
+      "type" : "boolean",
+      "required" : false,
+      "default" : false,
+      "doc" : "Retain published events in memory for replay."
+    } ]
+  }, {
+    "artifactId" : "mongoose",
+    "kind" : "sink",
+    "yamlKey" : "eventSinks",
+    "yamlBindKey" : "instance",
+    "instanceFqn" : "com.telamin.mongoose.connector.memory.InMemoryMessageSink",
+    "sourceVersion" : "1.0.20",
+    "doc" : "Built-in (mongoose-core): in-memory message sink.",
+    "fields" : [ ]
+  }, {
+    "artifactId" : "connector-file",
+    "kind" : "source",
+    "yamlKey" : "eventFeeds",
+    "yamlBindKey" : "instance",
+    "instanceFqn" : "com.telamin.mongoose.plugin.connector.file.FileEventSource",
+    "doc" : "Tail a file as an event source.",
+    "fields" : [ {
+      "name" : "cacheEventLog",
+      "type" : "boolean",
+      "required" : false,
+      "default" : false,
+      "doc" : "Retain published lines in memory for replay."
+    }, {
+      "name" : "filename",
+      "type" : "string",
+      "required" : true,
+      "format" : "path",
+      "doc" : "Path to the file to tail."
+    }, {
+      "name" : "readStrategy",
+      "type" : "enum",
+      "required" : false,
+      "default" : "COMMITED",
+      "enumValues" : [ "COMMITED", "EARLIEST", "LATEST", "ONCE_EARLIEST", "ONCE_LATEST" ],
+      "doc" : "How much of the file to replay on start."
+    } ]
+  }, {
+    "artifactId" : "connector-file",
+    "kind" : "sink",
+    "yamlKey" : "eventSinks",
+    "yamlBindKey" : "instance",
+    "instanceFqn" : "com.telamin.mongoose.plugin.connector.file.FileMessageSink",
+    "doc" : "Append messages to a file.",
+    "fields" : [ {
+      "name" : "filename",
+      "type" : "string",
+      "required" : true,
+      "format" : "path",
+      "doc" : "Path of the output file."
+    }, {
+      "name" : "maxBackupFiles",
+      "type" : "int",
+      "required" : false,
+      "default" : 0,
+      "doc" : "Number of rotated backups to retain."
+    }, {
+      "name" : "rotateOnIntervalMillis",
+      "type" : "long",
+      "required" : false,
+      "default" : 0,
+      "format" : "millis",
+      "doc" : "Rotate on this interval; 0 = never."
+    }, {
+      "name" : "rotateOnSizeBytes",
+      "type" : "long",
+      "required" : false,
+      "default" : 0,
+      "doc" : "Rotate when the file exceeds this many bytes; 0 = never."
+    } ]
+  }, {
+    "artifactId" : "connector-kafka",
+    "kind" : "source",
+    "yamlKey" : "eventFeeds",
+    "yamlBindKey" : "instance",
+    "instanceFqn" : "com.telamin.mongoose.plugin.connector.kafka.KafkaMessageConsumer",
+    "doc" : "Consume from a Kafka topic as an event source.",
+    "fields" : [ {
+      "name" : "pollTimeoutMs",
+      "type" : "long",
+      "required" : false,
+      "default" : 100,
+      "format" : "millis",
+      "doc" : "Consumer poll timeout."
+    }, {
+      "name" : "properties",
+      "type" : "map",
+      "required" : true,
+      "keyType" : "string",
+      "valueType" : "string",
+      "doc" : "Kafka consumer properties (bootstrap.servers, group.id, deserializers, …)."
+    }, {
+      "name" : "topics",
+      "type" : "list",
+      "required" : true,
+      "elementType" : "string",
+      "doc" : "Kafka topics to subscribe to."
+    }, {
+      "name" : "wakeupOnTearDown",
+      "type" : "boolean",
+      "required" : false,
+      "default" : true
+    } ]
+  }, {
+    "artifactId" : "connector-kafka",
+    "kind" : "sink",
+    "yamlKey" : "eventSinks",
+    "yamlBindKey" : "instance",
+    "instanceFqn" : "com.telamin.mongoose.plugin.connector.kafka.KafkaMessagePublisher",
+    "doc" : "Publish messages to a Kafka topic.",
+    "fields" : [ {
+      "name" : "closeTimeoutMs",
+      "type" : "long",
+      "required" : false,
+      "default" : 5000
+    }, {
+      "name" : "flushEveryMessage",
+      "type" : "boolean",
+      "required" : false,
+      "default" : true
+    }, {
+      "name" : "properties",
+      "type" : "map",
+      "required" : true,
+      "keyType" : "string",
+      "valueType" : "string",
+      "doc" : "Kafka producer properties (bootstrap.servers, serializers, …)."
+    }, {
+      "name" : "registerShutdownHook",
+      "type" : "boolean",
+      "required" : false,
+      "default" : true
+    }, {
+      "name" : "topic",
+      "type" : "string",
+      "required" : true,
+      "doc" : "Destination Kafka topic."
+    } ]
+  }, {
+    "artifactId" : "connector-aeron",
+    "kind" : "source",
+    "yamlKey" : "eventFeeds",
+    "yamlBindKey" : "instance",
+    "instanceFqn" : "com.telamin.mongoose.plugin.connector.aeron.AeronArchiveEventSource",
+    "doc" : "Subscribe to an Aeron stream / replay from an Aeron Archive.",
+    "fields" : [ {
+      "name" : "aeronDirectoryName",
+      "type" : "string",
+      "required" : false,
+      "format" : "path",
+      "doc" : "Aeron media-driver directory; blank = embedded/default."
+    }, {
+      "name" : "binaryMode",
+      "type" : "boolean",
+      "required" : false,
+      "default" : false
+    }, {
+      "name" : "cacheEventLog",
+      "type" : "boolean",
+      "required" : false,
+      "default" : false
+    }, {
+      "name" : "channel",
+      "type" : "string",
+      "required" : false,
+      "default" : "aeron:ipc",
+      "doc" : "Aeron channel URI (e.g. aeron:ipc or aeron:udp?endpoint=host:port)."
+    }, {
+      "name" : "fragmentLimit",
+      "type" : "int",
+      "required" : false,
+      "default" : 50
+    }, {
+      "name" : "launchEmbeddedDriver",
+      "type" : "boolean",
+      "required" : false,
+      "default" : false
+    }, {
+      "name" : "mode",
+      "type" : "enum",
+      "required" : false,
+      "default" : "LIVE",
+      "enumValues" : [ "LIVE", "ARCHIVE" ]
+    }, {
+      "name" : "replayChannel",
+      "type" : "string",
+      "required" : false,
+      "default" : "aeron:ipc"
+    }, {
+      "name" : "streamId",
+      "type" : "int",
+      "required" : false,
+      "default" : 10,
+      "doc" : "Aeron stream id."
+    } ]
+  }, {
+    "artifactId" : "connector-aeron",
+    "kind" : "sink",
+    "yamlKey" : "eventSinks",
+    "yamlBindKey" : "instance",
+    "instanceFqn" : "com.telamin.mongoose.plugin.connector.aeron.AeronMessageSink",
+    "doc" : "Publish messages to an Aeron stream.",
+    "fields" : [ {
+      "name" : "aeronDirectoryName",
+      "type" : "string",
+      "required" : false,
+      "format" : "path",
+      "doc" : "Aeron media-driver directory; blank = embedded/default."
+    }, {
+      "name" : "channel",
+      "type" : "string",
+      "required" : false,
+      "default" : "aeron:ipc",
+      "doc" : "Aeron channel URI."
+    }, {
+      "name" : "initialBufferCapacity",
+      "type" : "int",
+      "required" : false,
+      "default" : 4096
+    }, {
+      "name" : "launchEmbeddedDriver",
+      "type" : "boolean",
+      "required" : false,
+      "default" : false
+    }, {
+      "name" : "offerTimeoutNanos",
+      "type" : "long",
+      "required" : false,
+      "default" : 2000000000
+    }, {
+      "name" : "streamId",
+      "type" : "int",
+      "required" : false,
+      "default" : 10,
+      "doc" : "Aeron stream id."
+    } ]
+  }, {
+    "artifactId" : "connector-chronicle",
+    "kind" : "source",
+    "yamlKey" : "eventFeeds",
+    "yamlBindKey" : "instance",
+    "instanceFqn" : "com.telamin.mongoose.plugin.connector.chronicle.ChronicleEventSource",
+    "doc" : "Read events from a Chronicle Queue.",
+    "fields" : [ {
+      "name" : "cacheEventLog",
+      "type" : "boolean",
+      "required" : false,
+      "default" : false
+    }, {
+      "name" : "chroniclePath",
+      "type" : "string",
+      "required" : true,
+      "format" : "path",
+      "doc" : "Chronicle Queue directory to read from."
+    }, {
+      "name" : "readStrategy",
+      "type" : "enum",
+      "required" : false,
+      "default" : "COMMITED",
+      "enumValues" : [ "COMMITED", "EARLIEST", "LATEST" ],
+      "doc" : "How much of the queue to replay on start."
+    } ]
+  }, {
+    "artifactId" : "connector-chronicle",
+    "kind" : "sink",
+    "yamlKey" : "eventSinks",
+    "yamlBindKey" : "instance",
+    "instanceFqn" : "com.telamin.mongoose.plugin.connector.chronicle.ChronicleMessageSink",
+    "doc" : "Append messages to a Chronicle Queue.",
+    "fields" : [ {
+      "name" : "chroniclePath",
+      "type" : "string",
+      "required" : true,
+      "format" : "path",
+      "doc" : "Chronicle Queue directory to append to."
+    } ]
+  }, {
+    "artifactId" : "connector-multicast",
+    "kind" : "source",
+    "yamlKey" : "eventFeeds",
+    "yamlBindKey" : "instance",
+    "instanceFqn" : "com.telamin.mongoose.plugin.connector.multicast.MulticastEventSource",
+    "doc" : "Receive events over UDP multicast.",
+    "fields" : [ {
+      "name" : "cacheEventLog",
+      "type" : "boolean",
+      "required" : false,
+      "default" : false
+    }, {
+      "name" : "multicastGroup",
+      "type" : "string",
+      "required" : true,
+      "default" : "224.0.0.1",
+      "doc" : "Multicast group address (e.g. 224.0.0.1)."
+    }, {
+      "name" : "multicastPort",
+      "type" : "int",
+      "required" : true,
+      "default" : 4446,
+      "format" : "port",
+      "doc" : "Multicast port."
+    }, {
+      "name" : "networkInterfaceName",
+      "type" : "string",
+      "required" : false,
+      "doc" : "NIC to bind; blank = default route."
+    }, {
+      "name" : "useLoopbackInterface",
+      "type" : "boolean",
+      "required" : false,
+      "default" : false
+    } ]
+  }, {
+    "artifactId" : "connector-multicast",
+    "kind" : "sink",
+    "yamlKey" : "eventSinks",
+    "yamlBindKey" : "instance",
+    "instanceFqn" : "com.telamin.mongoose.plugin.connector.multicast.MulticastMessageSink",
+    "doc" : "Send messages over UDP multicast.",
+    "fields" : [ {
+      "name" : "multicastGroup",
+      "type" : "string",
+      "required" : true,
+      "default" : "224.0.0.1",
+      "doc" : "Multicast group address."
+    }, {
+      "name" : "multicastPort",
+      "type" : "int",
+      "required" : true,
+      "default" : 4446,
+      "format" : "port",
+      "doc" : "Multicast port."
+    }, {
+      "name" : "networkInterfaceName",
+      "type" : "string",
+      "required" : false,
+      "doc" : "NIC to bind; blank = default route."
+    }, {
+      "name" : "useLoopbackInterface",
+      "type" : "boolean",
+      "required" : false,
+      "default" : false
+    } ]
+  }, {
+    "artifactId" : "svc-cache",
+    "kind" : "service",
+    "yamlKey" : "services",
+    "yamlBindKey" : "service",
+    "instanceFqn" : "com.telamin.mongoose.plugin.svc.cache.JsonFileCache",
+    "doc" : "JSON-persistent key/value cache service.",
+    "fields" : [ {
+      "name" : "asyncWrite",
+      "type" : "boolean",
+      "required" : false,
+      "default" : false,
+      "doc" : "Flush writes on a background thread."
+    }, {
+      "name" : "fileName",
+      "type" : "string",
+      "required" : true,
+      "format" : "path",
+      "doc" : "Backing JSON file path."
+    }, {
+      "name" : "maxSize",
+      "type" : "int",
+      "required" : false,
+      "default" : 0,
+      "doc" : "0 = unbounded; >0 enables LRU eviction."
+    } ]
+  }, {
+    "artifactId" : "svc-jdbc",
+    "kind" : "service",
+    "yamlKey" : "services",
+    "yamlBindKey" : "service",
+    "instanceFqn" : "com.telamin.mongoose.plugin.svc.jdbc.impl.JdbcConnectionLoaderService",
+    "doc" : "Named JDBC connection registry (HikariCP-backed).",
+    "fields" : [ {
+      "name" : "connections",
+      "type" : "map",
+      "required" : true,
+      "default" : { },
+      "keyType" : "string",
+      "valueType" : "nested",
+      "doc" : "Named JDBC connections (name → pool config: url, user, password, sizing).",
+      "fields" : [ {
+        "name" : "connectionTimeoutMs",
+        "type" : "long",
+        "required" : false,
+        "default" : 30000
+      }, {
+        "name" : "idleTimeoutMs",
+        "type" : "long",
+        "required" : false,
+        "default" : 600000
+      }, {
+        "name" : "maxLifetimeMs",
+        "type" : "long",
+        "required" : false,
+        "default" : 1800000
+      }, {
+        "name" : "maximumPoolSize",
+        "type" : "int",
+        "required" : false,
+        "default" : 10
+      }, {
+        "name" : "minimumIdle",
+        "type" : "int",
+        "required" : false,
+        "default" : 0
+      }, {
+        "name" : "password",
+        "type" : "string",
+        "required" : false
+      }, {
+        "name" : "poolName",
+        "type" : "string",
+        "required" : false
+      }, {
+        "name" : "pooled",
+        "type" : "boolean",
+        "required" : false,
+        "default" : true
+      }, {
+        "name" : "url",
+        "type" : "string",
+        "required" : false
+      }, {
+        "name" : "username",
+        "type" : "string",
+        "required" : false
+      }, {
+        "name" : "validationQuery",
+        "type" : "string",
+        "required" : false
+      } ]
+    }, {
+      "name" : "fastFail",
+      "type" : "boolean",
+      "required" : false,
+      "default" : false,
+      "doc" : "Fail boot if a startup connectivity test fails."
+    }, {
+      "name" : "testConnection",
+      "type" : "boolean",
+      "required" : false,
+      "default" : false,
+      "doc" : "Run a validation query for each pool at startup."
+    } ]
+  }, {
+    "artifactId" : "svc-micrometer",
+    "kind" : "service",
+    "yamlKey" : "services",
+    "yamlBindKey" : "service",
+    "instanceFqn" : "com.telamin.mongoose.plugin.svc.micrometer.MicrometerBridge",
+    "doc" : "Bridge Mongoose counters to a Micrometer registry.",
+    "fields" : [ {
+      "name" : "counterPrefix",
+      "type" : "string",
+      "required" : false,
+      "default" : "mongoose"
+    }, {
+      "name" : "latencyPrefix",
+      "type" : "string",
+      "required" : false,
+      "default" : "mongoose.latency"
+    }, {
+      "name" : "sampleIntervalMs",
+      "type" : "long",
+      "required" : false,
+      "default" : 1000,
+      "format" : "millis",
+      "doc" : "How often counters are pushed to the registry."
+    } ]
+  }, {
+    "artifactId" : "svc-admin-telnet",
+    "kind" : "service",
+    "yamlKey" : "services",
+    "yamlBindKey" : "service",
+    "instanceFqn" : "com.telamin.mongoose.plugin.svc.admintelnet.TelnetAdminCommandProcessor",
+    "doc" : "Telnet admin endpoint (JLine completion + history).",
+    "fields" : [ {
+      "name" : "interfaceName",
+      "type" : "string",
+      "required" : false,
+      "default" : "127.0.0.1",
+      "format" : "host",
+      "doc" : "Bind address; loopback by default."
+    }, {
+      "name" : "listenPort",
+      "type" : "int",
+      "required" : false,
+      "default" : 2019,
+      "format" : "port",
+      "doc" : "Telnet listen port."
+    } ]
+  }, {
+    "artifactId" : "svc-admin-rest",
+    "kind" : "service",
+    "yamlKey" : "services",
+    "yamlBindKey" : "service",
+    "instanceFqn" : "com.telamin.mongoose.plugin.svc.adminrest.JavalinAdminCommandService",
+    "doc" : "Javalin REST admin endpoint.",
+    "fields" : [ {
+      "name" : "authMode",
+      "type" : "enum",
+      "required" : false,
+      "default" : "NONE",
+      "enumValues" : [ "NONE", "BASIC", "BEARER" ],
+      "doc" : "NONE | BASIC | BEARER."
+    }, {
+      "name" : "bearerToken",
+      "type" : "string",
+      "required" : false,
+      "doc" : "BEARER credential ($ENV. resolvable)."
+    }, {
+      "name" : "host",
+      "type" : "string",
+      "required" : false,
+      "default" : "0.0.0.0",
+      "format" : "host",
+      "doc" : "Bind address (0.0.0.0 = all interfaces — front with TLS)."
+    }, {
+      "name" : "listenPort",
+      "type" : "int",
+      "required" : false,
+      "default" : 8080,
+      "format" : "port"
+    }, {
+      "name" : "password",
+      "type" : "string",
+      "required" : false,
+      "doc" : "BASIC credential ($ENV. resolvable)."
+    }, {
+      "name" : "realm",
+      "type" : "string",
+      "required" : false,
+      "default" : "mongoose-admin"
+    }, {
+      "name" : "staticDir",
+      "type" : "string",
+      "required" : false,
+      "format" : "path",
+      "doc" : "Optional static SPA directory to host."
+    }, {
+      "name" : "username",
+      "type" : "string",
+      "required" : false,
+      "doc" : "BASIC credential ($ENV. resolvable)."
+    } ]
+  }, {
+    "artifactId" : "svc-admin-web",
+    "kind" : "service",
+    "yamlKey" : "services",
+    "yamlBindKey" : "service",
+    "instanceFqn" : "com.telamin.mongoose.plugin.svc.adminweb.WebAdminService",
+    "doc" : "Browser admin & monitoring console (REST + WebSocket + SPA).",
+    "fields" : [ {
+      "name" : "authMode",
+      "type" : "enum",
+      "required" : false,
+      "default" : "NONE",
+      "enumValues" : [ "NONE", "BASIC", "BEARER" ],
+      "doc" : "NONE | BASIC | BEARER."
+    }, {
+      "name" : "basePath",
+      "type" : "string",
+      "required" : false
+    }, {
+      "name" : "bearerToken",
+      "type" : "string",
+      "required" : false,
+      "doc" : "BEARER credential ($ENV. resolvable)."
+    }, {
+      "name" : "graphmlRoots",
+      "type" : "list",
+      "required" : false,
+      "default" : [ ],
+      "elementType" : "string",
+      "doc" : "Dirs the processor-graph panel reads .graphml from."
+    }, {
+      "name" : "host",
+      "type" : "string",
+      "required" : false,
+      "default" : "127.0.0.1",
+      "format" : "host",
+      "doc" : "Bind address; loopback by default — front with TLS for multi-host."
+    }, {
+      "name" : "listenPort",
+      "type" : "int",
+      "required" : false,
+      "default" : 8181,
+      "format" : "port"
+    }, {
+      "name" : "loaderBaseDir",
+      "type" : "string",
+      "required" : false,
+      "format" : "path",
+      "doc" : "Root for the loader file picker; unset disables it."
+    }, {
+      "name" : "logTailBuffer",
+      "type" : "int",
+      "required" : false,
+      "default" : 500,
+      "doc" : "Max retained log records for the log tail."
+    }, {
+      "name" : "metricsIntervalMs",
+      "type" : "int",
+      "required" : false,
+      "default" : 1000,
+      "format" : "millis",
+      "doc" : "JVM/throughput sampler period."
+    }, {
+      "name" : "password",
+      "type" : "string",
+      "required" : false,
+      "doc" : "BASIC credential ($ENV. resolvable)."
+    }, {
+      "name" : "realm",
+      "type" : "string",
+      "required" : false,
+      "default" : "mongoose-admin"
+    }, {
+      "name" : "sessionMinutes",
+      "type" : "int",
+      "required" : false,
+      "default" : 60,
+      "doc" : "Session cookie lifetime."
+    }, {
+      "name" : "sessionSecret",
+      "type" : "string",
+      "required" : false,
+      "doc" : "HMAC key for session cookies ($ENV. resolvable); pin to survive restarts."
+    }, {
+      "name" : "sourceRoots",
+      "type" : "list",
+      "required" : false,
+      "default" : [ ],
+      "elementType" : "string",
+      "doc" : "Dirs the node-source viewer reads .java from."
+    }, {
+      "name" : "username",
+      "type" : "string",
+      "required" : false,
+      "doc" : "BASIC credential ($ENV. resolvable)."
+    } ]
+  }, {
+    "artifactId" : "svc-loader-yaml",
+    "kind" : "service",
+    "yamlKey" : "services",
+    "yamlBindKey" : "service",
+    "instanceFqn" : "com.telamin.mongoose.plugin.loader.yaml.EventHandlerLoader",
+    "doc" : "Load/reload processors at runtime from YAML or Java source.",
+    "fields" : [ {
+      "name" : "generatedResourcesDir",
+      "type" : "string",
+      "required" : false,
+      "format" : "path"
+    }, {
+      "name" : "generatedSourceDir",
+      "type" : "string",
+      "required" : false,
+      "format" : "path"
+    }, {
+      "name" : "loadAtStartup",
+      "type" : "list",
+      "required" : false,
+      "default" : [ ],
+      "elementType" : "nested",
+      "doc" : "Descriptors to compile + load at boot.",
+      "fields" : [ {
+        "name" : "addEventAuditor",
+        "type" : "boolean",
+        "required" : false,
+        "default" : false
+      }, {
+        "name" : "compile",
+        "type" : "boolean",
+        "required" : false,
+        "default" : true
+      }, {
+        "name" : "group",
+        "type" : "string",
+        "required" : false,
+        "default" : "yamlLoader"
+      }, {
+        "name" : "yamlFile",
+        "type" : "string",
+        "required" : false
+      } ]
+    }, {
+      "name" : "packageName",
+      "type" : "string",
+      "required" : false,
+      "default" : "com.telamin.mongoose.runtime.loaded.yaml"
+    }, {
+      "name" : "persistentConfigDir",
+      "type" : "string",
+      "required" : false,
+      "format" : "path"
+    } ]
+  }, {
+    "artifactId" : "svc-loader-spring",
+    "kind" : "service",
+    "yamlKey" : "services",
+    "yamlBindKey" : "service",
+    "instanceFqn" : "com.telamin.mongoose.plugin.loader.spring.SpringEventHandlerLoader",
+    "doc" : "Load/reload processors at runtime from Spring XML.",
+    "fields" : [ {
+      "name" : "generatedResourcesDir",
+      "type" : "string",
+      "required" : false,
+      "format" : "path"
+    }, {
+      "name" : "generatedSourceDir",
+      "type" : "string",
+      "required" : false,
+      "format" : "path"
+    }, {
+      "name" : "loadAtStartup",
+      "type" : "list",
+      "required" : false,
+      "default" : [ ],
+      "elementType" : "nested",
+      "doc" : "Spring files to load at boot.",
+      "fields" : [ {
+        "name" : "addEventAuditor",
+        "type" : "boolean",
+        "required" : false,
+        "default" : true
+      }, {
+        "name" : "compile",
+        "type" : "boolean",
+        "required" : false,
+        "default" : true
+      }, {
+        "name" : "group",
+        "type" : "string",
+        "required" : false,
+        "default" : "springBeanLoader"
+      }, {
+        "name" : "springFile",
+        "type" : "string",
+        "required" : false
+      } ]
+    }, {
+      "name" : "packageName",
+      "type" : "string",
+      "required" : false,
+      "default" : "com.telamin.mongoose.runtime.loaded.spring"
+    }, {
+      "name" : "persistentConfigDir",
+      "type" : "string",
+      "required" : false,
+      "format" : "path"
+    } ]
+  }, {
+    "artifactId" : "svc-loader-feed",
+    "kind" : "service",
+    "yamlKey" : "services",
+    "yamlBindKey" : "service",
+    "instanceFqn" : "com.telamin.mongoose.plugin.loader.feed.FeedLoader",
+    "doc" : "Add/remove event feeds at runtime.",
+    "fields" : [ {
+      "name" : "persistentConfigDir",
+      "type" : "string",
+      "required" : false,
+      "format" : "path",
+      "doc" : "Where runtime-added feed configs are persisted."
+    } ]
+  }, {
+    "artifactId" : "svc-loader-sink",
+    "kind" : "service",
+    "yamlKey" : "services",
+    "yamlBindKey" : "service",
+    "instanceFqn" : "com.telamin.mongoose.plugin.loader.sink.SinkLoader",
+    "doc" : "Add/remove event sinks at runtime.",
+    "fields" : [ {
+      "name" : "persistentConfigDir",
+      "type" : "string",
+      "required" : false,
+      "format" : "path",
+      "doc" : "Where runtime-added sink configs are persisted."
+    } ]
+  } ]
+}

@@ -1,6 +1,6 @@
 # Connector / service config schema — generation & publishing
 
-**Status**: P1 shipped (see §11 Progress) · spec otherwise draft
+**Status**: P1–P3 shipped (24 plugins generated + published to the docs site; see §11 Progress) · P4 (release-pipeline automation) + minor depth items remain
 **Repo**: `mongoose-plugins` (the source of truth for the plugin classes)
 **Consumers**: the Fluxtion **Project Starter** (`fluxtion-web/docs/project-starter`,
 §11.1) for its feed/sink/service config editors; the **mongoose-plugins docs site**
@@ -274,8 +274,8 @@ and emits the values into `server-config.yml` under the correct `yamlKey` +
    (see §11; **24 plugins**); **SnakeYAML public-field binding + `@ConfigField`
    still to do.** `list`/`map` element types, `sourceVersion` (core on the mongoose
    axis), per-entry `id` override key, no-init loading, nested-POJO recursion shipped.
-3. **P3** — publish step: raw `schema.json` (latest + versioned) to the docs site +
-   generated per-plugin config-reference pages in MkDocs nav.
+3. **P3** ☑ **— publishing done** (see §11): raw `schema.json` (latest + versioned)
+   + a generated config-reference page published into the MkDocs site + nav.
 4. **P4** — wire into the release pipeline (schema regenerated + published every
    `mongoose-plugins` release); fluxtion-web starter consumes it.
 5. **P5 (optional)** — `@ConfigField` annotation in mongoose-core + substrate-lint
@@ -402,7 +402,29 @@ url, pooled, maximumPoolSize, timeouts, …, correct defaults). Scoping to
 stay `ref`). Overrides apply only at depth 0. 9 tests green
 (`jdbcConnectionsRecurseAsNested`); golden re-locked (still 24 plugins, jdbc enriched).
 
-**P2 remaining (next agent):**
+### P3 — publishing shipped (2026-06-05, same session)
+
+- **`DocsRenderer`** renders the `Schema` → a human-readable MkDocs page (grouped
+  connectors/services, a field table per plugin, nested objects expanded inline,
+  enum values + formats + docs shown).
+- **`SchemaGenMain` extended**: `SchemaGenMain <version> <outDir> [docsDir]` — when
+  `docsDir` is given it also writes `<docs>/schema/schema.json` (+ version-stamped)
+  for machine consumers and `<docs>/reference/config-reference.md`.
+- **Published into the repo's `docs/`**: `docs/schema/schema.json` +
+  `schema-1.0.31-SNAPSHOT.json`, `docs/reference/config-reference.md`; wired into
+  `mkdocs.yml` nav as **Config reference**. MkDocs copies the `.json` verbatim, so the
+  starter can fetch `https://telaminai.github.io/mongoose-plugins/schema/schema.json`.
+- **Regeneration command** (run at release / when plugins change):
+  `mvn -pl tooling/config-schema-gen org.codehaus.mojo:exec-maven-plugin:3.3.0:java
+  -Dexec.mainClass=…SchemaGenMain -Dexec.args="<pluginsVersion> target/schema-out docs"`.
+  The committed files are a **generated snapshot** (the page carries a "Generated"
+  admonition); automating this in the release/docs CI is **P4**.
+
+**P2/onward remaining (next agent):**
+- **P4 — release-pipeline automation**: run the generator in `release.yml`/`docs.yml`
+  (needs a JDK + Maven step before the mkdocs build) so `schema.json` + the reference
+  page regenerate every release rather than being committed by hand. Also: gate the
+  core `sourceVersion` literals against the parent pom `<mongoose.version>`.
 - **SnakeYAML public-field binding** (§3) — properties bound without a setter.
 - **`@ConfigField`** (§3.2 / P5) — replace most of `schema-overrides.json`.
 

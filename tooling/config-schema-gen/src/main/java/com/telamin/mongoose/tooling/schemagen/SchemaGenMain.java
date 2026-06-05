@@ -48,7 +48,7 @@ public final class SchemaGenMain {
 
     public static void main(String[] args) throws Exception {
         if (args.length < 2) {
-            System.err.println("usage: SchemaGenMain <pluginsVersion> <outputDir>");
+            System.err.println("usage: SchemaGenMain <pluginsVersion> <outputDir> [docsDir]");
             System.exit(2);
         }
         String pluginsVersion = args[0];
@@ -62,5 +62,21 @@ public final class SchemaGenMain {
         Files.writeString(outDir.resolve("schema-" + pluginsVersion + ".json"), json, StandardCharsets.UTF_8);
         System.out.println("[schema-gen] wrote schema.json (" + schema.plugins().size()
                 + " plugins) for mongoose-plugins " + pluginsVersion + " -> " + outDir);
+
+        // Optional: publish into the MkDocs docs tree — raw schema.json (latest +
+        // version-stamped) for machine consumers, plus a human-readable reference page.
+        if (args.length >= 3) {
+            Path docs = Path.of(args[2]);
+            Path schemaDir = docs.resolve("schema");
+            Path refDir = docs.resolve("reference");
+            Files.createDirectories(schemaDir);
+            Files.createDirectories(refDir);
+            Files.writeString(schemaDir.resolve("schema.json"), json, StandardCharsets.UTF_8);
+            Files.writeString(schemaDir.resolve("schema-" + pluginsVersion + ".json"), json, StandardCharsets.UTF_8);
+            String md = new DocsRenderer().renderMarkdown(schema);
+            Files.writeString(refDir.resolve("config-reference.md"), md, StandardCharsets.UTF_8);
+            System.out.println("[schema-gen] published docs -> " + docs
+                    + " (schema/schema.json, reference/config-reference.md)");
+        }
     }
 }
