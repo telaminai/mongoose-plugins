@@ -2,6 +2,73 @@
   "schemaVersion" : 1,
   "pluginsVersion" : "test-1.0.0",
   "plugins" : [ {
+    "artifactId" : "mongoose",
+    "kind" : "source",
+    "yamlKey" : "eventFeeds",
+    "yamlBindKey" : "instance",
+    "instanceFqn" : "com.telamin.mongoose.connector.file.FileEventSource",
+    "sourceVersion" : "1.0.20",
+    "doc" : "Built-in (mongoose-core): tail a file as an event source.",
+    "fields" : [ {
+      "name" : "cacheEventLog",
+      "type" : "boolean",
+      "required" : false,
+      "default" : false,
+      "doc" : "Retain published lines in memory for replay."
+    }, {
+      "name" : "filename",
+      "type" : "string",
+      "required" : true,
+      "format" : "path",
+      "doc" : "Path to the file to tail."
+    }, {
+      "name" : "readStrategy",
+      "type" : "enum",
+      "required" : false,
+      "default" : "COMMITED",
+      "enumValues" : [ "COMMITED", "EARLIEST", "LATEST", "ONCE_EARLIEST", "ONCE_LATEST" ],
+      "doc" : "How much of the file to replay on start."
+    } ]
+  }, {
+    "artifactId" : "mongoose",
+    "kind" : "sink",
+    "yamlKey" : "eventSinks",
+    "yamlBindKey" : "instance",
+    "instanceFqn" : "com.telamin.mongoose.connector.file.FileMessageSink",
+    "sourceVersion" : "1.0.20",
+    "doc" : "Built-in (mongoose-core): append messages to a file.",
+    "fields" : [ {
+      "name" : "filename",
+      "type" : "string",
+      "required" : true,
+      "format" : "path",
+      "doc" : "Path of the output file."
+    } ]
+  }, {
+    "artifactId" : "mongoose",
+    "kind" : "source",
+    "yamlKey" : "eventFeeds",
+    "yamlBindKey" : "instance",
+    "instanceFqn" : "com.telamin.mongoose.connector.memory.InMemoryEventSource",
+    "sourceVersion" : "1.0.20",
+    "doc" : "Built-in (mongoose-core): in-memory event source (tests / in-process).",
+    "fields" : [ {
+      "name" : "cacheEventLog",
+      "type" : "boolean",
+      "required" : false,
+      "default" : false,
+      "doc" : "Retain published events in memory for replay."
+    } ]
+  }, {
+    "artifactId" : "mongoose",
+    "kind" : "sink",
+    "yamlKey" : "eventSinks",
+    "yamlBindKey" : "instance",
+    "instanceFqn" : "com.telamin.mongoose.connector.memory.InMemoryMessageSink",
+    "sourceVersion" : "1.0.20",
+    "doc" : "Built-in (mongoose-core): in-memory message sink.",
+    "fields" : [ ]
+  }, {
     "artifactId" : "connector-file",
     "kind" : "source",
     "yamlKey" : "eventFeeds",

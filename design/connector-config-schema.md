@@ -270,9 +270,10 @@ and emits the values into `server-config.yml` under the correct `yamlKey` +
 1. **P1** ✅ **— shipped** (see §11). `plugin-index.json` (central) + reflection
    generator + `schema.json` for the file connector + svc-cache (proof). Golden-file
    test asserting the emitted schema.
-2. **P2** ◐ **— all connectors + all services done** (see §11; 20 plugins);
-   **mongoose-core built-ins + nested config + SnakeYAML public-field + `@ConfigField`
-   still to do.** `list`/`map` element types, `sourceVersion`, no-init loading shipped.
+2. **P2** ◐ **— all connectors + all services + mongoose-core built-ins done**
+   (see §11; **24 plugins**); **nested config + SnakeYAML public-field + `@ConfigField`
+   still to do.** `list`/`map` element types, `sourceVersion` (core on the mongoose
+   axis), per-entry `id` override key, no-init loading all shipped.
 3. **P3** — publish step: raw `schema.json` (latest + versioned) to the docs site +
    generated per-plugin config-reference pages in MkDocs nav.
 4. **P4** — wire into the release pipeline (schema regenerated + published every
@@ -377,10 +378,19 @@ required (svc-jdbc `connections`, svc-cache `fileName`), and clarifying docs. 7 
 green; golden re-locked at 20 plugins. svc-jdbc `connections` is `map<string,ref>`
 (the ref value is a per-connection pool POJO — a nested-config candidate, see below).
 
+**mongoose-core built-ins — done (2026-06-05, same session):** added the 4 core
+built-ins (`connector.file.FileEventSource`/`FileMessageSink`,
+`connector.memory.InMemoryEventSource`/`InMemoryMessageSink`) → **24 entries**. They
+carry `artifactId: "mongoose"` + `sourceVersion: "1.0.20"` (the `mongoose` axis, kept
+in sync with the parent pom `<mongoose.version>`); no extra dep (core is transitive).
+This surfaced a modelling fix: one artifactId now has >1 entry of the same kind
+(mongoose has file + in-memory sources), so the `schema-overrides` key collided —
+added an optional per-entry **`id`** used as the override key (falls back to
+`artifactId:kind`). Verified by `coreBuiltinsCarrySourceVersion`; 8 tests green;
+golden re-locked at 24. NB: the `1.0.20` literals in `plugin-index.json` track the
+parent pom's mongoose version — bump them together (a `--check` gate is a candidate).
+
 **P2 remaining (next agent):**
-- **mongoose-core built-ins** — add `com.telamin.mongoose.connector.file.*` (core) +
-  in-memory with a per-entry `sourceVersion` = the `mongoose` version (§8.5). Needs
-  mongoose-core as a (provided) dep; the index entry sets `sourceVersion`.
 - **Nested config** — `type: nested` recursion (e.g. a config POJO property). Model
   field not yet added; `mapType` returns `ref` for POJOs today.
 - **SnakeYAML public-field binding** (§3) — properties bound without a setter.

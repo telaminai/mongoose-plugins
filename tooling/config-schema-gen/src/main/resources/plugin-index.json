@@ -1,6 +1,39 @@
 {
-  "_comment": "Central manifest of the plugins whose config surface is schematised. One entry per connector instance / service. kind drives yamlKey/yamlBindKey. sourceVersion (optional) names the release axis the class came from — set it for mongoose-core built-ins (mongoose axis); omit for plugin classes (mongoose-plugins axis = the schema's pluginsVersion). See design/connector-config-schema.md §4, §8.5.",
+  "_comment": "Central manifest of the plugins whose config surface is schematised. One entry per connector instance / service. kind drives yamlKey/yamlBindKey. sourceVersion (optional) names the release axis the class came from — set it (= the mongoose version, kept in sync with the mongoose dep) for mongoose-core built-ins; omit for plugin classes (mongoose-plugins axis = the schema's pluginsVersion). id (optional) overrides the schema-overrides lookup key when one artifactId has >1 entry of the same kind. See design/connector-config-schema.md §4, §8.5.",
+  "_mongooseVersionNote": "core built-in sourceVersion values track the <mongoose.version> in the parent pom; bump together.",
   "plugins": [
+    {
+      "artifactId": "mongoose",
+      "id": "mongoose-file:source",
+      "kind": "source",
+      "sourceVersion": "1.0.20",
+      "instanceFqn": "com.telamin.mongoose.connector.file.FileEventSource",
+      "doc": "Built-in (mongoose-core): tail a file as an event source."
+    },
+    {
+      "artifactId": "mongoose",
+      "id": "mongoose-file:sink",
+      "kind": "sink",
+      "sourceVersion": "1.0.20",
+      "instanceFqn": "com.telamin.mongoose.connector.file.FileMessageSink",
+      "doc": "Built-in (mongoose-core): append messages to a file."
+    },
+    {
+      "artifactId": "mongoose",
+      "id": "mongoose-memory:source",
+      "kind": "source",
+      "sourceVersion": "1.0.20",
+      "instanceFqn": "com.telamin.mongoose.connector.memory.InMemoryEventSource",
+      "doc": "Built-in (mongoose-core): in-memory event source (tests / in-process)."
+    },
+    {
+      "artifactId": "mongoose",
+      "id": "mongoose-memory:sink",
+      "kind": "sink",
+      "sourceVersion": "1.0.20",
+      "instanceFqn": "com.telamin.mongoose.connector.memory.InMemoryMessageSink",
+      "doc": "Built-in (mongoose-core): in-memory message sink."
+    },
     {
       "artifactId": "connector-file",
       "kind": "source",

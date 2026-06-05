@@ -1,6 +1,18 @@
 {
   "_comment": "Hand-curated refinements merged over reflected output, keyed by 'artifactId:kind' then property. Each property may set: hide (drop), required, doc, format (path|host|port|url|millis). Reflection can't infer required/docs and over-reports internal container/ref setters; this is the curation surface. See design/connector-config-schema.md §3.1.",
   "overrides": {
+    "mongoose-file:source": {
+      "filename":      { "required": true, "format": "path", "doc": "Path to the file to tail." },
+      "readStrategy":  { "doc": "How much of the file to replay on start." },
+      "cacheEventLog": { "doc": "Retain published lines in memory for replay." }
+    },
+    "mongoose-file:sink": {
+      "filename": { "required": true, "format": "path", "doc": "Path of the output file." }
+    },
+    "mongoose-memory:source": {
+      "cacheEventLog": { "doc": "Retain published events in memory for replay." }
+    },
+
     "connector-file:source": {
       "filename":      { "required": true,  "format": "path", "doc": "Path to the file to tail." },
       "readStrategy":  { "doc": "How much of the file to replay on start." },

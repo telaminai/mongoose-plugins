@@ -17,6 +17,7 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -53,8 +54,24 @@ class SchemaGeneratorTest {
         Schema s = build();
         assertEquals(SchemaGenerator.SCHEMA_VERSION, s.schemaVersion());
         assertEquals(VERSION, s.pluginsVersion());
-        // P2 index: 5 connectors × (source+sink) = 10, + 10 services = 20.
-        assertEquals(20, s.plugins().size());
+        // P2 index: 5 plugin connectors × 2 = 10, + 10 services + 4 mongoose-core
+        // built-ins (file + in-memory, source+sink) = 24.
+        assertEquals(24, s.plugins().size());
+    }
+
+    @Test
+    void coreBuiltinsCarrySourceVersion() throws Exception {
+        Schema s = build();
+        PluginSchema coreFile = s.plugins().stream()
+                .filter(p -> p.instanceFqn().equals("com.telamin.mongoose.connector.file.FileEventSource"))
+                .findFirst().orElseThrow();
+        // Core built-ins live on the mongoose axis, stamped independently of the
+        // schema's pluginsVersion (design §8.5).
+        assertEquals("mongoose", coreFile.artifactId());
+        assertEquals("1.0.20", coreFile.sourceVersion());
+        assertTrue(field(coreFile, "filename").required());
+        // Plugin connectors carry no sourceVersion (== schema pluginsVersion).
+        assertNull(plugin(s, "connector-file", "source").sourceVersion());
     }
 
     @Test

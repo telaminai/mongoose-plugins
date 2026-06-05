@@ -70,7 +70,11 @@ public final class SchemaGenerator {
         String doc = entry.hasNonNull("doc") ? entry.get("doc").asText() : null;
         String sourceVersion = entry.hasNonNull("sourceVersion") ? entry.get("sourceVersion").asText() : null;
 
-        JsonNode ov = overrides.path("overrides").path(artifactId + ":" + kind);
+        // Override key: explicit `id` when present, else `artifactId:kind`. The id is
+        // needed when one artifact exposes >1 entry of the same kind (e.g. mongoose
+        // core has file + in-memory sources — both "mongoose:source").
+        String ovKey = entry.hasNonNull("id") ? entry.get("id").asText() : artifactId + ":" + kind;
+        JsonNode ov = overrides.path("overrides").path(ovKey);
         List<FieldSchema> fields = reflectFields(fqn, ov);
 
         return new PluginSchema(artifactId, kind, yamlKey(kind), yamlBindKey(kind), fqn, sourceVersion, doc, fields);
