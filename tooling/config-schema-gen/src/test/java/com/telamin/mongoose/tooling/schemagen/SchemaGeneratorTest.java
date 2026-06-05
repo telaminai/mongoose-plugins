@@ -53,8 +53,25 @@ class SchemaGeneratorTest {
         Schema s = build();
         assertEquals(SchemaGenerator.SCHEMA_VERSION, s.schemaVersion());
         assertEquals(VERSION, s.pluginsVersion());
-        // P2 index: 5 connectors × (source+sink) + svc-cache = 11.
-        assertEquals(11, s.plugins().size());
+        // P2 index: 5 connectors × (source+sink) = 10, + 10 services = 20.
+        assertEquals(20, s.plugins().size());
+    }
+
+    @Test
+    void serviceConfigSurfaceIsClean() throws Exception {
+        // svc-admin-web has many @ServiceRegistered framework fields alongside real
+        // config — assert the framework ones are filtered and the config ones kept.
+        PluginSchema web = plugin(build(), "svc-admin-web", "service");
+        assertEquals("service", web.yamlBindKey());
+        assertEquals("enum", field(web, "authMode").type());
+        assertEquals("host", field(web, "host").format());
+        assertEquals("port", field(web, "listenPort").format());
+        assertEquals("string", field(web, "sourceRoots").elementType(), "list<string>");
+        for (FieldSchema f : web.fields()) {
+            assertFalse(f.name().startsWith("counters") || f.name().equals("adminCommandRegistry")
+                            || f.name().equals("serverController"),
+                    () -> "framework field leaked: " + f.name());
+        }
     }
 
     @Test

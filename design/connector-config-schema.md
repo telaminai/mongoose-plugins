@@ -270,9 +270,9 @@ and emits the values into `server-config.yml` under the correct `yamlKey` +
 1. **P1** ✅ **— shipped** (see §11). `plugin-index.json` (central) + reflection
    generator + `schema.json` for the file connector + svc-cache (proof). Golden-file
    test asserting the emitted schema.
-2. **P2** ◐ **— connectors + model refinements done** (see §11); **services +
-   mongoose-core built-ins + nested still to do.** All 5 connectors covered;
-   `list`/`map` element types, `sourceVersion`, no-init loading shipped.
+2. **P2** ◐ **— all connectors + all services done** (see §11; 20 plugins);
+   **mongoose-core built-ins + nested config + SnakeYAML public-field + `@ConfigField`
+   still to do.** `list`/`map` element types, `sourceVersion`, no-init loading shipped.
 3. **P3** — publish step: raw `schema.json` (latest + versioned) to the docs site +
    generated per-plugin config-reference pages in MkDocs nav.
 4. **P4** — wire into the release pipeline (schema regenerated + published every
@@ -367,11 +367,17 @@ code, not just docs)**:
   introspection; `newInstance` for defaults stays wrapped (null defaults if it fails).
 - 6 tests green (added the kafka list/map test); golden re-locked (11 plugins).
 
+**Services sweep — done (2026-06-05, same session):** all 10 services added
+(svc-cache, svc-jdbc, svc-micrometer, svc-admin-telnet/-rest/-web, svc-loader-yaml/
+-spring/-feed/-sink) → **20 `plugins[]` entries** total. The framework-field filter
+handled svc-admin-web's large surface cleanly (host/port/auth/session kept; the
+`@ServiceRegistered` counters/registry/controller infra filtered) — verified by
+`serviceConfigSurfaceIsClean`. Curation added formats (host/port/path/millis), a few
+required (svc-jdbc `connections`, svc-cache `fileName`), and clarifying docs. 7 tests
+green; golden re-locked at 20 plugins. svc-jdbc `connections` is `map<string,ref>`
+(the ref value is a per-connection pool POJO — a nested-config candidate, see below).
+
 **P2 remaining (next agent):**
-- **Services sweep** — svc-jdbc, svc-admin-rest/-telnet/-web, svc-loader-yaml/-spring/
-  -feed/-sink, svc-micrometer. Some have non-uniform primary-class names; find each
-  instance FQN (a few don't match the `*EventSource`/`*Sink` pattern), add dep + index
-  entry + curation. (svc-admin-web reflects a *large* surface — heavy curation.)
 - **mongoose-core built-ins** — add `com.telamin.mongoose.connector.file.*` (core) +
   in-memory with a per-entry `sourceVersion` = the `mongoose` version (§8.5). Needs
   mongoose-core as a (provided) dep; the index entry sets `sourceVersion`.

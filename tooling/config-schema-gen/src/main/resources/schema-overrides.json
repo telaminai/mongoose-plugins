@@ -59,6 +59,61 @@
       "maxSize":    { "doc": "0 = unbounded; >0 enables LRU eviction." },
       "asyncWrite": { "doc": "Flush writes on a background thread." },
       "cacheMap":   { "hide": true }
+    },
+
+    "svc-jdbc:service": {
+      "connections":    { "required": true, "doc": "Named JDBC connections (name → pool config: url, user, password, sizing)." },
+      "testConnection": { "doc": "Run a validation query for each pool at startup." },
+      "fastFail":       { "doc": "Fail boot if a startup connectivity test fails." }
+    },
+    "svc-micrometer:service": {
+      "sampleIntervalMs": { "format": "millis", "doc": "How often counters are pushed to the registry." }
+    },
+    "svc-admin-telnet:service": {
+      "interfaceName": { "format": "host", "doc": "Bind address; loopback by default." },
+      "listenPort":    { "format": "port", "doc": "Telnet listen port." }
+    },
+    "svc-admin-rest:service": {
+      "host":       { "format": "host", "doc": "Bind address (0.0.0.0 = all interfaces — front with TLS)." },
+      "listenPort": { "format": "port" },
+      "authMode":   { "doc": "NONE | BASIC | BEARER." },
+      "username":   { "doc": "BASIC credential ($ENV. resolvable)." },
+      "password":   { "doc": "BASIC credential ($ENV. resolvable)." },
+      "bearerToken":{ "doc": "BEARER credential ($ENV. resolvable)." },
+      "staticDir":  { "format": "path", "doc": "Optional static SPA directory to host." }
+    },
+    "svc-admin-web:service": {
+      "host":          { "format": "host", "doc": "Bind address; loopback by default — front with TLS for multi-host." },
+      "listenPort":    { "format": "port" },
+      "authMode":      { "doc": "NONE | BASIC | BEARER." },
+      "username":      { "doc": "BASIC credential ($ENV. resolvable)." },
+      "password":      { "doc": "BASIC credential ($ENV. resolvable)." },
+      "bearerToken":   { "doc": "BEARER credential ($ENV. resolvable)." },
+      "sessionSecret": { "doc": "HMAC key for session cookies ($ENV. resolvable); pin to survive restarts." },
+      "sessionMinutes":{ "doc": "Session cookie lifetime." },
+      "metricsIntervalMs": { "format": "millis", "doc": "JVM/throughput sampler period." },
+      "logTailBuffer": { "doc": "Max retained log records for the log tail." },
+      "loaderBaseDir": { "format": "path", "doc": "Root for the loader file picker; unset disables it." },
+      "sourceRoots":   { "elementType": "string", "doc": "Dirs the node-source viewer reads .java from." },
+      "graphmlRoots":  { "elementType": "string", "doc": "Dirs the processor-graph panel reads .graphml from." }
+    },
+    "svc-loader-yaml:service": {
+      "loadAtStartup":         { "doc": "Descriptors to compile + load at boot." },
+      "generatedSourceDir":    { "format": "path" },
+      "generatedResourcesDir": { "format": "path" },
+      "persistentConfigDir":   { "format": "path" }
+    },
+    "svc-loader-spring:service": {
+      "loadAtStartup":         { "doc": "Spring files to load at boot." },
+      "generatedSourceDir":    { "format": "path" },
+      "generatedResourcesDir": { "format": "path" },
+      "persistentConfigDir":   { "format": "path" }
+    },
+    "svc-loader-feed:service": {
+      "persistentConfigDir": { "format": "path", "doc": "Where runtime-added feed configs are persisted." }
+    },
+    "svc-loader-sink:service": {
+      "persistentConfigDir": { "format": "path", "doc": "Where runtime-added sink configs are persisted." }
     }
   }
 }

@@ -66,6 +66,60 @@
       "kind": "service",
       "instanceFqn": "com.telamin.mongoose.plugin.svc.cache.JsonFileCache",
       "doc": "JSON-persistent key/value cache service."
+    },
+    {
+      "artifactId": "svc-jdbc",
+      "kind": "service",
+      "instanceFqn": "com.telamin.mongoose.plugin.svc.jdbc.impl.JdbcConnectionLoaderService",
+      "doc": "Named JDBC connection registry (HikariCP-backed)."
+    },
+    {
+      "artifactId": "svc-micrometer",
+      "kind": "service",
+      "instanceFqn": "com.telamin.mongoose.plugin.svc.micrometer.MicrometerBridge",
+      "doc": "Bridge Mongoose counters to a Micrometer registry."
+    },
+    {
+      "artifactId": "svc-admin-telnet",
+      "kind": "service",
+      "instanceFqn": "com.telamin.mongoose.plugin.svc.admintelnet.TelnetAdminCommandProcessor",
+      "doc": "Telnet admin endpoint (JLine completion + history)."
+    },
+    {
+      "artifactId": "svc-admin-rest",
+      "kind": "service",
+      "instanceFqn": "com.telamin.mongoose.plugin.svc.adminrest.JavalinAdminCommandService",
+      "doc": "Javalin REST admin endpoint."
+    },
+    {
+      "artifactId": "svc-admin-web",
+      "kind": "service",
+      "instanceFqn": "com.telamin.mongoose.plugin.svc.adminweb.WebAdminService",
+      "doc": "Browser admin & monitoring console (REST + WebSocket + SPA)."
+    },
+    {
+      "artifactId": "svc-loader-yaml",
+      "kind": "service",
+      "instanceFqn": "com.telamin.mongoose.plugin.loader.yaml.EventHandlerLoader",
+      "doc": "Load/reload processors at runtime from YAML or Java source."
+    },
+    {
+      "artifactId": "svc-loader-spring",
+      "kind": "service",
+      "instanceFqn": "com.telamin.mongoose.plugin.loader.spring.SpringEventHandlerLoader",
+      "doc": "Load/reload processors at runtime from Spring XML."
+    },
+    {
+      "artifactId": "svc-loader-feed",
+      "kind": "service",
+      "instanceFqn": "com.telamin.mongoose.plugin.loader.feed.FeedLoader",
+      "doc": "Add/remove event feeds at runtime."
+    },
+    {
+      "artifactId": "svc-loader-sink",
+      "kind": "service",
+      "instanceFqn": "com.telamin.mongoose.plugin.loader.sink.SinkLoader",
+      "doc": "Add/remove event sinks at runtime."
     }
   ]
 }

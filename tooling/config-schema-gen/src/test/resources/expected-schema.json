@@ -360,5 +360,328 @@
       "default" : 0,
       "doc" : "0 = unbounded; >0 enables LRU eviction."
     } ]
+  }, {
+    "artifactId" : "svc-jdbc",
+    "kind" : "service",
+    "yamlKey" : "services",
+    "yamlBindKey" : "service",
+    "instanceFqn" : "com.telamin.mongoose.plugin.svc.jdbc.impl.JdbcConnectionLoaderService",
+    "doc" : "Named JDBC connection registry (HikariCP-backed).",
+    "fields" : [ {
+      "name" : "connections",
+      "type" : "map",
+      "required" : true,
+      "default" : { },
+      "keyType" : "string",
+      "valueType" : "ref",
+      "doc" : "Named JDBC connections (name → pool config: url, user, password, sizing)."
+    }, {
+      "name" : "fastFail",
+      "type" : "boolean",
+      "required" : false,
+      "default" : false,
+      "doc" : "Fail boot if a startup connectivity test fails."
+    }, {
+      "name" : "testConnection",
+      "type" : "boolean",
+      "required" : false,
+      "default" : false,
+      "doc" : "Run a validation query for each pool at startup."
+    } ]
+  }, {
+    "artifactId" : "svc-micrometer",
+    "kind" : "service",
+    "yamlKey" : "services",
+    "yamlBindKey" : "service",
+    "instanceFqn" : "com.telamin.mongoose.plugin.svc.micrometer.MicrometerBridge",
+    "doc" : "Bridge Mongoose counters to a Micrometer registry.",
+    "fields" : [ {
+      "name" : "counterPrefix",
+      "type" : "string",
+      "required" : false,
+      "default" : "mongoose"
+    }, {
+      "name" : "latencyPrefix",
+      "type" : "string",
+      "required" : false,
+      "default" : "mongoose.latency"
+    }, {
+      "name" : "sampleIntervalMs",
+      "type" : "long",
+      "required" : false,
+      "default" : 1000,
+      "format" : "millis",
+      "doc" : "How often counters are pushed to the registry."
+    } ]
+  }, {
+    "artifactId" : "svc-admin-telnet",
+    "kind" : "service",
+    "yamlKey" : "services",
+    "yamlBindKey" : "service",
+    "instanceFqn" : "com.telamin.mongoose.plugin.svc.admintelnet.TelnetAdminCommandProcessor",
+    "doc" : "Telnet admin endpoint (JLine completion + history).",
+    "fields" : [ {
+      "name" : "interfaceName",
+      "type" : "string",
+      "required" : false,
+      "default" : "127.0.0.1",
+      "format" : "host",
+      "doc" : "Bind address; loopback by default."
+    }, {
+      "name" : "listenPort",
+      "type" : "int",
+      "required" : false,
+      "default" : 2019,
+      "format" : "port",
+      "doc" : "Telnet listen port."
+    } ]
+  }, {
+    "artifactId" : "svc-admin-rest",
+    "kind" : "service",
+    "yamlKey" : "services",
+    "yamlBindKey" : "service",
+    "instanceFqn" : "com.telamin.mongoose.plugin.svc.adminrest.JavalinAdminCommandService",
+    "doc" : "Javalin REST admin endpoint.",
+    "fields" : [ {
+      "name" : "authMode",
+      "type" : "enum",
+      "required" : false,
+      "default" : "NONE",
+      "enumValues" : [ "NONE", "BASIC", "BEARER" ],
+      "doc" : "NONE | BASIC | BEARER."
+    }, {
+      "name" : "bearerToken",
+      "type" : "string",
+      "required" : false,
+      "doc" : "BEARER credential ($ENV. resolvable)."
+    }, {
+      "name" : "host",
+      "type" : "string",
+      "required" : false,
+      "default" : "0.0.0.0",
+      "format" : "host",
+      "doc" : "Bind address (0.0.0.0 = all interfaces — front with TLS)."
+    }, {
+      "name" : "listenPort",
+      "type" : "int",
+      "required" : false,
+      "default" : 8080,
+      "format" : "port"
+    }, {
+      "name" : "password",
+      "type" : "string",
+      "required" : false,
+      "doc" : "BASIC credential ($ENV. resolvable)."
+    }, {
+      "name" : "realm",
+      "type" : "string",
+      "required" : false,
+      "default" : "mongoose-admin"
+    }, {
+      "name" : "staticDir",
+      "type" : "string",
+      "required" : false,
+      "format" : "path",
+      "doc" : "Optional static SPA directory to host."
+    }, {
+      "name" : "username",
+      "type" : "string",
+      "required" : false,
+      "doc" : "BASIC credential ($ENV. resolvable)."
+    } ]
+  }, {
+    "artifactId" : "svc-admin-web",
+    "kind" : "service",
+    "yamlKey" : "services",
+    "yamlBindKey" : "service",
+    "instanceFqn" : "com.telamin.mongoose.plugin.svc.adminweb.WebAdminService",
+    "doc" : "Browser admin & monitoring console (REST + WebSocket + SPA).",
+    "fields" : [ {
+      "name" : "authMode",
+      "type" : "enum",
+      "required" : false,
+      "default" : "NONE",
+      "enumValues" : [ "NONE", "BASIC", "BEARER" ],
+      "doc" : "NONE | BASIC | BEARER."
+    }, {
+      "name" : "basePath",
+      "type" : "string",
+      "required" : false
+    }, {
+      "name" : "bearerToken",
+      "type" : "string",
+      "required" : false,
+      "doc" : "BEARER credential ($ENV. resolvable)."
+    }, {
+      "name" : "graphmlRoots",
+      "type" : "list",
+      "required" : false,
+      "default" : [ ],
+      "elementType" : "string",
+      "doc" : "Dirs the processor-graph panel reads .graphml from."
+    }, {
+      "name" : "host",
+      "type" : "string",
+      "required" : false,
+      "default" : "127.0.0.1",
+      "format" : "host",
+      "doc" : "Bind address; loopback by default — front with TLS for multi-host."
+    }, {
+      "name" : "listenPort",
+      "type" : "int",
+      "required" : false,
+      "default" : 8181,
+      "format" : "port"
+    }, {
+      "name" : "loaderBaseDir",
+      "type" : "string",
+      "required" : false,
+      "format" : "path",
+      "doc" : "Root for the loader file picker; unset disables it."
+    }, {
+      "name" : "logTailBuffer",
+      "type" : "int",
+      "required" : false,
+      "default" : 500,
+      "doc" : "Max retained log records for the log tail."
+    }, {
+      "name" : "metricsIntervalMs",
+      "type" : "int",
+      "required" : false,
+      "default" : 1000,
+      "format" : "millis",
+      "doc" : "JVM/throughput sampler period."
+    }, {
+      "name" : "password",
+      "type" : "string",
+      "required" : false,
+      "doc" : "BASIC credential ($ENV. resolvable)."
+    }, {
+      "name" : "realm",
+      "type" : "string",
+      "required" : false,
+      "default" : "mongoose-admin"
+    }, {
+      "name" : "sessionMinutes",
+      "type" : "int",
+      "required" : false,
+      "default" : 60,
+      "doc" : "Session cookie lifetime."
+    }, {
+      "name" : "sessionSecret",
+      "type" : "string",
+      "required" : false,
+      "doc" : "HMAC key for session cookies ($ENV. resolvable); pin to survive restarts."
+    }, {
+      "name" : "sourceRoots",
+      "type" : "list",
+      "required" : false,
+      "default" : [ ],
+      "elementType" : "string",
+      "doc" : "Dirs the node-source viewer reads .java from."
+    }, {
+      "name" : "username",
+      "type" : "string",
+      "required" : false,
+      "doc" : "BASIC credential ($ENV. resolvable)."
+    } ]
+  }, {
+    "artifactId" : "svc-loader-yaml",
+    "kind" : "service",
+    "yamlKey" : "services",
+    "yamlBindKey" : "service",
+    "instanceFqn" : "com.telamin.mongoose.plugin.loader.yaml.EventHandlerLoader",
+    "doc" : "Load/reload processors at runtime from YAML or Java source.",
+    "fields" : [ {
+      "name" : "generatedResourcesDir",
+      "type" : "string",
+      "required" : false,
+      "format" : "path"
+    }, {
+      "name" : "generatedSourceDir",
+      "type" : "string",
+      "required" : false,
+      "format" : "path"
+    }, {
+      "name" : "loadAtStartup",
+      "type" : "list",
+      "required" : false,
+      "default" : [ ],
+      "elementType" : "ref",
+      "doc" : "Descriptors to compile + load at boot."
+    }, {
+      "name" : "packageName",
+      "type" : "string",
+      "required" : false,
+      "default" : "com.telamin.mongoose.runtime.loaded.yaml"
+    }, {
+      "name" : "persistentConfigDir",
+      "type" : "string",
+      "required" : false,
+      "format" : "path"
+    } ]
+  }, {
+    "artifactId" : "svc-loader-spring",
+    "kind" : "service",
+    "yamlKey" : "services",
+    "yamlBindKey" : "service",
+    "instanceFqn" : "com.telamin.mongoose.plugin.loader.spring.SpringEventHandlerLoader",
+    "doc" : "Load/reload processors at runtime from Spring XML.",
+    "fields" : [ {
+      "name" : "generatedResourcesDir",
+      "type" : "string",
+      "required" : false,
+      "format" : "path"
+    }, {
+      "name" : "generatedSourceDir",
+      "type" : "string",
+      "required" : false,
+      "format" : "path"
+    }, {
+      "name" : "loadAtStartup",
+      "type" : "list",
+      "required" : false,
+      "default" : [ ],
+      "elementType" : "ref",
+      "doc" : "Spring files to load at boot."
+    }, {
+      "name" : "packageName",
+      "type" : "string",
+      "required" : false,
+      "default" : "com.telamin.mongoose.runtime.loaded.spring"
+    }, {
+      "name" : "persistentConfigDir",
+      "type" : "string",
+      "required" : false,
+      "format" : "path"
+    } ]
+  }, {
+    "artifactId" : "svc-loader-feed",
+    "kind" : "service",
+    "yamlKey" : "services",
+    "yamlBindKey" : "service",
+    "instanceFqn" : "com.telamin.mongoose.plugin.loader.feed.FeedLoader",
+    "doc" : "Add/remove event feeds at runtime.",
+    "fields" : [ {
+      "name" : "persistentConfigDir",
+      "type" : "string",
+      "required" : false,
+      "format" : "path",
+      "doc" : "Where runtime-added feed configs are persisted."
+    } ]
+  }, {
+    "artifactId" : "svc-loader-sink",
+    "kind" : "service",
+    "yamlKey" : "services",
+    "yamlBindKey" : "service",
+    "instanceFqn" : "com.telamin.mongoose.plugin.loader.sink.SinkLoader",
+    "doc" : "Add/remove event sinks at runtime.",
+    "fields" : [ {
+      "name" : "persistentConfigDir",
+      "type" : "string",
+      "required" : false,
+      "format" : "path",
+      "doc" : "Where runtime-added sink configs are persisted."
+    } ]
   } ]
 }

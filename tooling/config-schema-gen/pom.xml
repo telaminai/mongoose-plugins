@@ -58,6 +58,51 @@
             <artifactId>svc-cache</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <dependency>
+            <groupId>com.telamin</groupId>
+            <artifactId>svc-jdbc</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.telamin</groupId>
+            <artifactId>svc-micrometer</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.telamin</groupId>
+            <artifactId>svc-admin-telnet</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.telamin</groupId>
+            <artifactId>svc-admin-rest</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.telamin</groupId>
+            <artifactId>svc-admin-web</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.telamin</groupId>
+            <artifactId>svc-loader-yaml</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.telamin</groupId>
+            <artifactId>svc-loader-spring</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.telamin</groupId>
+            <artifactId>svc-loader-feed</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.telamin</groupId>
+            <artifactId>svc-loader-sink</artifactId>
+            <version>${project.version}</version>
+        </dependency>
 
         <!-- JSON read (index/overrides) + write (schema.json). -->
         <dependency>
