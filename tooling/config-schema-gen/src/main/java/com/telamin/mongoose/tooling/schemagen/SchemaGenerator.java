@@ -5,6 +5,7 @@
 package com.telamin.mongoose.tooling.schemagen;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.MissingNode;
 import com.telamin.mongoose.tooling.schemagen.SchemaModel.FieldSchema;
 import com.telamin.mongoose.tooling.schemagen.SchemaModel.PluginSchema;
 import com.telamin.mongoose.tooling.schemagen.SchemaModel.Schema;
@@ -80,6 +81,9 @@ public final class SchemaGenerator {
         return new PluginSchema(artifactId, kind, yamlKey(kind), yamlBindKey(kind), fqn, sourceVersion, doc, fields);
     }
 
+    /** Max nesting depth for config-POJO recursion (cycle/runaway guard). */
+    private static final int MAX_NESTED_DEPTH = 3;
+
     List<FieldSchema> reflectFields(String fqn, JsonNode ov) {
         final Class<?> cls;
         try {
@@ -89,6 +93,13 @@ public final class SchemaGenerator {
         } catch (ClassNotFoundException e) {
             throw new IllegalStateException("config class not on classpath: " + fqn, e);
         }
+        return reflectClass(cls, ov, 0);
+    }
+
+    /** Walk one class's writable bean properties into field schemas. Recurses into
+     *  mongoose-owned config POJOs (direct, list element, map value) as type=nested.
+     *  Overrides only apply at the top level (depth 0); nested levels use none. */
+    private List<FieldSchema> reflectClass(Class<?> cls, JsonNode ov, int depth) {
         Object defaultsInstance = newInstanceOrNull(cls);
 
         List<FieldSchema> fields = new ArrayList<>();
@@ -107,21 +118,40 @@ public final class SchemaGenerator {
             List<String> enumValues = type.isEnum() ? enumConstants(type) : null;
             Object defaultValue = sanitizeDefault(readDefault(defaultsInstance, pd));
 
-            // Element types for collections, read off the array component or the
-            // setter's generic signature. Properties (Hashtable<Object,Object> but
-            // conventionally String→String) is special-cased.
+            // Element/value types for collections (array component or generic arg);
+            // a mongoose-owned config POJO element/value recurses as nested.
+            // Properties (Hashtable<Object,Object>, conventionally String→String) is
+            // special-cased.
             java.lang.reflect.Type generic = pd.getWriteMethod().getGenericParameterTypes()[0];
             String elementType = null, keyType = null, valueType = null;
+            List<FieldSchema> nested = null;
+
             if ("list".equals(typeName)) {
-                elementType = type.isArray() ? mapType(type.getComponentType()) : typeArg(generic, 0);
+                Class<?> el = type.isArray() ? type.getComponentType() : typeArgClass(generic, 0);
+                if (isNestedConfig(el, depth)) {
+                    elementType = "nested";
+                    nested = reflectClass(el, MissingNode.getInstance(), depth + 1);
+                } else {
+                    elementType = el != null ? mapType(el) : "ref";
+                }
             } else if ("map".equals(typeName)) {
                 if (java.util.Properties.class.isAssignableFrom(type)) {
                     keyType = "string";
                     valueType = "string";
                 } else {
-                    keyType = typeArg(generic, 0);
-                    valueType = typeArg(generic, 1);
+                    Class<?> k = typeArgClass(generic, 0);
+                    Class<?> v = typeArgClass(generic, 1);
+                    keyType = k != null ? mapType(k) : "ref";
+                    if (isNestedConfig(v, depth)) {
+                        valueType = "nested";
+                        nested = reflectClass(v, MissingNode.getInstance(), depth + 1);
+                    } else {
+                        valueType = v != null ? mapType(v) : "ref";
+                    }
                 }
+            } else if ("ref".equals(typeName) && isNestedConfig(type, depth)) {
+                typeName = "nested";
+                nested = reflectClass(type, MissingNode.getInstance(), depth + 1);
             }
 
             // Optional by default — a null/absent default does NOT imply required
@@ -133,10 +163,29 @@ public final class SchemaGenerator {
             String doc = overrideStr(ov, name, "doc");
 
             fields.add(new FieldSchema(name, typeName, required, defaultValue, enumValues,
-                    elementType, keyType, valueType, format, doc));
+                    elementType, keyType, valueType, format, doc, nested));
         }
         fields.sort(Comparator.comparing(FieldSchema::name));
         return fields;
+    }
+
+    /** A type worth recursing into as nested config: a concrete, mongoose-owned
+     *  POJO (not framework/jdk/enum/collection) with ≥1 writable bean property,
+     *  under the depth cap. Scoping to com.telamin.mongoose keeps recursion off
+     *  third-party types (Hikari/kafka/agrona) — those stay {@code ref}. */
+    private static boolean isNestedConfig(Class<?> t, int depth) {
+        if (t == null || depth >= MAX_NESTED_DEPTH) return false;
+        if (!t.getName().startsWith("com.telamin.mongoose")) return false;
+        if (t.isInterface() || t.isEnum() || t.isArray() || t.isPrimitive()
+                || java.lang.reflect.Modifier.isAbstract(t.getModifiers())) return false;
+        for (String prefix : FRAMEWORK_TYPE_PREFIXES) {
+            if (t.getName().startsWith(prefix)) return false;
+        }
+        if (java.util.Map.class.isAssignableFrom(t) || java.util.Collection.class.isAssignableFrom(t)) return false;
+        for (PropertyDescriptor pd : beanProperties(t)) {
+            if (pd.getWriteMethod() != null && !"class".equals(pd.getName())) return true;
+        }
+        return false;
     }
 
     private static List<PropertyDescriptor> beanProperties(Class<?> cls) {
@@ -224,17 +273,16 @@ public final class SchemaGenerator {
         return v;
     }
 
-    /** The i-th type argument of a parameterised setter param, mapped to a scalar
-     *  type name (e.g. {@code List<String>} → "string", {@code Map<String,Integer>}
-     *  key → "string"). Returns "ref" when the arg isn't a simple class. */
-    private static String typeArg(java.lang.reflect.Type generic, int index) {
+    /** The raw {@link Class} of the i-th type argument of a parameterised setter
+     *  param ({@code List<String>} → String.class), or null when not a simple class. */
+    private static Class<?> typeArgClass(java.lang.reflect.Type generic, int index) {
         if (generic instanceof java.lang.reflect.ParameterizedType pt) {
             java.lang.reflect.Type[] args = pt.getActualTypeArguments();
             if (index < args.length && args[index] instanceof Class<?> c) {
-                return mapType(c);
+                return c;
             }
         }
-        return "ref";
+        return null;
     }
 
     private static List<String> enumConstants(Class<?> t) {

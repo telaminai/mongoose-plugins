@@ -41,19 +41,23 @@ public final class SchemaModel {
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
     @JsonPropertyOrder({"name", "type", "required", "default", "enumValues",
-            "elementType", "keyType", "valueType", "format", "doc"})
+            "elementType", "keyType", "valueType", "format", "doc", "fields"})
     public record FieldSchema(
             String name,
             String type,
             boolean required,
             @JsonProperty("default") Object defaultValue,
             @JsonInclude(JsonInclude.Include.NON_EMPTY) List<String> enumValues,
-            /** For type=list: the element type (string/int/…/ref). */
+            /** For type=list: the element type (string/int/…/ref/nested). */
             String elementType,
-            /** For type=map: key + value types. */
+            /** For type=map: key + value types (value may be nested). */
             String keyType,
             String valueType,
             String format,
-            String doc) {
+            String doc,
+            /** The nested object's fields, when this field (type=nested) — or its
+             *  list element / map value (elementType/valueType=nested) — is a
+             *  mongoose-owned config POJO. See design §3 / §8. */
+            @JsonInclude(JsonInclude.Include.NON_EMPTY) List<FieldSchema> fields) {
     }
 }

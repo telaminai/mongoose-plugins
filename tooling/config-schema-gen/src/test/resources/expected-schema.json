@@ -440,8 +440,59 @@
       "required" : true,
       "default" : { },
       "keyType" : "string",
-      "valueType" : "ref",
-      "doc" : "Named JDBC connections (name → pool config: url, user, password, sizing)."
+      "valueType" : "nested",
+      "doc" : "Named JDBC connections (name → pool config: url, user, password, sizing).",
+      "fields" : [ {
+        "name" : "connectionTimeoutMs",
+        "type" : "long",
+        "required" : false,
+        "default" : 30000
+      }, {
+        "name" : "idleTimeoutMs",
+        "type" : "long",
+        "required" : false,
+        "default" : 600000
+      }, {
+        "name" : "maxLifetimeMs",
+        "type" : "long",
+        "required" : false,
+        "default" : 1800000
+      }, {
+        "name" : "maximumPoolSize",
+        "type" : "int",
+        "required" : false,
+        "default" : 10
+      }, {
+        "name" : "minimumIdle",
+        "type" : "int",
+        "required" : false,
+        "default" : 0
+      }, {
+        "name" : "password",
+        "type" : "string",
+        "required" : false
+      }, {
+        "name" : "poolName",
+        "type" : "string",
+        "required" : false
+      }, {
+        "name" : "pooled",
+        "type" : "boolean",
+        "required" : false,
+        "default" : true
+      }, {
+        "name" : "url",
+        "type" : "string",
+        "required" : false
+      }, {
+        "name" : "username",
+        "type" : "string",
+        "required" : false
+      }, {
+        "name" : "validationQuery",
+        "type" : "string",
+        "required" : false
+      } ]
     }, {
       "name" : "fastFail",
       "type" : "boolean",
@@ -674,8 +725,28 @@
       "type" : "list",
       "required" : false,
       "default" : [ ],
-      "elementType" : "ref",
-      "doc" : "Descriptors to compile + load at boot."
+      "elementType" : "nested",
+      "doc" : "Descriptors to compile + load at boot.",
+      "fields" : [ {
+        "name" : "addEventAuditor",
+        "type" : "boolean",
+        "required" : false,
+        "default" : false
+      }, {
+        "name" : "compile",
+        "type" : "boolean",
+        "required" : false,
+        "default" : true
+      }, {
+        "name" : "group",
+        "type" : "string",
+        "required" : false,
+        "default" : "yamlLoader"
+      }, {
+        "name" : "yamlFile",
+        "type" : "string",
+        "required" : false
+      } ]
     }, {
       "name" : "packageName",
       "type" : "string",
@@ -709,8 +780,28 @@
       "type" : "list",
       "required" : false,
       "default" : [ ],
-      "elementType" : "ref",
-      "doc" : "Spring files to load at boot."
+      "elementType" : "nested",
+      "doc" : "Spring files to load at boot.",
+      "fields" : [ {
+        "name" : "addEventAuditor",
+        "type" : "boolean",
+        "required" : false,
+        "default" : true
+      }, {
+        "name" : "compile",
+        "type" : "boolean",
+        "required" : false,
+        "default" : true
+      }, {
+        "name" : "group",
+        "type" : "string",
+        "required" : false,
+        "default" : "springBeanLoader"
+      }, {
+        "name" : "springFile",
+        "type" : "string",
+        "required" : false
+      } ]
     }, {
       "name" : "packageName",
       "type" : "string",

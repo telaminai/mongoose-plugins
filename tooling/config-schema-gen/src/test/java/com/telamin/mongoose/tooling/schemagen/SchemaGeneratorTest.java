@@ -146,6 +146,24 @@ class SchemaGeneratorTest {
     }
 
     @Test
+    void jdbcConnectionsRecurseAsNested() throws Exception {
+        // Map<String, JdbcConnectionConfig> → map with valueType=nested + the
+        // pool POJO's fields recursed in.
+        PluginSchema jdbc = plugin(build(), "svc-jdbc", "service");
+        FieldSchema conns = field(jdbc, "connections");
+        assertEquals("map", conns.type());
+        assertEquals("string", conns.keyType());
+        assertEquals("nested", conns.valueType());
+        assertNotNull(conns.fields(), "nested pool fields present");
+        var names = conns.fields().stream().map(FieldSchema::name).toList();
+        assertTrue(names.contains("url") && names.contains("maximumPoolSize") && names.contains("pooled"),
+                () -> "nested JdbcConnectionConfig fields: " + names);
+        // default read off a fresh nested instance
+        FieldSchema pooled = conns.fields().stream().filter(f -> f.name().equals("pooled")).findFirst().orElseThrow();
+        assertEquals(Boolean.TRUE, pooled.defaultValue());
+    }
+
+    @Test
     void matchesGoldenFile() throws Exception {
         // Compare normalised serialised strings (both produced by the same writer)
         // rather than JsonNode trees — tree equality is brittle across int/long

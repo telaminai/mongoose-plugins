@@ -270,10 +270,10 @@ and emits the values into `server-config.yml` under the correct `yamlKey` +
 1. **P1** ✅ **— shipped** (see §11). `plugin-index.json` (central) + reflection
    generator + `schema.json` for the file connector + svc-cache (proof). Golden-file
    test asserting the emitted schema.
-2. **P2** ◐ **— all connectors + all services + mongoose-core built-ins done**
-   (see §11; **24 plugins**); **nested config + SnakeYAML public-field + `@ConfigField`
+2. **P2** ◐ **— all connectors + services + core built-ins + nested config done**
+   (see §11; **24 plugins**); **SnakeYAML public-field binding + `@ConfigField`
    still to do.** `list`/`map` element types, `sourceVersion` (core on the mongoose
-   axis), per-entry `id` override key, no-init loading all shipped.
+   axis), per-entry `id` override key, no-init loading, nested-POJO recursion shipped.
 3. **P3** — publish step: raw `schema.json` (latest + versioned) to the docs site +
    generated per-plugin config-reference pages in MkDocs nav.
 4. **P4** — wire into the release pipeline (schema regenerated + published every
@@ -390,9 +390,19 @@ added an optional per-entry **`id`** used as the override key (falls back to
 golden re-locked at 24. NB: the `1.0.20` literals in `plugin-index.json` track the
 parent pom's mongoose version — bump them together (a `--check` gate is a candidate).
 
+**Nested config — done (2026-06-05, same session):** `reflectFields` refactored to a
+depth-aware `reflectClass(cls, ov, depth)` that recurses into **mongoose-owned config
+POJOs** (`isNestedConfig`: concrete `com.telamin.mongoose.*` class, not framework/jdk/
+enum/collection, has writable props, depth < 3) — as a direct property (`type:nested`),
+a list element (`elementType:nested`), or a **map value** (`valueType:nested`). Nested
+fields land in `FieldSchema.fields`. Proven by svc-jdbc `connections`
+(`Map<String,JdbcConnectionConfig>` → `map<string,nested>` with the full pool POJO:
+url, pooled, maximumPoolSize, timeouts, …, correct defaults). Scoping to
+`com.telamin.mongoose` keeps recursion off third-party types (Hikari/kafka/agrona →
+stay `ref`). Overrides apply only at depth 0. 9 tests green
+(`jdbcConnectionsRecurseAsNested`); golden re-locked (still 24 plugins, jdbc enriched).
+
 **P2 remaining (next agent):**
-- **Nested config** — `type: nested` recursion (e.g. a config POJO property). Model
-  field not yet added; `mapType` returns `ref` for POJOs today.
 - **SnakeYAML public-field binding** (§3) — properties bound without a setter.
 - **`@ConfigField`** (§3.2 / P5) — replace most of `schema-overrides.json`.
 
