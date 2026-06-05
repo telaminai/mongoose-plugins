@@ -53,7 +53,21 @@ class SchemaGeneratorTest {
         Schema s = build();
         assertEquals(SchemaGenerator.SCHEMA_VERSION, s.schemaVersion());
         assertEquals(VERSION, s.pluginsVersion());
-        assertEquals(3, s.plugins().size(), "P1 index has 3 entries");
+        // P2 index: 5 connectors × (source+sink) + svc-cache = 11.
+        assertEquals(11, s.plugins().size());
+    }
+
+    @Test
+    void kafkaCollectionsCarryElementTypes() throws Exception {
+        PluginSchema p = plugin(build(), "connector-kafka", "source");
+        FieldSchema topics = field(p, "topics");
+        assertEquals("list", topics.type(), "String[] topics → list");
+        assertEquals("string", topics.elementType());
+
+        FieldSchema props = field(p, "properties");
+        assertEquals("map", props.type(), "Properties → map");
+        assertEquals("string", props.keyType());
+        assertEquals("string", props.valueType());
     }
 
     @Test

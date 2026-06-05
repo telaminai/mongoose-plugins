@@ -62,6 +62,279 @@
       "doc" : "Rotate when the file exceeds this many bytes; 0 = never."
     } ]
   }, {
+    "artifactId" : "connector-kafka",
+    "kind" : "source",
+    "yamlKey" : "eventFeeds",
+    "yamlBindKey" : "instance",
+    "instanceFqn" : "com.telamin.mongoose.plugin.connector.kafka.KafkaMessageConsumer",
+    "doc" : "Consume from a Kafka topic as an event source.",
+    "fields" : [ {
+      "name" : "pollTimeoutMs",
+      "type" : "long",
+      "required" : false,
+      "default" : 100,
+      "format" : "millis",
+      "doc" : "Consumer poll timeout."
+    }, {
+      "name" : "properties",
+      "type" : "map",
+      "required" : true,
+      "keyType" : "string",
+      "valueType" : "string",
+      "doc" : "Kafka consumer properties (bootstrap.servers, group.id, deserializers, …)."
+    }, {
+      "name" : "topics",
+      "type" : "list",
+      "required" : true,
+      "elementType" : "string",
+      "doc" : "Kafka topics to subscribe to."
+    }, {
+      "name" : "wakeupOnTearDown",
+      "type" : "boolean",
+      "required" : false,
+      "default" : true
+    } ]
+  }, {
+    "artifactId" : "connector-kafka",
+    "kind" : "sink",
+    "yamlKey" : "eventSinks",
+    "yamlBindKey" : "instance",
+    "instanceFqn" : "com.telamin.mongoose.plugin.connector.kafka.KafkaMessagePublisher",
+    "doc" : "Publish messages to a Kafka topic.",
+    "fields" : [ {
+      "name" : "closeTimeoutMs",
+      "type" : "long",
+      "required" : false,
+      "default" : 5000
+    }, {
+      "name" : "flushEveryMessage",
+      "type" : "boolean",
+      "required" : false,
+      "default" : true
+    }, {
+      "name" : "properties",
+      "type" : "map",
+      "required" : true,
+      "keyType" : "string",
+      "valueType" : "string",
+      "doc" : "Kafka producer properties (bootstrap.servers, serializers, …)."
+    }, {
+      "name" : "registerShutdownHook",
+      "type" : "boolean",
+      "required" : false,
+      "default" : true
+    }, {
+      "name" : "topic",
+      "type" : "string",
+      "required" : true,
+      "doc" : "Destination Kafka topic."
+    } ]
+  }, {
+    "artifactId" : "connector-aeron",
+    "kind" : "source",
+    "yamlKey" : "eventFeeds",
+    "yamlBindKey" : "instance",
+    "instanceFqn" : "com.telamin.mongoose.plugin.connector.aeron.AeronArchiveEventSource",
+    "doc" : "Subscribe to an Aeron stream / replay from an Aeron Archive.",
+    "fields" : [ {
+      "name" : "aeronDirectoryName",
+      "type" : "string",
+      "required" : false,
+      "format" : "path",
+      "doc" : "Aeron media-driver directory; blank = embedded/default."
+    }, {
+      "name" : "binaryMode",
+      "type" : "boolean",
+      "required" : false,
+      "default" : false
+    }, {
+      "name" : "cacheEventLog",
+      "type" : "boolean",
+      "required" : false,
+      "default" : false
+    }, {
+      "name" : "channel",
+      "type" : "string",
+      "required" : false,
+      "default" : "aeron:ipc",
+      "doc" : "Aeron channel URI (e.g. aeron:ipc or aeron:udp?endpoint=host:port)."
+    }, {
+      "name" : "fragmentLimit",
+      "type" : "int",
+      "required" : false,
+      "default" : 50
+    }, {
+      "name" : "launchEmbeddedDriver",
+      "type" : "boolean",
+      "required" : false,
+      "default" : false
+    }, {
+      "name" : "mode",
+      "type" : "enum",
+      "required" : false,
+      "default" : "LIVE",
+      "enumValues" : [ "LIVE", "ARCHIVE" ]
+    }, {
+      "name" : "replayChannel",
+      "type" : "string",
+      "required" : false,
+      "default" : "aeron:ipc"
+    }, {
+      "name" : "streamId",
+      "type" : "int",
+      "required" : false,
+      "default" : 10,
+      "doc" : "Aeron stream id."
+    } ]
+  }, {
+    "artifactId" : "connector-aeron",
+    "kind" : "sink",
+    "yamlKey" : "eventSinks",
+    "yamlBindKey" : "instance",
+    "instanceFqn" : "com.telamin.mongoose.plugin.connector.aeron.AeronMessageSink",
+    "doc" : "Publish messages to an Aeron stream.",
+    "fields" : [ {
+      "name" : "aeronDirectoryName",
+      "type" : "string",
+      "required" : false,
+      "format" : "path",
+      "doc" : "Aeron media-driver directory; blank = embedded/default."
+    }, {
+      "name" : "channel",
+      "type" : "string",
+      "required" : false,
+      "default" : "aeron:ipc",
+      "doc" : "Aeron channel URI."
+    }, {
+      "name" : "initialBufferCapacity",
+      "type" : "int",
+      "required" : false,
+      "default" : 4096
+    }, {
+      "name" : "launchEmbeddedDriver",
+      "type" : "boolean",
+      "required" : false,
+      "default" : false
+    }, {
+      "name" : "offerTimeoutNanos",
+      "type" : "long",
+      "required" : false,
+      "default" : 2000000000
+    }, {
+      "name" : "streamId",
+      "type" : "int",
+      "required" : false,
+      "default" : 10,
+      "doc" : "Aeron stream id."
+    } ]
+  }, {
+    "artifactId" : "connector-chronicle",
+    "kind" : "source",
+    "yamlKey" : "eventFeeds",
+    "yamlBindKey" : "instance",
+    "instanceFqn" : "com.telamin.mongoose.plugin.connector.chronicle.ChronicleEventSource",
+    "doc" : "Read events from a Chronicle Queue.",
+    "fields" : [ {
+      "name" : "cacheEventLog",
+      "type" : "boolean",
+      "required" : false,
+      "default" : false
+    }, {
+      "name" : "chroniclePath",
+      "type" : "string",
+      "required" : true,
+      "format" : "path",
+      "doc" : "Chronicle Queue directory to read from."
+    }, {
+      "name" : "readStrategy",
+      "type" : "enum",
+      "required" : false,
+      "default" : "COMMITED",
+      "enumValues" : [ "COMMITED", "EARLIEST", "LATEST" ],
+      "doc" : "How much of the queue to replay on start."
+    } ]
+  }, {
+    "artifactId" : "connector-chronicle",
+    "kind" : "sink",
+    "yamlKey" : "eventSinks",
+    "yamlBindKey" : "instance",
+    "instanceFqn" : "com.telamin.mongoose.plugin.connector.chronicle.ChronicleMessageSink",
+    "doc" : "Append messages to a Chronicle Queue.",
+    "fields" : [ {
+      "name" : "chroniclePath",
+      "type" : "string",
+      "required" : true,
+      "format" : "path",
+      "doc" : "Chronicle Queue directory to append to."
+    } ]
+  }, {
+    "artifactId" : "connector-multicast",
+    "kind" : "source",
+    "yamlKey" : "eventFeeds",
+    "yamlBindKey" : "instance",
+    "instanceFqn" : "com.telamin.mongoose.plugin.connector.multicast.MulticastEventSource",
+    "doc" : "Receive events over UDP multicast.",
+    "fields" : [ {
+      "name" : "cacheEventLog",
+      "type" : "boolean",
+      "required" : false,
+      "default" : false
+    }, {
+      "name" : "multicastGroup",
+      "type" : "string",
+      "required" : true,
+      "default" : "224.0.0.1",
+      "doc" : "Multicast group address (e.g. 224.0.0.1)."
+    }, {
+      "name" : "multicastPort",
+      "type" : "int",
+      "required" : true,
+      "default" : 4446,
+      "format" : "port",
+      "doc" : "Multicast port."
+    }, {
+      "name" : "networkInterfaceName",
+      "type" : "string",
+      "required" : false,
+      "doc" : "NIC to bind; blank = default route."
+    }, {
+      "name" : "useLoopbackInterface",
+      "type" : "boolean",
+      "required" : false,
+      "default" : false
+    } ]
+  }, {
+    "artifactId" : "connector-multicast",
+    "kind" : "sink",
+    "yamlKey" : "eventSinks",
+    "yamlBindKey" : "instance",
+    "instanceFqn" : "com.telamin.mongoose.plugin.connector.multicast.MulticastMessageSink",
+    "doc" : "Send messages over UDP multicast.",
+    "fields" : [ {
+      "name" : "multicastGroup",
+      "type" : "string",
+      "required" : true,
+      "default" : "224.0.0.1",
+      "doc" : "Multicast group address."
+    }, {
+      "name" : "multicastPort",
+      "type" : "int",
+      "required" : true,
+      "default" : 4446,
+      "format" : "port",
+      "doc" : "Multicast port."
+    }, {
+      "name" : "networkInterfaceName",
+      "type" : "string",
+      "required" : false,
+      "doc" : "NIC to bind; blank = default route."
+    }, {
+      "name" : "useLoopbackInterface",
+      "type" : "boolean",
+      "required" : false,
+      "default" : false
+    } ]
+  }, {
     "artifactId" : "svc-cache",
     "kind" : "service",
     "yamlKey" : "services",

@@ -22,14 +22,37 @@
     </description>
 
     <dependencies>
-        <!-- The plugins whose config classes we reflect over. P1 proof set:
-             connector-file (source + sink) + svc-cache (service). Add more here
-             as coverage grows (P2). -->
+        <!-- The plugins whose config classes we reflect over. Reflection only
+             needs them on the classpath (classes are loaded with initialize=false),
+             so the heavy transitive runtimes (kafka/aeron/chronicle) are never
+             started. Add a plugin here + an entry in plugin-index.json to cover it. -->
+        <!-- connectors -->
         <dependency>
             <groupId>com.telamin</groupId>
             <artifactId>connector-file</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <dependency>
+            <groupId>com.telamin</groupId>
+            <artifactId>connector-kafka</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.telamin</groupId>
+            <artifactId>connector-aeron</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.telamin</groupId>
+            <artifactId>connector-chronicle</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.telamin</groupId>
+            <artifactId>connector-multicast</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- services -->
         <dependency>
             <groupId>com.telamin</groupId>
             <artifactId>svc-cache</artifactId>

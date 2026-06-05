@@ -24,25 +24,35 @@ public final class SchemaModel {
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    @JsonPropertyOrder({"artifactId", "kind", "yamlKey", "yamlBindKey", "instanceFqn", "doc", "fields"})
+    @JsonPropertyOrder({"artifactId", "kind", "yamlKey", "yamlBindKey", "instanceFqn", "sourceVersion", "doc", "fields"})
     public record PluginSchema(
             String artifactId,
             String kind,
             String yamlKey,
             String yamlBindKey,
             String instanceFqn,
+            /** Which release the class came from. null ⇒ the schema's pluginsVersion
+             *  (the common case). Set for mongoose-core built-ins, which move on the
+             *  independent {@code mongoose} axis — see design §8.5. */
+            String sourceVersion,
             String doc,
             List<FieldSchema> fields) {
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    @JsonPropertyOrder({"name", "type", "required", "default", "enumValues", "format", "doc"})
+    @JsonPropertyOrder({"name", "type", "required", "default", "enumValues",
+            "elementType", "keyType", "valueType", "format", "doc"})
     public record FieldSchema(
             String name,
             String type,
             boolean required,
             @JsonProperty("default") Object defaultValue,
             @JsonInclude(JsonInclude.Include.NON_EMPTY) List<String> enumValues,
+            /** For type=list: the element type (string/int/…/ref). */
+            String elementType,
+            /** For type=map: key + value types. */
+            String keyType,
+            String valueType,
             String format,
             String doc) {
     }

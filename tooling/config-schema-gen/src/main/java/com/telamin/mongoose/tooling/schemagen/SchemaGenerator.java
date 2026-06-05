@@ -68,17 +68,20 @@ public final class SchemaGenerator {
         String kind = entry.path("kind").asText();
         String fqn = entry.path("instanceFqn").asText();
         String doc = entry.hasNonNull("doc") ? entry.get("doc").asText() : null;
+        String sourceVersion = entry.hasNonNull("sourceVersion") ? entry.get("sourceVersion").asText() : null;
 
         JsonNode ov = overrides.path("overrides").path(artifactId + ":" + kind);
         List<FieldSchema> fields = reflectFields(fqn, ov);
 
-        return new PluginSchema(artifactId, kind, yamlKey(kind), yamlBindKey(kind), fqn, doc, fields);
+        return new PluginSchema(artifactId, kind, yamlKey(kind), yamlBindKey(kind), fqn, sourceVersion, doc, fields);
     }
 
     List<FieldSchema> reflectFields(String fqn, JsonNode ov) {
         final Class<?> cls;
         try {
-            cls = Class.forName(fqn);
+            // initialize=false: reflect properties without running static
+            // initialisers (some connectors touch native libs at init).
+            cls = Class.forName(fqn, false, Thread.currentThread().getContextClassLoader());
         } catch (ClassNotFoundException e) {
             throw new IllegalStateException("config class not on classpath: " + fqn, e);
         }
@@ -100,6 +103,23 @@ public final class SchemaGenerator {
             List<String> enumValues = type.isEnum() ? enumConstants(type) : null;
             Object defaultValue = sanitizeDefault(readDefault(defaultsInstance, pd));
 
+            // Element types for collections, read off the array component or the
+            // setter's generic signature. Properties (Hashtable<Object,Object> but
+            // conventionally String→String) is special-cased.
+            java.lang.reflect.Type generic = pd.getWriteMethod().getGenericParameterTypes()[0];
+            String elementType = null, keyType = null, valueType = null;
+            if ("list".equals(typeName)) {
+                elementType = type.isArray() ? mapType(type.getComponentType()) : typeArg(generic, 0);
+            } else if ("map".equals(typeName)) {
+                if (java.util.Properties.class.isAssignableFrom(type)) {
+                    keyType = "string";
+                    valueType = "string";
+                } else {
+                    keyType = typeArg(generic, 0);
+                    valueType = typeArg(generic, 1);
+                }
+            }
+
             // Optional by default — a null/absent default does NOT imply required
             // (most optional fields default to null). Required is asserted via the
             // override (or, later, a @ConfigField annotation), never inferred.
@@ -108,7 +128,8 @@ public final class SchemaGenerator {
             String format = overrideStr(ov, name, "format");
             String doc = overrideStr(ov, name, "doc");
 
-            fields.add(new FieldSchema(name, typeName, required, defaultValue, enumValues, format, doc));
+            fields.add(new FieldSchema(name, typeName, required, defaultValue, enumValues,
+                    elementType, keyType, valueType, format, doc));
         }
         fields.sort(Comparator.comparing(FieldSchema::name));
         return fields;
@@ -172,7 +193,7 @@ public final class SchemaGenerator {
         if (t == double.class || t == Double.class || t == float.class || t == Float.class) return "double";
         if (t == Duration.class) return "duration";
         if (java.util.Map.class.isAssignableFrom(t)) return "map";
-        if (java.util.Collection.class.isAssignableFrom(t)) return "list";
+        if (java.util.Collection.class.isAssignableFrom(t) || t.isArray()) return "list";
         return "ref"; // other non-scalar (idleStrategy, codecs…) — §8 Q2
     }
 
@@ -197,6 +218,19 @@ public final class SchemaGenerator {
             }
         }
         return v;
+    }
+
+    /** The i-th type argument of a parameterised setter param, mapped to a scalar
+     *  type name (e.g. {@code List<String>} → "string", {@code Map<String,Integer>}
+     *  key → "string"). Returns "ref" when the arg isn't a simple class. */
+    private static String typeArg(java.lang.reflect.Type generic, int index) {
+        if (generic instanceof java.lang.reflect.ParameterizedType pt) {
+            java.lang.reflect.Type[] args = pt.getActualTypeArguments();
+            if (index < args.length && args[index] instanceof Class<?> c) {
+                return mapType(c);
+            }
+        }
+        return "ref";
     }
 
     private static List<String> enumConstants(Class<?> t) {

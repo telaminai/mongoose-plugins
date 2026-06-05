@@ -1,5 +1,5 @@
 {
-  "_comment": "Central manifest of the plugins whose config surface is schematised. One entry per connector/service. kind drives yamlKey/yamlBindKey. Add entries as coverage grows (P2). See design/connector-config-schema.md §4.",
+  "_comment": "Central manifest of the plugins whose config surface is schematised. One entry per connector instance / service. kind drives yamlKey/yamlBindKey. sourceVersion (optional) names the release axis the class came from — set it for mongoose-core built-ins (mongoose axis); omit for plugin classes (mongoose-plugins axis = the schema's pluginsVersion). See design/connector-config-schema.md §4, §8.5.",
   "plugins": [
     {
       "artifactId": "connector-file",
@@ -12,6 +12,54 @@
       "kind": "sink",
       "instanceFqn": "com.telamin.mongoose.plugin.connector.file.FileMessageSink",
       "doc": "Append messages to a file."
+    },
+    {
+      "artifactId": "connector-kafka",
+      "kind": "source",
+      "instanceFqn": "com.telamin.mongoose.plugin.connector.kafka.KafkaMessageConsumer",
+      "doc": "Consume from a Kafka topic as an event source."
+    },
+    {
+      "artifactId": "connector-kafka",
+      "kind": "sink",
+      "instanceFqn": "com.telamin.mongoose.plugin.connector.kafka.KafkaMessagePublisher",
+      "doc": "Publish messages to a Kafka topic."
+    },
+    {
+      "artifactId": "connector-aeron",
+      "kind": "source",
+      "instanceFqn": "com.telamin.mongoose.plugin.connector.aeron.AeronArchiveEventSource",
+      "doc": "Subscribe to an Aeron stream / replay from an Aeron Archive."
+    },
+    {
+      "artifactId": "connector-aeron",
+      "kind": "sink",
+      "instanceFqn": "com.telamin.mongoose.plugin.connector.aeron.AeronMessageSink",
+      "doc": "Publish messages to an Aeron stream."
+    },
+    {
+      "artifactId": "connector-chronicle",
+      "kind": "source",
+      "instanceFqn": "com.telamin.mongoose.plugin.connector.chronicle.ChronicleEventSource",
+      "doc": "Read events from a Chronicle Queue."
+    },
+    {
+      "artifactId": "connector-chronicle",
+      "kind": "sink",
+      "instanceFqn": "com.telamin.mongoose.plugin.connector.chronicle.ChronicleMessageSink",
+      "doc": "Append messages to a Chronicle Queue."
+    },
+    {
+      "artifactId": "connector-multicast",
+      "kind": "source",
+      "instanceFqn": "com.telamin.mongoose.plugin.connector.multicast.MulticastEventSource",
+      "doc": "Receive events over UDP multicast."
+    },
+    {
+      "artifactId": "connector-multicast",
+      "kind": "sink",
+      "instanceFqn": "com.telamin.mongoose.plugin.connector.multicast.MulticastMessageSink",
+      "doc": "Send messages over UDP multicast."
     },
     {
       "artifactId": "svc-cache",

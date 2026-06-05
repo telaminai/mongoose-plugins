@@ -270,9 +270,9 @@ and emits the values into `server-config.yml` under the correct `yamlKey` +
 1. **P1** ✅ **— shipped** (see §11). `plugin-index.json` (central) + reflection
    generator + `schema.json` for the file connector + svc-cache (proof). Golden-file
    test asserting the emitted schema.
-2. **P2** — cover all connectors (incl. mongoose-core file/in-memory) + all
-   services; `schema-overrides.json`; required/enum/nested handling
-   (`performanceMonitoring.auditCapture`).
+2. **P2** ◐ **— connectors + model refinements done** (see §11); **services +
+   mongoose-core built-ins + nested still to do.** All 5 connectors covered;
+   `list`/`map` element types, `sourceVersion`, no-init loading shipped.
 3. **P3** — publish step: raw `schema.json` (latest + versioned) to the docs site +
    generated per-plugin config-reference pages in MkDocs nav.
 4. **P4** — wire into the release pipeline (schema regenerated + published every
@@ -348,7 +348,39 @@ code, not just docs)**:
   `plugin-index.json`, hide/annotate noise in `schema-overrides.json`, regenerate the
   golden, extend the test.
 
-### Next — P2 (not started)
+### P2 — connectors + model refinements shipped (2026-06-05)
+
+**Done in this slice:**
+- **All 5 connectors** (source + sink each) now in `plugin-index.json` + the module
+  pom: connector-file, -kafka, -aeron, -chronicle, -multicast. Plus svc-cache. = 11
+  `plugins[]` entries. Each reflects cleanly with curated overrides
+  (required/format/doc; a couple of internal props hidden).
+- **`list` / `map` element types** (review HIGH): `String[] topics` → `list`
+  (`elementType: string`); `Properties` → `map` (`keyType`/`valueType: string`);
+  generic `List<X>`/`Map<K,V>` read off the setter signature; arrays via component
+  type; `Properties` special-cased. Verified by `kafkaCollectionsCarryElementTypes`.
+- **`sourceVersion`** field added to `PluginSchema` (per-entry; null ⇒ schema's
+  `pluginsVersion`) — ready for core built-ins on the `mongoose` axis (§8.5). Set via
+  the index `sourceVersion` key; none used yet (all P2-slice classes are plugins).
+- **No-init class loading** — classes loaded with `initialize=false` so native-backed
+  connectors (aeron/chronicle/kafka) don't run static initialisers during
+  introspection; `newInstance` for defaults stays wrapped (null defaults if it fails).
+- 6 tests green (added the kafka list/map test); golden re-locked (11 plugins).
+
+**P2 remaining (next agent):**
+- **Services sweep** — svc-jdbc, svc-admin-rest/-telnet/-web, svc-loader-yaml/-spring/
+  -feed/-sink, svc-micrometer. Some have non-uniform primary-class names; find each
+  instance FQN (a few don't match the `*EventSource`/`*Sink` pattern), add dep + index
+  entry + curation. (svc-admin-web reflects a *large* surface — heavy curation.)
+- **mongoose-core built-ins** — add `com.telamin.mongoose.connector.file.*` (core) +
+  in-memory with a per-entry `sourceVersion` = the `mongoose` version (§8.5). Needs
+  mongoose-core as a (provided) dep; the index entry sets `sourceVersion`.
+- **Nested config** — `type: nested` recursion (e.g. a config POJO property). Model
+  field not yet added; `mapType` returns `ref` for POJOs today.
+- **SnakeYAML public-field binding** (§3) — properties bound without a setter.
+- **`@ConfigField`** (§3.2 / P5) — replace most of `schema-overrides.json`.
+
+### Original P2 watch-items (still relevant)
 
 Cover all connectors + services. Watch-items surfaced by P1/review:
 - **Core built-ins + version axis** (§8.5): when adding `com.telamin.mongoose.connector.file.*`

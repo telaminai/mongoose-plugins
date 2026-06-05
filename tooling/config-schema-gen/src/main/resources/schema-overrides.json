@@ -1,5 +1,5 @@
 {
-  "_comment": "Hand-curated refinements merged over reflected output, keyed by 'artifactId:kind' then property. Each property may set: hide (drop), required, doc, format (path|host|port|url|millis). Reflection over-reports (internal container/ref setters) and can't infer required/docs; this is the curation surface. See design/connector-config-schema.md §3.1.",
+  "_comment": "Hand-curated refinements merged over reflected output, keyed by 'artifactId:kind' then property. Each property may set: hide (drop), required, doc, format (path|host|port|url|millis). Reflection can't infer required/docs and over-reports internal container/ref setters; this is the curation surface. See design/connector-config-schema.md §3.1.",
   "overrides": {
     "connector-file:source": {
       "filename":      { "required": true,  "format": "path", "doc": "Path to the file to tail." },
@@ -7,12 +7,53 @@
       "cacheEventLog": { "doc": "Retain published lines in memory for replay." }
     },
     "connector-file:sink": {
-      "filename":          { "required": true, "format": "path", "doc": "Path of the output file." },
-      "firstLineSupplier": { "hide": true },
+      "filename":               { "required": true, "format": "path", "doc": "Path of the output file." },
+      "firstLineSupplier":      { "hide": true },
       "rotateOnSizeBytes":      { "doc": "Rotate when the file exceeds this many bytes; 0 = never." },
       "rotateOnIntervalMillis": { "format": "millis", "doc": "Rotate on this interval; 0 = never." },
       "maxBackupFiles":         { "doc": "Number of rotated backups to retain." }
     },
+
+    "connector-kafka:source": {
+      "topics":        { "required": true, "doc": "Kafka topics to subscribe to." },
+      "properties":    { "required": true, "doc": "Kafka consumer properties (bootstrap.servers, group.id, deserializers, …)." },
+      "pollTimeoutMs": { "format": "millis", "doc": "Consumer poll timeout." }
+    },
+    "connector-kafka:sink": {
+      "topic":      { "required": true, "doc": "Destination Kafka topic." },
+      "properties": { "required": true, "doc": "Kafka producer properties (bootstrap.servers, serializers, …)." }
+    },
+
+    "connector-aeron:source": {
+      "aeronDirectoryName": { "format": "path", "doc": "Aeron media-driver directory; blank = embedded/default." },
+      "channel":            { "doc": "Aeron channel URI (e.g. aeron:ipc or aeron:udp?endpoint=host:port)." },
+      "streamId":           { "doc": "Aeron stream id." }
+    },
+    "connector-aeron:sink": {
+      "aeronDirectoryName": { "format": "path", "doc": "Aeron media-driver directory; blank = embedded/default." },
+      "channel":            { "doc": "Aeron channel URI." },
+      "streamId":           { "doc": "Aeron stream id." }
+    },
+
+    "connector-chronicle:source": {
+      "chroniclePath": { "required": true, "format": "path", "doc": "Chronicle Queue directory to read from." },
+      "readStrategy":  { "doc": "How much of the queue to replay on start." }
+    },
+    "connector-chronicle:sink": {
+      "chroniclePath": { "required": true, "format": "path", "doc": "Chronicle Queue directory to append to." }
+    },
+
+    "connector-multicast:source": {
+      "multicastGroup":       { "required": true, "doc": "Multicast group address (e.g. 224.0.0.1)." },
+      "multicastPort":        { "required": true, "format": "port", "doc": "Multicast port." },
+      "networkInterfaceName": { "doc": "NIC to bind; blank = default route." }
+    },
+    "connector-multicast:sink": {
+      "multicastGroup":       { "required": true, "doc": "Multicast group address." },
+      "multicastPort":        { "required": true, "format": "port", "doc": "Multicast port." },
+      "networkInterfaceName": { "doc": "NIC to bind; blank = default route." }
+    },
+
     "svc-cache:service": {
       "fileName":   { "required": true, "format": "path", "doc": "Backing JSON file path." },
       "maxSize":    { "doc": "0 = unbounded; >0 enables LRU eviction." },
