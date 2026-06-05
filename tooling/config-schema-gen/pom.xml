@@ -113,4 +113,21 @@
 
         <!-- junit-jupiter (test scope) is inherited from the parent pom. -->
     </dependencies>
+
+    <build>
+        <plugins>
+            <!-- Surface the pinned mongoose version to tests so the version-axis
+                 gate (CoreSourceVersionGateTest) can assert the index's core
+                 sourceVersion literals match the actual mongoose-core dependency. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <systemPropertyVariables>
+                        <mongoose.version>${mongoose.version}</mongoose.version>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
 </project>

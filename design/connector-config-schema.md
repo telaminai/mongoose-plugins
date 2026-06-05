@@ -1,6 +1,6 @@
 # Connector / service config schema — generation & publishing
 
-**Status**: P1–P3 shipped (24 plugins generated + published to the docs site; see §11 Progress) · P4 (release-pipeline automation) + minor depth items remain
+**Status**: P1–P4 shipped (24 plugins generated, published to the docs site, regenerated in docs CI + version-gated; see §11 Progress) · only minor depth items (SnakeYAML public-field, @ConfigField) remain
 **Repo**: `mongoose-plugins` (the source of truth for the plugin classes)
 **Consumers**: the Fluxtion **Project Starter** (`fluxtion-web/docs/project-starter`,
 §11.1) for its feed/sink/service config editors; the **mongoose-plugins docs site**
@@ -276,8 +276,10 @@ and emits the values into `server-config.yml` under the correct `yamlKey` +
    axis), per-entry `id` override key, no-init loading, nested-POJO recursion shipped.
 3. **P3** ☑ **— publishing done** (see §11): raw `schema.json` (latest + versioned)
    + a generated config-reference page published into the MkDocs site + nav.
-4. **P4** — wire into the release pipeline (schema regenerated + published every
-   `mongoose-plugins` release); fluxtion-web starter consumes it.
+4. **P4** ☑ **— CI automation + version gate done** (see §11): the docs workflow
+   regenerates `schema.json` + the reference page before the mkdocs build; a build-time
+   test gates the core `sourceVersion` against the pom's `<mongoose.version>`. fluxtion-web
+   starter consumes the published schema.
 5. **P5 (optional)** — `@ConfigField` annotation in mongoose-core + substrate-lint
    rule for undocumented config setters.
 
@@ -418,15 +420,27 @@ stay `ref`). Overrides apply only at depth 0. 9 tests green
   `mvn -pl tooling/config-schema-gen org.codehaus.mojo:exec-maven-plugin:3.3.0:java
   -Dexec.mainClass=…SchemaGenMain -Dexec.args="<pluginsVersion> target/schema-out docs"`.
   The committed files are a **generated snapshot** (the page carries a "Generated"
-  admonition); automating this in the release/docs CI is **P4**.
+  admonition); the docs CI regenerates them (P4).
 
-**P2/onward remaining (next agent):**
-- **P4 — release-pipeline automation**: run the generator in `release.yml`/`docs.yml`
-  (needs a JDK + Maven step before the mkdocs build) so `schema.json` + the reference
-  page regenerate every release rather than being committed by hand. Also: gate the
-  core `sourceVersion` literals against the parent pom `<mongoose.version>`.
+### P4 — CI automation + version gate shipped (2026-06-05, same session)
+
+- **`.github/workflows/docs.yml`**: a "Regenerate config schema + reference" step
+  (JDK 21 + Maven) runs before `mkdocs build` — computes the version via
+  `help:evaluate`, builds `tooling/config-schema-gen` (+ deps), and runs `SchemaGenMain`
+  into `docs/`, so the deployed site always reflects the live plugin config classes.
+  Trigger `paths` widened to include `tooling/config-schema-gen/**`. Verified the CI
+  commands locally — regenerated output is **byte-identical** to the committed snapshot
+  (idempotent).
+- **Version gate** (`CoreSourceVersionGateTest`): surefire injects the pom's
+  `<mongoose.version>` as a system property; the test asserts every core built-in's
+  `sourceVersion` matches it — so bumping the mongoose dep without updating the index
+  literals fails the build. 10 tests green.
+
+**Remaining (minor, next agent):**
 - **SnakeYAML public-field binding** (§3) — properties bound without a setter.
 - **`@ConfigField`** (§3.2 / P5) — replace most of `schema-overrides.json`.
+- (Optional) also hook the generator into `release.yml` if schema artefacts should be
+  attached to releases, not just the docs site.
 
 ### Original P2 watch-items (still relevant)
 
