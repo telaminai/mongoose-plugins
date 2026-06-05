@@ -1,6 +1,6 @@
 # Connector / service config schema — generation & publishing
 
-**Status**: Draft spec
+**Status**: P1 shipped (see §11 Progress) · spec otherwise draft
 **Repo**: `mongoose-plugins` (the source of truth for the plugin classes)
 **Consumers**: the Fluxtion **Project Starter** (`fluxtion-web/docs/project-starter`,
 §11.1) for its feed/sink/service config editors; the **mongoose-plugins docs site**
@@ -73,8 +73,12 @@ This is the exact contract the Project Starter consumes (fluxtion-web §11.1).
 }
 ```
 
-Field `type` ∈ `string | int | long | double | boolean | enum | duration | nested`.
+Field `type` ∈ `string | int | long | double | boolean | enum | duration | list | map | ref | nested`.
 `nested` carries a `fields[]` of its own (e.g. `performanceMonitoring.auditCapture`).
+`list`/`map` cover the collection config Kafka/Aeron carry (`List<String> topics`,
+`Map<String,String> properties`) — add an `elementType` (and `keyType` for maps)
+hint so the editor can render them; `ref` is a non-scalar config object the editor
+can't schematise (a codec/strategy) — surfaced as an FQN entry.
 `format` is an optional hint for the editor (`path`, `host`, `port`, `url`,
 `millis`). `default` is the value a freshly no-arg-constructed instance reports.
 
@@ -103,13 +107,31 @@ The bindable surface is the set of **JavaBean writable properties** (a public
      names, `enum`→`enum` + `enumValues` from the constants, a nested config
      POJO → `nested` recursing into its bean props, `Duration`/`*Ms`→`duration`).
    - `default` = read back via the getter on the fresh instance (null/0/false as
-     applicable).
-   - `required` = heuristic: no default (null) **and** no `@Nullable`/optional
-     marker ⇒ required; refined by curated overrides (§3.1).
+     applicable), **sanitised** — see "environment-specific defaults" below.
+   - `required` = **false by default.** A null/absent default does NOT imply
+     required (most optional fields default to null — inferring required there
+     over-reports badly). Required is asserted by the curated override (§3.1) or a
+     future `@ConfigField(required=true)` (§3.2), never inferred.
    - `doc` = from a `@ConfigDoc`/Javadoc source if available (§3.2), else absent.
 
 This is the same reflection `svc-admin-web` does at runtime, lifted to build time
 and run over a *fresh* instance instead of a live one.
+
+**Environment-specific defaults must not be baked in.** A default read off a fresh
+instance can capture machine state — an absolute/temp path, the working dir, a
+hostname, the clock. That value must never enter a versioned, "deterministic"
+schema or the docs site (it breaks the determinism the starter relies on, and
+publishes a per-machine value as if it were canonical). The generator nulls any
+String default that is an absolute path or equals a JVM/system property
+(`user.dir`/`java.io.tmpdir`/`user.home`/`user.name`); the field stays, only its
+default drops to null. Implemented in `SchemaGenerator.sanitizeDefault`.
+
+**SnakeYAML binding caveat.** "bindable = JavaBean writable properties" is the
+right approximation but not the whole story: SnakeYAML also binds public fields
+without setters, and collection/map binding depends on generic element types it
+infers from the field signature. The generator covers the setter surface (the
+common case); public-field-only config and deep generic element typing are P2/P3
+refinements tracked in §8.
 
 ### 3.1 Curated overrides — the escape hatch
 
@@ -222,20 +244,32 @@ and emits the values into `server-config.yml` under the correct `yamlKey` +
    derived state; reading the getter on a fresh instance is correct for "default",
    but watch for setters that throw without prerequisites. Generator must catch +
    report per-property rather than fail the whole run.
-5. **Schema for mongoose-core built-ins** — `FileEventSource`/`FileMessageSink`/
-   in-memory live in **mongoose-core**, not mongoose-plugins. The index should
-   include them (they're the most common feeds/sinks) even though the generator
-   runs in the plugins repo — add mongoose-core as a provided dep for reflection,
-   or generate a core slice in the mongoose repo and merge. **Proposed: include
-   core built-ins via the index, reflecting against the mongoose-core dep.**
+5. **Schema for mongoose-core built-ins + the version-axis conflation** —
+   `com.telamin.mongoose.connector.file.*` (core) and in-memory live in
+   **mongoose-core**, on the **`mongoose`** version axis, while plugin connectors
+   are on the independent **`mongoose-plugins`** axis. The schema currently stamps a
+   single `pluginsVersion`, so a core-built-in entry would be mislabelled. Fix:
+   either (a) carry a **per-entry `sourceVersion`** + which axis it came from, or
+   (b) **assert+gate that `mongoose` and `mongoose-plugins` move in lockstep** for
+   released schemas. **Proposed: (a) per-entry source version** — the starter has two
+   independent knobs (`mongoose`, `mongoose-plugins`) and must not describe the
+   wrong release. (Review: HIGH.) NB: P1 uses the **plugin** file connector
+   (`plugin.connector.file.*`), which is on the plugins axis — so P1 is unaffected;
+   this bites when core built-ins are added in P2.
+6. **One artifact → multiple instances.** `connector-file` ships both a source
+   (`FileEventSource`/`eventFeeds`) and a sink (`FileMessageSink`/`eventSinks`) with
+   different surfaces. Modelled as **two `plugins[]` entries sharing `artifactId`**,
+   disambiguated by `kind` (override key is `artifactId:kind`). Chosen over an
+   `instances[]`-per-plugin nesting for a flatter consumer contract. (Review: MED —
+   resolved this way in P1.)
 
 ---
 
 ## 9. Phasing
 
-1. **P1** — `plugin-index.json` (central) + reflection generator + `schema.json`
-   for the file connector + svc-cache (proof). Golden-file test asserting the
-   emitted schema.
+1. **P1** ✅ **— shipped** (see §11). `plugin-index.json` (central) + reflection
+   generator + `schema.json` for the file connector + svc-cache (proof). Golden-file
+   test asserting the emitted schema.
 2. **P2** — cover all connectors (incl. mongoose-core file/in-memory) + all
    services; `schema-overrides.json`; required/enum/nested handling
    (`performanceMonitoring.auditCapture`).
@@ -255,3 +289,77 @@ and emits the values into `server-config.yml` under the correct `yamlKey` +
   reflection this lifts to build time.
 - **Substrate Lint** (fluxtion compile-time annotation-processor family) — natural
   home for a "config setter must be documented" rule (§3.2 / P5).
+
+---
+
+## 11. Progress log
+
+### P1 — shipped (2026-06-05)
+
+**Module**: `tooling/config-schema-gen` (registered in the parent `pom.xml`
+`<modules>`). JDK-only tooling, not a runtime artifact.
+
+**Files**:
+- `pom.xml` — deps: `connector-file`, `svc-cache` (the P1 proof plugins, reflected
+  over), `jackson-databind`; junit inherited from parent.
+- `src/main/resources/plugin-index.json` — central manifest, 3 entries
+  (connector-file source + sink, svc-cache service).
+- `src/main/resources/schema-overrides.json` — curated hide/required/doc/format.
+- `src/main/java/.../schemagen/SchemaModel.java` — output records (`Schema`,
+  `PluginSchema`, `FieldSchema`), Jackson `NON_NULL`/`NON_EMPTY`, `@JsonProperty("default")`.
+- `.../SchemaGenerator.java` — reflection core: walks `Introspector` writable bean
+  properties; filters framework setters (param-type prefixes
+  `com.telamin.mongoose.{dispatch,service,internal}.`, `com.telamin.fluxtion.runtime.`,
+  `java.io.`, `java.util.concurrent.`; plus prop names `eventToQueuePublisher`,
+  `eventFlowManager`, `eventToInvokeStrategy`, `name`, `serviceName`, `dataMapper`,
+  `valueMapper`); maps types incl. `enum`(+values)/`list`/`map`/`ref`; reads defaults
+  off a fresh no-arg instance; `sanitizeDefault` nulls environment-specific defaults;
+  merges overrides; sorts fields by name (deterministic).
+- `.../SchemaGenMain.java` — CLI: `SchemaGenMain <pluginsVersion> <outDir>` → writes
+  `schema.json` + `schema-<version>.json`. `buildSchema(...)` shared with tests.
+- `src/test/.../SchemaGeneratorTest.java` — 5 tests (all green): plugin count,
+  file-source surface (filename required, readStrategy enum + default COMMITED),
+  service `service:` bind key, framework-setter filtering, **golden-file** match.
+- `src/test/resources/expected-schema.json` — the locked golden (regenerate via
+  `SchemaGenMain` and review the diff when output intentionally changes).
+
+**Verified**: `mvn -pl tooling/config-schema-gen test` → BUILD SUCCESS, 5/5.
+Emitted surfaces (clean, after overrides):
+- connector-file source: `cacheEventLog`, `filename` (required, path), `readStrategy`
+  (enum, default COMMITED).
+- connector-file sink: `filename` (required), `maxBackupFiles`, `rotateOnIntervalMillis`
+  (millis), `rotateOnSizeBytes`.
+- svc-cache service: `asyncWrite`, `fileName` (required, path), `maxSize`.
+
+**Deltas from the original spec (folded in from the LLM review, all applied to the
+code, not just docs)**:
+- `required` is **false by default**, asserted via overrides — not inferred from a
+  null default (was the over-reporting heuristic). §3.
+- `list`/`map`/`ref` added to the type taxonomy (`mapType`). §2.
+- `sanitizeDefault` guards against environment-specific captured defaults. §3.
+- one-artifact→multiple-instances modelled as entries sharing `artifactId`,
+  disambiguated by `kind`; override key is `artifactId:kind`. §8.6.
+
+**How to run / extend** (for the next agent):
+- Generate locally: `mvn -pl tooling/config-schema-gen org.codehaus.mojo:exec-maven-plugin:3.3.0:java -Dexec.mainClass=com.telamin.mongoose.tooling.schemagen.SchemaGenMain -Dexec.args="<version> /tmp/out"`.
+- After an intentional output change, copy `/tmp/out/schema.json` over
+  `src/test/resources/expected-schema.json` and review the diff.
+- To add a plugin (P2): add its dep to the module pom, an entry to
+  `plugin-index.json`, hide/annotate noise in `schema-overrides.json`, regenerate the
+  golden, extend the test.
+
+### Next — P2 (not started)
+
+Cover all connectors + services. Watch-items surfaced by P1/review:
+- **Core built-ins + version axis** (§8.5): when adding `com.telamin.mongoose.connector.file.*`
+  (core), attach a per-entry `sourceVersion` — they're on the `mongoose` axis, not
+  `mongoose-plugins`.
+- **Kafka/Aeron `list`/`map` config** (§2): topics/properties need element-type hints
+  and must *not* be blanket-filtered the way internal containers are — likely needs
+  the `@ConfigField` allow-marker (§3.2) or per-field overrides to distinguish config
+  collections from internal state (e.g. svc-cache `cacheMap`, hidden by override in P1).
+- **Nested config** (`performanceMonitoring.auditCapture`) → `type: nested` recursion
+  (stubbed in the type list, not yet implemented in `mapType`).
+- **SnakeYAML public-field binding** (§3) — properties bound without a setter.
+- **`@ConfigField` annotation** (§3.2 / P5) — the durable replacement for most of
+  `schema-overrides.json` and the framework-prop denylist.

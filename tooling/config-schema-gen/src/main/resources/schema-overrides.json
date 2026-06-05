@@ -1,0 +1,23 @@
+{
+  "_comment": "Hand-curated refinements merged over reflected output, keyed by 'artifactId:kind' then property. Each property may set: hide (drop), required, doc, format (path|host|port|url|millis). Reflection over-reports (internal container/ref setters) and can't infer required/docs; this is the curation surface. See design/connector-config-schema.md §3.1.",
+  "overrides": {
+    "connector-file:source": {
+      "filename":      { "required": true,  "format": "path", "doc": "Path to the file to tail." },
+      "readStrategy":  { "doc": "How much of the file to replay on start." },
+      "cacheEventLog": { "doc": "Retain published lines in memory for replay." }
+    },
+    "connector-file:sink": {
+      "filename":          { "required": true, "format": "path", "doc": "Path of the output file." },
+      "firstLineSupplier": { "hide": true },
+      "rotateOnSizeBytes":      { "doc": "Rotate when the file exceeds this many bytes; 0 = never." },
+      "rotateOnIntervalMillis": { "format": "millis", "doc": "Rotate on this interval; 0 = never." },
+      "maxBackupFiles":         { "doc": "Number of rotated backups to retain." }
+    },
+    "svc-cache:service": {
+      "fileName":   { "required": true, "format": "path", "doc": "Backing JSON file path." },
+      "maxSize":    { "doc": "0 = unbounded; >0 enables LRU eviction." },
+      "asyncWrite": { "doc": "Flush writes on a background thread." },
+      "cacheMap":   { "hide": true }
+    }
+  }
+}

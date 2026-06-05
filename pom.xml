@@ -99,6 +99,7 @@
         <module>library/lib-jsonserialiser</module>
         <module>library/lib-fanout</module>
         <module>test-support/mongoose-test-support</module>
+        <module>tooling/config-schema-gen</module>
     </modules>
 
     <dependencies>

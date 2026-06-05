@@ -1,0 +1,91 @@
+{
+  "schemaVersion" : 1,
+  "pluginsVersion" : "test-1.0.0",
+  "plugins" : [ {
+    "artifactId" : "connector-file",
+    "kind" : "source",
+    "yamlKey" : "eventFeeds",
+    "yamlBindKey" : "instance",
+    "instanceFqn" : "com.telamin.mongoose.plugin.connector.file.FileEventSource",
+    "doc" : "Tail a file as an event source.",
+    "fields" : [ {
+      "name" : "cacheEventLog",
+      "type" : "boolean",
+      "required" : false,
+      "default" : false,
+      "doc" : "Retain published lines in memory for replay."
+    }, {
+      "name" : "filename",
+      "type" : "string",
+      "required" : true,
+      "format" : "path",
+      "doc" : "Path to the file to tail."
+    }, {
+      "name" : "readStrategy",
+      "type" : "enum",
+      "required" : false,
+      "default" : "COMMITED",
+      "enumValues" : [ "COMMITED", "EARLIEST", "LATEST", "ONCE_EARLIEST", "ONCE_LATEST" ],
+      "doc" : "How much of the file to replay on start."
+    } ]
+  }, {
+    "artifactId" : "connector-file",
+    "kind" : "sink",
+    "yamlKey" : "eventSinks",
+    "yamlBindKey" : "instance",
+    "instanceFqn" : "com.telamin.mongoose.plugin.connector.file.FileMessageSink",
+    "doc" : "Append messages to a file.",
+    "fields" : [ {
+      "name" : "filename",
+      "type" : "string",
+      "required" : true,
+      "format" : "path",
+      "doc" : "Path of the output file."
+    }, {
+      "name" : "maxBackupFiles",
+      "type" : "int",
+      "required" : false,
+      "default" : 0,
+      "doc" : "Number of rotated backups to retain."
+    }, {
+      "name" : "rotateOnIntervalMillis",
+      "type" : "long",
+      "required" : false,
+      "default" : 0,
+      "format" : "millis",
+      "doc" : "Rotate on this interval; 0 = never."
+    }, {
+      "name" : "rotateOnSizeBytes",
+      "type" : "long",
+      "required" : false,
+      "default" : 0,
+      "doc" : "Rotate when the file exceeds this many bytes; 0 = never."
+    } ]
+  }, {
+    "artifactId" : "svc-cache",
+    "kind" : "service",
+    "yamlKey" : "services",
+    "yamlBindKey" : "service",
+    "instanceFqn" : "com.telamin.mongoose.plugin.svc.cache.JsonFileCache",
+    "doc" : "JSON-persistent key/value cache service.",
+    "fields" : [ {
+      "name" : "asyncWrite",
+      "type" : "boolean",
+      "required" : false,
+      "default" : false,
+      "doc" : "Flush writes on a background thread."
+    }, {
+      "name" : "fileName",
+      "type" : "string",
+      "required" : true,
+      "format" : "path",
+      "doc" : "Backing JSON file path."
+    }, {
+      "name" : "maxSize",
+      "type" : "int",
+      "required" : false,
+      "default" : 0,
+      "doc" : "0 = unbounded; >0 enables LRU eviction."
+    } ]
+  } ]
+}

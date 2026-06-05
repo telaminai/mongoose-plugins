@@ -1,0 +1,23 @@
+{
+  "_comment": "Central manifest of the plugins whose config surface is schematised. One entry per connector/service. kind drives yamlKey/yamlBindKey. Add entries as coverage grows (P2). See design/connector-config-schema.md §4.",
+  "plugins": [
+    {
+      "artifactId": "connector-file",
+      "kind": "source",
+      "instanceFqn": "com.telamin.mongoose.plugin.connector.file.FileEventSource",
+      "doc": "Tail a file as an event source."
+    },
+    {
+      "artifactId": "connector-file",
+      "kind": "sink",
+      "instanceFqn": "com.telamin.mongoose.plugin.connector.file.FileMessageSink",
+      "doc": "Append messages to a file."
+    },
+    {
+      "artifactId": "svc-cache",
+      "kind": "service",
+      "instanceFqn": "com.telamin.mongoose.plugin.svc.cache.JsonFileCache",
+      "doc": "JSON-persistent key/value cache service."
+    }
+  ]
+}
