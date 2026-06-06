@@ -116,6 +116,7 @@ public final class SchemaGenerator {
 
             String typeName = mapType(type);
             List<String> enumValues = type.isEnum() ? enumConstants(type) : null;
+            String enumClass = type.isEnum() ? type.getCanonicalName() : null;
             Object defaultValue = sanitizeDefault(readDefault(defaultsInstance, pd));
 
             // Element/value types for collections (array component or generic arg);
@@ -133,6 +134,7 @@ public final class SchemaGenerator {
                     nested = reflectClass(el, MissingNode.getInstance(), depth + 1);
                 } else {
                     elementType = el != null ? mapType(el) : "ref";
+                    if (el != null && el.isEnum()) enumClass = el.getCanonicalName();
                 }
             } else if ("map".equals(typeName)) {
                 if (java.util.Properties.class.isAssignableFrom(type)) {
@@ -163,7 +165,7 @@ public final class SchemaGenerator {
             String doc = overrideStr(ov, name, "doc");
 
             fields.add(new FieldSchema(name, typeName, required, defaultValue, enumValues,
-                    elementType, keyType, valueType, format, doc, nested));
+                    enumClass, elementType, keyType, valueType, format, doc, nested));
         }
         fields.sort(Comparator.comparing(FieldSchema::name));
         return fields;

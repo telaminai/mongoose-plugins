@@ -27,6 +27,7 @@
       "required" : false,
       "default" : "COMMITED",
       "enumValues" : [ "COMMITED", "EARLIEST", "LATEST", "ONCE_EARLIEST", "ONCE_LATEST" ],
+      "enumClass" : "com.telamin.mongoose.config.ReadStrategy",
       "doc" : "How much of the file to replay on start."
     } ]
   }, {
@@ -93,6 +94,7 @@
       "required" : false,
       "default" : "COMMITED",
       "enumValues" : [ "COMMITED", "EARLIEST", "LATEST", "ONCE_EARLIEST", "ONCE_LATEST" ],
+      "enumClass" : "com.telamin.mongoose.config.ReadStrategy",
       "doc" : "How much of the file to replay on start."
     } ]
   }, {
@@ -240,7 +242,8 @@
       "type" : "enum",
       "required" : false,
       "default" : "LIVE",
-      "enumValues" : [ "LIVE", "ARCHIVE" ]
+      "enumValues" : [ "LIVE", "ARCHIVE" ],
+      "enumClass" : "com.telamin.mongoose.plugin.connector.aeron.AeronArchiveEventSource.Mode"
     }, {
       "name" : "replayChannel",
       "type" : "string",
@@ -318,6 +321,7 @@
       "required" : false,
       "default" : "COMMITED",
       "enumValues" : [ "COMMITED", "EARLIEST", "LATEST" ],
+      "enumClass" : "com.telamin.mongoose.plugin.connector.chronicle.ReadStrategy",
       "doc" : "How much of the queue to replay on start."
     } ]
   }, {
@@ -566,6 +570,7 @@
       "required" : false,
       "default" : "NONE",
       "enumValues" : [ "NONE", "BASIC", "BEARER" ],
+      "enumClass" : "com.telamin.mongoose.plugin.svc.adminrest.JavalinAdminCommandService.AuthMode",
       "doc" : "NONE | BASIC | BEARER."
     }, {
       "name" : "bearerToken",
@@ -620,6 +625,7 @@
       "required" : false,
       "default" : "NONE",
       "enumValues" : [ "NONE", "BASIC", "BEARER" ],
+      "enumClass" : "com.telamin.mongoose.plugin.svc.adminweb.WebAdminService.AuthMode",
       "doc" : "NONE | BASIC | BEARER."
     }, {
       "name" : "basePath",

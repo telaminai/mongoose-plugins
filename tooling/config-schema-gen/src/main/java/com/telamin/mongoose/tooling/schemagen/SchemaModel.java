@@ -40,7 +40,7 @@ public final class SchemaModel {
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    @JsonPropertyOrder({"name", "type", "required", "default", "enumValues",
+    @JsonPropertyOrder({"name", "type", "required", "default", "enumValues", "enumClass",
             "elementType", "keyType", "valueType", "format", "doc", "fields"})
     public record FieldSchema(
             String name,
@@ -48,6 +48,9 @@ public final class SchemaModel {
             boolean required,
             @JsonProperty("default") Object defaultValue,
             @JsonInclude(JsonInclude.Include.NON_EMPTY) List<String> enumValues,
+            /** Fully-qualified enum class — for type=enum (or an enum list element /
+             *  map value), so authoring tools can emit typed Enum.CONSTANT references. */
+            @JsonInclude(JsonInclude.Include.NON_NULL) String enumClass,
             /** For type=list: the element type (string/int/…/ref/nested). */
             String elementType,
             /** For type=map: key + value types (value may be nested). */
