@@ -1,0 +1,131 @@
+{
+  "_comment": "Hand-curated refinements merged over reflected output, keyed by 'artifactId:kind' then property. Each property may set: hide (drop), required, doc, format (path|host|port|url|millis). Reflection can't infer required/docs and over-reports internal container/ref setters; this is the curation surface. See design/connector-config-schema.md §3.1.",
+  "overrides": {
+    "mongoose-file:source": {
+      "filename":      { "required": true, "format": "path", "doc": "Path to the file to tail." },
+      "readStrategy":  { "doc": "How much of the file to replay on start." },
+      "cacheEventLog": { "doc": "Retain published lines in memory for replay." }
+    },
+    "mongoose-file:sink": {
+      "filename": { "required": true, "format": "path", "doc": "Path of the output file." }
+    },
+    "mongoose-memory:source": {
+      "cacheEventLog": { "doc": "Retain published events in memory for replay." }
+    },
+
+    "connector-file:source": {
+      "filename":      { "required": true,  "format": "path", "doc": "Path to the file to tail." },
+      "readStrategy":  { "doc": "How much of the file to replay on start." },
+      "cacheEventLog": { "doc": "Retain published lines in memory for replay." }
+    },
+    "connector-file:sink": {
+      "filename":               { "required": true, "format": "path", "doc": "Path of the output file." },
+      "firstLineSupplier":      { "hide": true },
+      "rotateOnSizeBytes":      { "doc": "Rotate when the file exceeds this many bytes; 0 = never." },
+      "rotateOnIntervalMillis": { "format": "millis", "doc": "Rotate on this interval; 0 = never." },
+      "maxBackupFiles":         { "doc": "Number of rotated backups to retain." }
+    },
+
+    "connector-kafka:source": {
+      "topics":        { "required": true, "doc": "Kafka topics to subscribe to." },
+      "properties":    { "required": true, "doc": "Kafka consumer properties (bootstrap.servers, group.id, deserializers, …)." },
+      "pollTimeoutMs": { "format": "millis", "doc": "Consumer poll timeout." }
+    },
+    "connector-kafka:sink": {
+      "topic":      { "required": true, "doc": "Destination Kafka topic." },
+      "properties": { "required": true, "doc": "Kafka producer properties (bootstrap.servers, serializers, …)." }
+    },
+
+    "connector-aeron:source": {
+      "aeronDirectoryName": { "format": "path", "doc": "Aeron media-driver directory; blank = embedded/default." },
+      "channel":            { "doc": "Aeron channel URI (e.g. aeron:ipc or aeron:udp?endpoint=host:port)." },
+      "streamId":           { "doc": "Aeron stream id." }
+    },
+    "connector-aeron:sink": {
+      "aeronDirectoryName": { "format": "path", "doc": "Aeron media-driver directory; blank = embedded/default." },
+      "channel":            { "doc": "Aeron channel URI." },
+      "streamId":           { "doc": "Aeron stream id." }
+    },
+
+    "connector-chronicle:source": {
+      "chroniclePath": { "required": true, "format": "path", "doc": "Chronicle Queue directory to read from." },
+      "readStrategy":  { "doc": "How much of the queue to replay on start." }
+    },
+    "connector-chronicle:sink": {
+      "chroniclePath": { "required": true, "format": "path", "doc": "Chronicle Queue directory to append to." }
+    },
+
+    "connector-multicast:source": {
+      "multicastGroup":       { "required": true, "doc": "Multicast group address (e.g. 224.0.0.1)." },
+      "multicastPort":        { "required": true, "format": "port", "doc": "Multicast port." },
+      "networkInterfaceName": { "doc": "NIC to bind; blank = default route." }
+    },
+    "connector-multicast:sink": {
+      "multicastGroup":       { "required": true, "doc": "Multicast group address." },
+      "multicastPort":        { "required": true, "format": "port", "doc": "Multicast port." },
+      "networkInterfaceName": { "doc": "NIC to bind; blank = default route." }
+    },
+
+    "svc-cache:service": {
+      "fileName":   { "required": true, "format": "path", "doc": "Backing JSON file path." },
+      "maxSize":    { "doc": "0 = unbounded; >0 enables LRU eviction." },
+      "asyncWrite": { "doc": "Flush writes on a background thread." },
+      "cacheMap":   { "hide": true }
+    },
+
+    "svc-jdbc:service": {
+      "connections":    { "required": true, "doc": "Named JDBC connections (name → pool config: url, user, password, sizing)." },
+      "testConnection": { "doc": "Run a validation query for each pool at startup." },
+      "fastFail":       { "doc": "Fail boot if a startup connectivity test fails." }
+    },
+    "svc-micrometer:service": {
+      "sampleIntervalMs": { "format": "millis", "doc": "How often counters are pushed to the registry." }
+    },
+    "svc-admin-telnet:service": {
+      "interfaceName": { "format": "host", "doc": "Bind address; loopback by default." },
+      "listenPort":    { "format": "port", "doc": "Telnet listen port." }
+    },
+    "svc-admin-rest:service": {
+      "host":       { "format": "host", "doc": "Bind address (0.0.0.0 = all interfaces — front with TLS)." },
+      "listenPort": { "format": "port" },
+      "authMode":   { "doc": "NONE | BASIC | BEARER." },
+      "username":   { "doc": "BASIC credential ($ENV. resolvable)." },
+      "password":   { "doc": "BASIC credential ($ENV. resolvable)." },
+      "bearerToken":{ "doc": "BEARER credential ($ENV. resolvable)." },
+      "staticDir":  { "format": "path", "doc": "Optional static SPA directory to host." }
+    },
+    "svc-admin-web:service": {
+      "host":          { "format": "host", "doc": "Bind address; loopback by default — front with TLS for multi-host." },
+      "listenPort":    { "format": "port" },
+      "authMode":      { "doc": "NONE | BASIC | BEARER." },
+      "username":      { "doc": "BASIC credential ($ENV. resolvable)." },
+      "password":      { "doc": "BASIC credential ($ENV. resolvable)." },
+      "bearerToken":   { "doc": "BEARER credential ($ENV. resolvable)." },
+      "sessionSecret": { "doc": "HMAC key for session cookies ($ENV. resolvable); pin to survive restarts." },
+      "sessionMinutes":{ "doc": "Session cookie lifetime." },
+      "metricsIntervalMs": { "format": "millis", "doc": "JVM/throughput sampler period." },
+      "logTailBuffer": { "doc": "Max retained log records for the log tail." },
+      "loaderBaseDir": { "format": "path", "doc": "Root for the loader file picker; unset disables it." },
+      "sourceRoots":   { "elementType": "string", "doc": "Dirs the node-source viewer reads .java from." },
+      "graphmlRoots":  { "elementType": "string", "doc": "Dirs the processor-graph panel reads .graphml from." }
+    },
+    "svc-loader-yaml:service": {
+      "loadAtStartup":         { "doc": "Descriptors to compile + load at boot." },
+      "generatedSourceDir":    { "format": "path" },
+      "generatedResourcesDir": { "format": "path" },
+      "persistentConfigDir":   { "format": "path" }
+    },
+    "svc-loader-spring:service": {
+      "loadAtStartup":         { "doc": "Spring files to load at boot." },
+      "generatedSourceDir":    { "format": "path" },
+      "generatedResourcesDir": { "format": "path" },
+      "persistentConfigDir":   { "format": "path" }
+    },
+    "svc-loader-feed:service": {
+      "persistentConfigDir": { "format": "path", "doc": "Where runtime-added feed configs are persisted." }
+    },
+    "svc-loader-sink:service": {
+      "persistentConfigDir": { "format": "path", "doc": "Where runtime-added sink configs are persisted." }
+    }
+  }
+}

@@ -8,6 +8,9 @@ on:
       - 'mkdocs.yml'
       - 'docs-requirements.txt'
       - '.github/workflows/docs.yml'
+      # regenerate the config-reference + schema.json when the generator,
+      # its index/overrides, or the reflected plugin config classes change
+      - 'tooling/config-schema-gen/**'
   workflow_dispatch:
 
 permissions:
@@ -58,6 +61,26 @@ jobs:
       - name: Install dependencies
         run: |
           pip install mkdocs mkdocs-macros-plugin mkdocs-material mkdocs-mermaid2-plugin mkdocs-awesome-pages-plugin
+
+      # Regenerate the machine-readable schema.json + the human config-reference
+      # page from the live plugin config classes, so the deployed site is always
+      # current (the committed copies are a fallback / for local viewing).
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Regenerate config schema + reference
+        run: |
+          VERSION=$(mvn -q -N help:evaluate -Dexpression=project.version -DforceStdout)
+          echo "Regenerating config schema for mongoose-plugins $VERSION"
+          mvn -q -pl tooling/config-schema-gen -am install -DskipTests
+          mvn -q -pl tooling/config-schema-gen \
+            org.codehaus.mojo:exec-maven-plugin:3.3.0:java \
+            -Dexec.mainClass=com.telamin.mongoose.tooling.schemagen.SchemaGenMain \
+            -Dexec.args="$VERSION target/schema-out docs"
 
       - name: Build site
         run: mkdocs build
