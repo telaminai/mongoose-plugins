@@ -1,0 +1,158 @@
+{
+  "_comment": "Central manifest of the plugins whose config surface is schematised. One entry per connector instance / service. kind drives yamlKey/yamlBindKey. sourceVersion (optional) names the release axis the class came from — set it (= the mongoose version, kept in sync with the mongoose dep) for mongoose-core built-ins; omit for plugin classes (mongoose-plugins axis = the schema's pluginsVersion). id (optional) overrides the schema-overrides lookup key when one artifactId has >1 entry of the same kind. See design/connector-config-schema.md §4, §8.5.",
+  "_mongooseVersionNote": "core built-in sourceVersion values track the <mongoose.version> in the parent pom; bump together.",
+  "plugins": [
+    {
+      "artifactId": "mongoose",
+      "id": "mongoose-file:source",
+      "kind": "source",
+      "sourceVersion": "1.0.20",
+      "instanceFqn": "com.telamin.mongoose.connector.file.FileEventSource",
+      "doc": "Built-in (mongoose-core): tail a file as an event source."
+    },
+    {
+      "artifactId": "mongoose",
+      "id": "mongoose-file:sink",
+      "kind": "sink",
+      "sourceVersion": "1.0.20",
+      "instanceFqn": "com.telamin.mongoose.connector.file.FileMessageSink",
+      "doc": "Built-in (mongoose-core): append messages to a file."
+    },
+    {
+      "artifactId": "mongoose",
+      "id": "mongoose-memory:source",
+      "kind": "source",
+      "sourceVersion": "1.0.20",
+      "instanceFqn": "com.telamin.mongoose.connector.memory.InMemoryEventSource",
+      "doc": "Built-in (mongoose-core): in-memory event source (tests / in-process)."
+    },
+    {
+      "artifactId": "mongoose",
+      "id": "mongoose-memory:sink",
+      "kind": "sink",
+      "sourceVersion": "1.0.20",
+      "instanceFqn": "com.telamin.mongoose.connector.memory.InMemoryMessageSink",
+      "doc": "Built-in (mongoose-core): in-memory message sink."
+    },
+    {
+      "artifactId": "connector-file",
+      "kind": "source",
+      "instanceFqn": "com.telamin.mongoose.plugin.connector.file.FileEventSource",
+      "doc": "Tail a file as an event source."
+    },
+    {
+      "artifactId": "connector-file",
+      "kind": "sink",
+      "instanceFqn": "com.telamin.mongoose.plugin.connector.file.FileMessageSink",
+      "doc": "Append messages to a file."
+    },
+    {
+      "artifactId": "connector-kafka",
+      "kind": "source",
+      "instanceFqn": "com.telamin.mongoose.plugin.connector.kafka.KafkaMessageConsumer",
+      "doc": "Consume from a Kafka topic as an event source."
+    },
+    {
+      "artifactId": "connector-kafka",
+      "kind": "sink",
+      "instanceFqn": "com.telamin.mongoose.plugin.connector.kafka.KafkaMessagePublisher",
+      "doc": "Publish messages to a Kafka topic."
+    },
+    {
+      "artifactId": "connector-aeron",
+      "kind": "source",
+      "instanceFqn": "com.telamin.mongoose.plugin.connector.aeron.AeronArchiveEventSource",
+      "doc": "Subscribe to an Aeron stream / replay from an Aeron Archive."
+    },
+    {
+      "artifactId": "connector-aeron",
+      "kind": "sink",
+      "instanceFqn": "com.telamin.mongoose.plugin.connector.aeron.AeronMessageSink",
+      "doc": "Publish messages to an Aeron stream."
+    },
+    {
+      "artifactId": "connector-chronicle",
+      "kind": "source",
+      "instanceFqn": "com.telamin.mongoose.plugin.connector.chronicle.ChronicleEventSource",
+      "doc": "Read events from a Chronicle Queue."
+    },
+    {
+      "artifactId": "connector-chronicle",
+      "kind": "sink",
+      "instanceFqn": "com.telamin.mongoose.plugin.connector.chronicle.ChronicleMessageSink",
+      "doc": "Append messages to a Chronicle Queue."
+    },
+    {
+      "artifactId": "connector-multicast",
+      "kind": "source",
+      "instanceFqn": "com.telamin.mongoose.plugin.connector.multicast.MulticastEventSource",
+      "doc": "Receive events over UDP multicast."
+    },
+    {
+      "artifactId": "connector-multicast",
+      "kind": "sink",
+      "instanceFqn": "com.telamin.mongoose.plugin.connector.multicast.MulticastMessageSink",
+      "doc": "Send messages over UDP multicast."
+    },
+    {
+      "artifactId": "svc-cache",
+      "kind": "service",
+      "instanceFqn": "com.telamin.mongoose.plugin.svc.cache.JsonFileCache",
+      "doc": "JSON-persistent key/value cache service."
+    },
+    {
+      "artifactId": "svc-jdbc",
+      "kind": "service",
+      "instanceFqn": "com.telamin.mongoose.plugin.svc.jdbc.impl.JdbcConnectionLoaderService",
+      "doc": "Named JDBC connection registry (HikariCP-backed)."
+    },
+    {
+      "artifactId": "svc-micrometer",
+      "kind": "service",
+      "instanceFqn": "com.telamin.mongoose.plugin.svc.micrometer.MicrometerBridge",
+      "doc": "Bridge Mongoose counters to a Micrometer registry."
+    },
+    {
+      "artifactId": "svc-admin-telnet",
+      "kind": "service",
+      "instanceFqn": "com.telamin.mongoose.plugin.svc.admintelnet.TelnetAdminCommandProcessor",
+      "doc": "Telnet admin endpoint (JLine completion + history)."
+    },
+    {
+      "artifactId": "svc-admin-rest",
+      "kind": "service",
+      "instanceFqn": "com.telamin.mongoose.plugin.svc.adminrest.JavalinAdminCommandService",
+      "doc": "Javalin REST admin endpoint."
+    },
+    {
+      "artifactId": "svc-admin-web",
+      "kind": "service",
+      "instanceFqn": "com.telamin.mongoose.plugin.svc.adminweb.WebAdminService",
+      "doc": "Browser admin & monitoring console (REST + WebSocket + SPA)."
+    },
+    {
+      "artifactId": "svc-loader-yaml",
+      "kind": "service",
+      "instanceFqn": "com.telamin.mongoose.plugin.loader.yaml.EventHandlerLoader",
+      "doc": "Load/reload processors at runtime from YAML or Java source."
+    },
+    {
+      "artifactId": "svc-loader-spring",
+      "kind": "service",
+      "instanceFqn": "com.telamin.mongoose.plugin.loader.spring.SpringEventHandlerLoader",
+      "doc": "Load/reload processors at runtime from Spring XML."
+    },
+    {
+      "artifactId": "svc-loader-feed",
+      "kind": "service",
+      "instanceFqn": "com.telamin.mongoose.plugin.loader.feed.FeedLoader",
+      "doc": "Add/remove event feeds at runtime."
+    },
+    {
+      "artifactId": "svc-loader-sink",
+      "kind": "service",
+      "instanceFqn": "com.telamin.mongoose.plugin.loader.sink.SinkLoader",
+      "doc": "Add/remove event sinks at runtime."
+    }
+  ]
+}
