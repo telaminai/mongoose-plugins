@@ -6,7 +6,7 @@
       "artifactId": "mongoose",
       "id": "mongoose-file:source",
       "kind": "source",
-      "sourceVersion": "1.0.20",
+      "sourceVersion": "1.0.22",
       "instanceFqn": "com.telamin.mongoose.connector.file.FileEventSource",
       "doc": "Built-in (mongoose-core): tail a file as an event source."
     },
@@ -14,7 +14,7 @@
       "artifactId": "mongoose",
       "id": "mongoose-file:sink",
       "kind": "sink",
-      "sourceVersion": "1.0.20",
+      "sourceVersion": "1.0.22",
       "instanceFqn": "com.telamin.mongoose.connector.file.FileMessageSink",
       "doc": "Built-in (mongoose-core): append messages to a file."
     },
@@ -22,7 +22,7 @@
       "artifactId": "mongoose",
       "id": "mongoose-memory:source",
       "kind": "source",
-      "sourceVersion": "1.0.20",
+      "sourceVersion": "1.0.22",
       "instanceFqn": "com.telamin.mongoose.connector.memory.InMemoryEventSource",
       "doc": "Built-in (mongoose-core): in-memory event source (tests / in-process)."
     },
@@ -30,7 +30,7 @@
       "artifactId": "mongoose",
       "id": "mongoose-memory:sink",
       "kind": "sink",
-      "sourceVersion": "1.0.20",
+      "sourceVersion": "1.0.22",
       "instanceFqn": "com.telamin.mongoose.connector.memory.InMemoryMessageSink",
       "doc": "Built-in (mongoose-core): in-memory message sink."
     },
