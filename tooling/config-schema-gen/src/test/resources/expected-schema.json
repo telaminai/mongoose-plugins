@@ -7,7 +7,7 @@
     "yamlKey" : "eventFeeds",
     "yamlBindKey" : "instance",
     "instanceFqn" : "com.telamin.mongoose.connector.file.FileEventSource",
-    "sourceVersion" : "1.0.20",
+    "sourceVersion" : "1.0.22",
     "doc" : "Built-in (mongoose-core): tail a file as an event source.",
     "fields" : [ {
       "name" : "cacheEventLog",
@@ -36,7 +36,7 @@
     "yamlKey" : "eventSinks",
     "yamlBindKey" : "instance",
     "instanceFqn" : "com.telamin.mongoose.connector.file.FileMessageSink",
-    "sourceVersion" : "1.0.20",
+    "sourceVersion" : "1.0.22",
     "doc" : "Built-in (mongoose-core): append messages to a file.",
     "fields" : [ {
       "name" : "filename",
@@ -51,7 +51,7 @@
     "yamlKey" : "eventFeeds",
     "yamlBindKey" : "instance",
     "instanceFqn" : "com.telamin.mongoose.connector.memory.InMemoryEventSource",
-    "sourceVersion" : "1.0.20",
+    "sourceVersion" : "1.0.22",
     "doc" : "Built-in (mongoose-core): in-memory event source (tests / in-process).",
     "fields" : [ {
       "name" : "cacheEventLog",
@@ -66,7 +66,7 @@
     "yamlKey" : "eventSinks",
     "yamlBindKey" : "instance",
     "instanceFqn" : "com.telamin.mongoose.connector.memory.InMemoryMessageSink",
-    "sourceVersion" : "1.0.20",
+    "sourceVersion" : "1.0.22",
     "doc" : "Built-in (mongoose-core): in-memory message sink.",
     "fields" : [ ]
   }, {
