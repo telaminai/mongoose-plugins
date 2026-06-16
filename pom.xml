@@ -10,7 +10,7 @@
     <groupId>com.telamin</groupId>
 
     <artifactId>mongoose-plugins</artifactId>
-    <version>1.0.34-SNAPSHOT</version>
+    <version>1.0.35-SNAPSHOT</version>
     <name>telamin :: mongoose-plugins</name>
     <packaging>pom</packaging>
 
@@ -23,8 +23,8 @@
     <properties>
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
-        <fluxtion.version>1.0.4</fluxtion.version>
-        <mongoose.version>1.0.23</mongoose.version>
+        <fluxtion.version>1.0.8</fluxtion.version>
+        <mongoose.version>1.0.24</mongoose.version>
         <log4j2.version>2.24.3</log4j2.version>
         <lombok.version>1.18.42</lombok.version>
         <jackson.version>2.18.2</jackson.version>
