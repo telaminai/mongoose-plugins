@@ -68,7 +68,7 @@ class SchemaGeneratorTest {
         // Core built-ins live on the mongoose axis, stamped independently of the
         // schema's pluginsVersion (design §8.5).
         assertEquals("mongoose", coreFile.artifactId());
-        assertEquals("1.0.22", coreFile.sourceVersion()); // tracks <mongoose.version>; CoreSourceVersionGateTest guards drift
+        assertEquals("1.0.24", coreFile.sourceVersion()); // tracks <mongoose.version>; CoreSourceVersionGateTest guards drift
         assertTrue(field(coreFile, "filename").required());
         // Plugin connectors carry no sourceVersion (== schema pluginsVersion).
         assertNull(plugin(s, "connector-file", "source").sourceVersion());
