@@ -68,7 +68,16 @@ class SchemaGeneratorTest {
         // Core built-ins live on the mongoose axis, stamped independently of the
         // schema's pluginsVersion (design §8.5).
         assertEquals("mongoose", coreFile.artifactId());
-        assertEquals("1.0.24", coreFile.sourceVersion()); // tracks <mongoose.version>; CoreSourceVersionGateTest guards drift
+        // sourceVersion tracks <mongoose.version>, surfaced by surefire as the
+        // mongoose.version system property. Under Maven assert it matches exactly (no
+        // hardcoded literal to drift); a bare IDE run (property absent) just checks it
+        // is stamped. CoreSourceVersionGateTest guards drift across the whole index.
+        String mongooseVersion = System.getProperty("mongoose.version");
+        if (mongooseVersion != null && !mongooseVersion.isBlank()) {
+            assertEquals(mongooseVersion, coreFile.sourceVersion());
+        } else {
+            assertNotNull(coreFile.sourceVersion());
+        }
         assertTrue(field(coreFile, "filename").required());
         // Plugin connectors carry no sourceVersion (== schema pluginsVersion).
         assertNull(plugin(s, "connector-file", "source").sourceVersion());

@@ -88,7 +88,7 @@ extra:
   # Single source of truth for the plugin release version quoted in docs.
   # Referenced from Maven dependency snippets as {{ plugin_version }}.
   # Keep in sync with the <version> in the root pom.xml.
-  plugin_version: 1.0.34
+  plugin_version: 1.0.35
 
 copyright: Copyright &copy; 2025 Gregory Higgins — AGPL-3.0-only
 
