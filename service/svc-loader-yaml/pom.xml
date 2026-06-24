@@ -4,7 +4,7 @@
     <parent>
         <groupId>com.telamin</groupId>
         <artifactId>mongoose-plugins</artifactId>
-        <version>1.0.36-SNAPSHOT</version>
+        <version>1.0.37-SNAPSHOT</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
@@ -21,7 +21,6 @@
         <dependency>
             <groupId>com.telamin.fluxtion</groupId>
             <artifactId>fluxtion-builder</artifactId>
-            <version>${fluxtion.version}</version>
         </dependency>
         <dependency>
             <groupId>com.github.javaparser</groupId>
