@@ -10,7 +10,7 @@
     <groupId>com.telamin</groupId>
 
     <artifactId>mongoose-plugins</artifactId>
-    <version>1.0.37</version>
+    <version>1.0.38-SNAPSHOT</version>
     <name>telamin :: mongoose-plugins</name>
     <packaging>pom</packaging>
 
@@ -43,7 +43,7 @@
         <connection>scm:git:https://github.com/telaminai/mongoose-plugins.git</connection>
         <developerConnection>scm:git:https://github.com/telaminai/mongoose-plugins.git</developerConnection>
         <url>https://github.com/telaminai/mongoose-plugins/</url>
-        <tag>v1.0.37</tag>
+        <tag>v0.1.0</tag>
     </scm>
 
 
