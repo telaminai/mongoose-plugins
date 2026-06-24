@@ -22,7 +22,6 @@
         <dependency>
             <groupId>com.telamin.fluxtion</groupId>
             <artifactId>fluxtion-builder</artifactId>
-            <version>${fluxtion.version}</version>
         </dependency>
         <dependency>
             <groupId>org.springframework</groupId>

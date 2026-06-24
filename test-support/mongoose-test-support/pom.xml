@@ -40,7 +40,6 @@
         <dependency>
             <groupId>com.telamin.fluxtion</groupId>
             <artifactId>fluxtion-builder</artifactId>
-            <version>${fluxtion.version}</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
