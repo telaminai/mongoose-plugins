@@ -45,7 +45,8 @@ import java.util.function.Function;
  *
  * <p>{@link #close()} is idempotent and always calls {@link MongooseServer#stop()}.
  */
-public final class MongooseTestHarness implements AutoCloseable {
+public final class
+MongooseTestHarness implements AutoCloseable {
 
     /** Default await timeout. Tuned so a 1-ms idle-strategy server has plenty of cycles. */
     public static final Duration DEFAULT_AWAIT = Duration.ofSeconds(3);
