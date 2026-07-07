@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 
 import java.net.CookieManager;
 import java.net.HttpCookie;
+import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -32,7 +33,13 @@ class WebAdminServiceTest {
     private int port;
 
     private static int freePort() {
-        try (ServerSocket s = new ServerSocket(0)) {
+        // Bind on the exact interface the service uses (127.0.0.1) with SO_REUSEADDR OFF. Java's default
+        // ServerSocket(0) enables reuse-addr, so on macOS the kernel can hand out a port another process
+        // already holds on 127.0.0.1 (e.g. IntelliJ's built-in server on 63342) — Jetty's strict bind then
+        // fails with "Port already in use".
+        try (ServerSocket s = new ServerSocket()) {
+            s.setReuseAddress(false);
+            s.bind(new InetSocketAddress("127.0.0.1", 0));
             return s.getLocalPort();
         } catch (Exception e) {
             throw new RuntimeException(e);
