@@ -434,6 +434,21 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         return record;
     }
 
+    /**
+     * Refresh the registry entry once every processor agent is ACTIVE.
+     *
+     * <p>{@code start()} publishes the file before the HTTP listener binds, which is the ordering a
+     * reader needs — but processors register later, so that first write necessarily carries
+     * {@code processors: []}. A consumer that read the entry the instant it appeared saw an empty
+     * list (analyser loop-bench N1). {@code startComplete} is the exact hook for this: the
+     * lifecycle calls it only after every processor agent reports ACTIVE, so the list is knowable
+     * and complete here without polling or a timer.
+     */
+    @Override
+    public void startComplete() {
+        refreshRegistry();
+    }
+
     /** Mongoose's clean-shutdown path calls {@code Service.stop()} → {@code Lifecycle.stop()},
      *  never {@code tearDown()} — so the registry file MUST come off here (verified against a
      *  live server: stop() is the only hook the server invokes on shutdown). A crash skips both

@@ -81,6 +81,29 @@ class ServerRegistryFileTest {
         Assertions.assertFalse(Files.exists(file), "clean shutdown removes the registry file");
     }
 
+    /** N1: the first publish necessarily has no processors (they register later), so the entry is
+     *  refreshed at startComplete — after the lifecycle reports every processor agent ACTIVE. */
+    @Test
+    void startCompleteRefreshesTheEntrySoProcessorsAreNotPermanentlyEmpty(@TempDir Path registry) throws Exception {
+        int port = freePort();
+        svc = new WebAdminService();
+        svc.setListenPort(port);
+        svc.setRegistryDir(registry.toString());
+        svc.setServerName("refresh-me");
+        svc.init();
+        svc.start();
+
+        Path file = registry.resolve("refresh-me");
+        long firstWrite = Files.getLastModifiedTime(file).toMillis();
+        Assertions.assertTrue(new ObjectMapper().readTree(Files.readString(file)).get("processors").isArray());
+
+        // the hook must exist and be safe to call with no controller bound — a server with no
+        // processors must not fail its own startup because the admin console refreshed a file
+        svc.startComplete();
+        Assertions.assertTrue(Files.exists(file), "the entry survives startComplete");
+        Assertions.assertTrue(Files.getLastModifiedTime(file).toMillis() >= firstWrite);
+    }
+
     @Test
     void serverNameDefaultsToWorkingDirectoryBasename(@TempDir Path registry) {
         int port = freePort();
