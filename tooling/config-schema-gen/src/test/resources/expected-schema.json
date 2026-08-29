@@ -637,6 +637,11 @@
       "required" : false,
       "doc" : "BEARER credential ($ENV. resolvable)."
     }, {
+      "name" : "environment",
+      "type" : "string",
+      "required" : false,
+      "default" : "dev"
+    }, {
       "name" : "graphmlRoots",
       "type" : "list",
       "required" : false,
@@ -681,10 +686,23 @@
       "required" : false,
       "doc" : "BASIC credential ($ENV. resolvable)."
     }, {
+      "name" : "publishRegistry",
+      "type" : "boolean",
+      "required" : false,
+      "default" : true
+    }, {
       "name" : "realm",
       "type" : "string",
       "required" : false,
       "default" : "mongoose-admin"
+    }, {
+      "name" : "registryDir",
+      "type" : "string",
+      "required" : false
+    }, {
+      "name" : "serverName",
+      "type" : "string",
+      "required" : false
     }, {
       "name" : "sessionMinutes",
       "type" : "int",
