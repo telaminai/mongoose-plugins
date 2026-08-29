@@ -122,6 +122,21 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
     @Setter         private String sessionSecret;
     @Getter @Setter private int    sessionMinutes = 60;
 
+    // server-registry config — the agent-brokered dev loop's discovery file (upstream ask
+    // UP-MNG-01): ~/.mongoose/servers/<name>, mode 600, written while this admin service is up,
+    // removed on clean shutdown. A crashed server leaves a file with a dead pid — readers check
+    // pid liveness; nothing cleans stale files up.
+    @Getter @Setter private boolean publishRegistry = true;
+    /** Registry file name. Unset → the working directory's basename. */
+    @Getter @Setter private String  serverName;
+    /** Declared deployment environment (UP-MNG-03) — carried into the registry file so an
+     *  exporting agent has an authoritative value. Declared, never inferred. */
+    @Getter @Setter private String  environment = "dev";
+    /** Override for the registry directory (tests / multi-user hosts). Unset → ~/.mongoose/servers. */
+    @Getter @Setter private String  registryDir;
+    private ServerRegistryFile registryFile;
+    private String registryStartedAt;
+
     @Override
     public void setEventFlowManager(EventFlowManager eventFlowManager, String serviceName) {
         log.info("set eventFlowManager name:'{}' for web admin UI", serviceName);
@@ -217,6 +232,15 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
     @Override
     public void start() {
         log.info("starting web admin UI on http://{}:{}{} (auth={})", host, listenPort, basePath, authMode);
+        // Publish the discovery file BEFORE the port binds so a reader that finds the file can
+        // rely on the URL answering (UP-MNG-01 acceptance ordering). listenPort 0 is corrected
+        // by the refresh below once the real port is known.
+        if (publishRegistry) {
+            registryStartedAt = java.time.format.DateTimeFormatter.ISO_INSTANT
+                    .format(java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS));
+            registryFile = new ServerRegistryFile(resolvedRegistryDir(), resolvedServerName());
+            registryFile.publish(registryRecord());
+        }
         javalin = Javalin.create(config -> {
             // Bundled UI assets — htmx + Alpine SPA shell. Served from classpath
             // so a single jar is enough; no node toolchain, no staticDir config.
@@ -337,10 +361,85 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         logTail = new LogTail(logTailBuffer);
         logTail.subscribe(this::broadcastLogLine);
         logTail.start();
+
+        // Correct the registry entry if the kernel picked the port (listenPort 0) and capture
+        // processors registered so far. Later registrations (runtime loaders) are folded in by
+        // the refresh on the dashboard poll — see handleServer.
+        refreshRegistry();
+    }
+
+    private void refreshRegistry() {
+        if (registryFile != null) {
+            registryFile.publish(registryRecord());
+        }
+    }
+
+    private java.nio.file.Path resolvedRegistryDir() {
+        if (registryDir != null && !registryDir.isBlank()) {
+            return java.nio.file.Path.of(registryDir);
+        }
+        // JVM-wide relocation knob — also how the test suite keeps unit tests out of the
+        // developer's real ~/.mongoose/servers (surefire sets it to target/servers).
+        String sysProp = System.getProperty("mongoose.servers.dir");
+        if (sysProp != null && !sysProp.isBlank()) {
+            return java.nio.file.Path.of(sysProp);
+        }
+        return java.nio.file.Path.of(System.getProperty("user.home"), ".mongoose", "servers");
+    }
+
+    private String resolvedServerName() {
+        if (serverName != null && !serverName.isBlank()) {
+            return serverName;
+        }
+        java.nio.file.Path cwd = java.nio.file.Path.of(System.getProperty("user.dir")).toAbsolutePath();
+        java.nio.file.Path base = cwd.getFileName();
+        return base != null ? base.toString() : "mongoose-server";
+    }
+
+    /** The UP-MNG-01 record. {@code token} carries the bearer token only in BEARER mode — the
+     *  file is mode 600, the same posture as the analyser's rest-endpoint file. BASIC credentials
+     *  are never written. */
+    private Map<String, Object> registryRecord() {
+        Map<String, Object> record = new LinkedHashMap<>();
+        record.put("name", resolvedServerName());
+        record.put("home", System.getProperty("user.dir"));
+        int port = javalin != null ? javalin.port() : listenPort;
+        String path = basePath == null || basePath.equals("/") ? "" : basePath.replaceAll("/+$", "");
+        record.put("url", "http://" + host + ":" + port + path);
+        record.put("token", authMode == AuthMode.BEARER ? resolvedBearerToken() : "");
+        record.put("authMode", authMode.name());
+        record.put("environment", environment);
+        record.put("pid", ProcessHandle.current().pid());
+        record.put("startedAt", registryStartedAt);
+        List<Map<String, Object>> processors = new ArrayList<>();
+        if (serverController != null) {
+            try {
+                serverController.registeredProcessors().forEach((group, procs) -> {
+                    for (NamedEventProcessor np : procs) {
+                        Map<String, Object> row = new LinkedHashMap<>();
+                        row.put("group", group);
+                        row.put("name", np.name());
+                        if (np.eventProcessor() != null) {
+                            row.put("className", np.eventProcessor().getClass().getName());
+                        }
+                        row.put("graphml", "/api/processors/" + group + "/" + np.name() + "/graphml");
+                        processors.add(row);
+                    }
+                });
+            } catch (Exception e) {
+                log.warn("registry: could not enumerate processors: {}", e.toString());
+            }
+        }
+        record.put("processors", processors);
+        return record;
     }
 
     @Override
     public void tearDown() {
+        if (registryFile != null) {
+            registryFile.remove();       // clean shutdown removes the discovery file (UP-MNG-01);
+            registryFile = null;         // a crash leaves it behind with a dead pid, by design
+        }
         if (monitoringSampler != null) {
             monitoringSampler.stop();
             monitoringSampler = null;
@@ -568,6 +667,10 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
     // -------- dashboard --------
 
     private void handleServer(Context ctx) {
+        // Piggy-back a registry refresh on the dashboard poll: processors registered after
+        // service start (runtime loaders) fold into the discovery file without a timer.
+        // ServerRegistryFile.publish is a no-op when nothing changed.
+        refreshRegistry();
         ctx.json(MonitoringSampler.serverInfo());
     }
 

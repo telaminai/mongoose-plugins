@@ -31,4 +31,20 @@
         </dependency>
     </dependencies>
 
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!-- Keep unit tests out of the developer's real ~/.mongoose/servers:
+                         WebAdminService publishes its UP-MNG-01 registry file there by default. -->
+                    <systemPropertyVariables>
+                        <mongoose.servers.dir>${project.build.directory}/servers</mongoose.servers.dir>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
 </project>
