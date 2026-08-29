@@ -95,6 +95,25 @@ class ServerRegistryFileTest {
                 "default registry name is the working-dir basename: " + expected);
     }
 
+    /** Mongoose's clean shutdown calls Service.stop() → Lifecycle.stop(), NEVER tearDown() —
+     *  verified against a live server. The file must come off on stop(), or every cleanly
+     *  stopped server leaves a stale registry entry. */
+    @Test
+    void stopRemovesTheRegistryFile(@TempDir Path registry) {
+        int port = freePort();
+        svc = new WebAdminService();
+        svc.setListenPort(port);
+        svc.setRegistryDir(registry.toString());
+        svc.setServerName("stop-path");
+        svc.init();
+        svc.start();
+        Assertions.assertTrue(Files.exists(registry.resolve("stop-path")));
+
+        svc.stop();
+        Assertions.assertFalse(Files.exists(registry.resolve("stop-path")),
+                "Service.stop() — the server's clean-shutdown hook — removes the file");
+    }
+
     @Test
     void publishRegistryFalseWritesNothing(@TempDir Path registry) {
         int port = freePort();

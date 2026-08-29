@@ -434,12 +434,25 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         return record;
     }
 
+    /** Mongoose's clean-shutdown path calls {@code Service.stop()} → {@code Lifecycle.stop()},
+     *  never {@code tearDown()} — so the registry file MUST come off here (verified against a
+     *  live server: stop() is the only hook the server invokes on shutdown). A crash skips both
+     *  and leaves the file behind with a dead pid, by design. */
+    @Override
+    public void stop() {
+        removeRegistryFile();
+    }
+
+    private void removeRegistryFile() {
+        if (registryFile != null) {
+            registryFile.remove();
+            registryFile = null;
+        }
+    }
+
     @Override
     public void tearDown() {
-        if (registryFile != null) {
-            registryFile.remove();       // clean shutdown removes the discovery file (UP-MNG-01);
-            registryFile = null;         // a crash leaves it behind with a dead pid, by design
-        }
+        removeRegistryFile();            // embedded/test users call tearDown directly
         if (monitoringSampler != null) {
             monitoringSampler.stop();
             monitoringSampler = null;
