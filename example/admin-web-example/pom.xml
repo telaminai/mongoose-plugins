@@ -28,8 +28,8 @@
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <mongoose.version>1.0.9</mongoose.version>
-        <plugins.version>0.2.14-SNAPSHOT</plugins.version>
+        <mongoose.version>1.0.28</mongoose.version>
+        <plugins.version>1.0.39-SNAPSHOT</plugins.version>
     </properties>
 
     <dependencies>
