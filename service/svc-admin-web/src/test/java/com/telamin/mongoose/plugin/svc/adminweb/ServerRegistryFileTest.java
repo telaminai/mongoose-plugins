@@ -81,11 +81,21 @@ class ServerRegistryFileTest {
         Assertions.assertFalse(Files.exists(file), "clean shutdown removes the registry file");
     }
 
-    /** N1: the first publish necessarily has no processors (they register later), so the entry is
-     *  refreshed at startComplete — after the lifecycle reports every processor agent ACTIVE. */
+    /**
+     * N1, pinned as BEHAVIOUR rather than as "the hook does not throw": the first publish happens
+     * before the port binds and therefore necessarily carries an EMPTY processors list, because
+     * processors register later in boot. The lifecycle calls startComplete only once every
+     * processor agent is ACTIVE, so refreshing there is what makes the list complete for a headless
+     * consumer that reads the entry the moment it appears.
+     */
     @Test
     void startCompleteRefreshesTheEntrySoProcessorsAreNotPermanentlyEmpty(@TempDir Path registry) throws Exception {
         int port = freePort();
+        // a controller that already knows a processor — as the real one does by startComplete
+        WebAdminServiceTest.FakeServerController controller = new WebAdminServiceTest.FakeServerController();
+        controller.addProcessor("main",
+                new com.telamin.mongoose.dutycycle.NamedEventProcessor("marketProcessor", null));
+
         svc = new WebAdminService();
         svc.setListenPort(port);
         svc.setRegistryDir(registry.toString());
@@ -94,14 +104,23 @@ class ServerRegistryFileTest {
         svc.start();
 
         Path file = registry.resolve("refresh-me");
-        long firstWrite = Files.getLastModifiedTime(file).toMillis();
-        Assertions.assertTrue(new ObjectMapper().readTree(Files.readString(file)).get("processors").isArray());
+        ObjectMapper mapper = new ObjectMapper();
+        // BEFORE: start() publishes early — deliberately, so a reader that finds the file can trust
+        // the URL answers — and at that point the controller was not yet bound, so the list is empty
+        Assertions.assertEquals(0, mapper.readTree(Files.readString(file)).get("processors").size(),
+                "the first publish precedes processor registration");
 
-        // the hook must exist and be safe to call with no controller bound — a server with no
-        // processors must not fail its own startup because the admin console refreshed a file
+        svc.serverController(controller, "test");
         svc.startComplete();
-        Assertions.assertTrue(Files.exists(file), "the entry survives startComplete");
-        Assertions.assertTrue(Files.getLastModifiedTime(file).toMillis() >= firstWrite);
+
+        // AFTER: the exact processor, its group and its GraphML route are in the entry
+        JsonNode processors = mapper.readTree(Files.readString(file)).get("processors");
+        Assertions.assertEquals(1, processors.size(), "startComplete refreshed the entry");
+        Assertions.assertEquals("marketProcessor", processors.get(0).get("name").asText());
+        Assertions.assertEquals("main", processors.get(0).get("group").asText());
+        Assertions.assertEquals("/api/processors/main/marketProcessor/graphml",
+                processors.get(0).get("graphml").asText(),
+                "a consumer can fetch the GraphML straight from the entry — the N1 failure");
     }
 
     @Test
