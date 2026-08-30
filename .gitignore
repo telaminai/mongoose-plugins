@@ -30,3 +30,11 @@ __pycache__/
 # macOS Finder noise
 .DS_Store
 **/.DS_Store
+
+# maven-release-plugin scratch — written during release:prepare and never source.
+# These were committed once by a directory-wide 'git add' during the 1.0.41 preparation;
+# ignoring them is what stops that recurring.
+*.releaseBackup
+pom.xml.tag
+pom.xml.next
+release.properties
