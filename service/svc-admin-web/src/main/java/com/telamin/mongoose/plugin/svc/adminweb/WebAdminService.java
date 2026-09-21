@@ -1004,20 +1004,30 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
             net.openhft.chronicle.queue.ChronicleQueue q =
                     net.openhft.chronicle.queue.impl.single.SingleChronicleQueueBuilder
                             .binary(h.path()).build();
-            net.openhft.chronicle.queue.ExcerptTailer tailer = q.createTailer().toEnd();
+            // The tailer is NOT created here. Chronicle's StoreTailer is bound to the thread that
+            // creates it, and this is the Jetty connect thread while every read below happens on the
+            // scheduled executor. Creating it here threw ThreadingIllegalStateException on EVERY tick,
+            // swallowed at debug level, so the socket connected, reported healthy and delivered nothing.
+            // It is created on first tick instead, on the thread that will use it.
             java.util.concurrent.ScheduledExecutorService exec =
                     java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
                         Thread t = new Thread(r, "audit-tail-" + processor);
                         t.setDaemon(true);
                         return t;
                     });
-            AuditTailState state = new AuditTailState(q, tailer, exec);
+            AuditTailState state = new AuditTailState(q, exec);
             ctx.attribute("audit-tail-state", state);
 
             exec.scheduleAtFixedRate(() -> {
                 if (!ctx.session.isOpen() || state.paused) return;
                 try {
-                    java.util.List<Object> batch = new java.util.ArrayList<>();
+                    net.openhft.chronicle.queue.ExcerptTailer tailer = state.tailer();
+                    // FIX 2: the batch lives in the state, not in the tick. It used to be a local, so a
+                    // tick that read records but did not meet the flush condition - fewer than the
+                    // threshold AND within the latency window - dropped them on the floor with the
+                    // tailer already advanced past them. Those records were unrecoverable and nothing
+                    // reported it. Carrying the batch means a later tick flushes what an earlier one read.
+                    java.util.List<Object> batch = state.pending;
                     while (true) {
                         try (net.openhft.chronicle.wire.DocumentContext dc = tailer.readingDocument()) {
                             if (!dc.isPresent()) break;
@@ -1042,6 +1052,7 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
                         sb.append(']');
                         ctx.send(sb.toString());
                         state.lastFlush = now;
+                        batch.clear();          // only what was actually sent is forgotten
                     }
                 } catch (Exception e) {
                     log.debug("audit tail tick failed for {}", processor, e);
@@ -1071,17 +1082,28 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
     /** Per-WS state for the audit-tail subscription. */
     private static final class AuditTailState {
         final net.openhft.chronicle.queue.ChronicleQueue queue;
-        final net.openhft.chronicle.queue.ExcerptTailer tailer;
         final java.util.concurrent.ScheduledExecutorService exec;
+        /**
+         * Created on first use, which is always the executor thread. A Chronicle tailer belongs to its
+         * creating thread; building it in the connect handler and reading it here is what made every
+         * tick throw.
+         */
+        private net.openhft.chronicle.queue.ExcerptTailer tailer;
+        /** Records read but not yet sent. Survives a tick so a partial batch is flushed, never dropped. */
+        final java.util.List<Object> pending = new java.util.ArrayList<>();
         volatile boolean paused = false;
         volatile long lastFlush = System.currentTimeMillis();
 
         AuditTailState(net.openhft.chronicle.queue.ChronicleQueue q,
-                       net.openhft.chronicle.queue.ExcerptTailer t,
                        java.util.concurrent.ScheduledExecutorService e) {
             this.queue = q;
-            this.tailer = t;
             this.exec = e;
+        }
+
+        /** Single-threaded by construction: only the scheduled task calls this. */
+        net.openhft.chronicle.queue.ExcerptTailer tailer() {
+            if (tailer == null) tailer = queue.createTailer().toEnd();
+            return tailer;
         }
 
         void close() {
