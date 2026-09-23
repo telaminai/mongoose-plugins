@@ -9,9 +9,16 @@ They are on one branch deliberately. They touch the same file and the same featu
 deliver, the other makes an export's completeness claim mean anything — so they review and release
 together.
 
-**Gates on the branch:** the whole repository builds, all 20 modules, and `svc-admin-web` is 110 tests,
-0 failures, 0 errors, 0 skipped. **What is NOT claimed** is at the end of §1: the end-to-end acceptance
-needs a live server and a client that does not exist yet.
+**Gates on the branch:** the whole repository builds — 20 reactor projects, of which 19 have tests, 283
+tests in total — and `svc-admin-web` is 115 tests, 0 failures, 0 errors, 0 skipped. (An earlier version of
+this line said "all 20 modules" and review read it as a claim about 20 test suites; the aggregator is the
+twentieth project and has none. Both numbers are stated now so neither reading is wrong.)
+
+**The end-to-end acceptance is MET.** This file previously said it was owed and could not be claimed —
+that was true when it was written and is no longer. `AuditTailDeliveryAcceptanceTest` starts a real
+service on a free port, connects a `java.net.http.HttpClient` websocket (the JDK speaks the protocol, so
+no dependency was added and no client had to ship), writes 250 records and asserts delivered == exported
+for the same window. **It found a defect in the fix itself that no unit test could see** — see §1.
 
 ---
 
@@ -42,13 +49,15 @@ against a bare queue, so the lazy creation is provably load-bearing rather than 
 ever stops refusing, that test fails and tells the next reader the fix can be revisited. Module suite:
 100 tests, zero failures.
 
-**Reviewed 2026-09-23 and answered in `78dd23a`, on the same branch.** The review found both causes
+**Reviewed three times, 2026-09-23, and answered on the same branch.** The first answer is `78dd23a`. The review found both causes
 correctly diagnosed and correctly fixed, and then found that nothing protected either fix: three
 production mutations each left the whole suite green, because every test drove a bare Chronicle queue and
 re-implemented the tick loop. The tick is now a package-private method the tests drive, and all four
 mutations go red. Also fixed: `close()` now waits for the tick before closing the queue (closing under an
 active read throws on the reader, reproduced); consecutive failing ticks are counted, logged at warn and
-eventually close the socket, so the *shape* that hid the original bug is gone; the surviving batch has a
+eventually close the socket, so the *shape* that hid the original bug is gone — a later round added the
+second half of that fuse, because the count alone is half a second at a 25 ms poll and would drop a client
+that blocked briefly on one send, costing it the records it missed while reconnecting; the surviving batch has a
 ceiling, because a stuck-but-open client grew it by about forty records a second for ever; the log-tail
 fan-out no longer drops subscribers silently with their session left open; and the literal NUL byte that
 made this file read as binary to `grep` and `diff` is gone.
@@ -57,10 +66,32 @@ made this file read as binary to `grep` and `diff` is gone.
 That is inherent to a tail rather than a defect, and it is stated here and in the tick tests so it is
 known rather than discovered.
 
-**What is still owed, and was never claimed.** The acceptance that matters — the count delivered equals
-the count exported for the same window — needs a live server and a client, and **no shipped client opens
-this socket**. That is the other half of the original finding and it is still open. A reviewer should
-decide whether the fix merges on the unit evidence with that acceptance filed, or waits for a client.
+**The acceptance, and the third defect it found.** The count delivered equals the count exported for the
+same window: 250 of 250, in `AuditTailDeliveryAcceptanceTest`, against a live server and a real websocket
+client. It did not pass first time — it reported **0 of 250** while the export held all 250.
+
+The cause was in the fix, not in the original code. Creating the tailer lazily put `toEnd()` on the first
+tick, which is up to one poll interval (25 ms) AFTER the client connected, so everything written in that
+window was skipped — silently, because a tail that starts late is indistinguishable from a quiet queue.
+No unit test could see it: every one of them creates the state and takes its tailer in the same breath,
+so the gap is zero. The fix positions the tail immediately, still on the reading thread:
+`exec.execute(state::tailer)`. Reverting that line fails the acceptance and nothing else.
+
+A residual window remains, between the queue opening and that task starting — microseconds rather than
+tens of milliseconds. Closing it completely means capturing an index at connect and seeking to it. That is
+not done, and is recorded as a limit rather than described as solved.
+
+**A reconnect still starts at the live end**, so a client that drops misses what was written while it was
+away. That is what a tail is, and it is stated in the tick tests so it is known rather than discovered.
+
+**The third round's items, all taken.** `tick` takes a `Consumer<String>` rather than `Consumer<Object>`,
+so the call site binds to Javalin's `send(String)` and the wire format no longer depends on the mapper
+having an `instanceof String` passthrough — found by reading the bytecode, invisible to any behavioural
+test while the passthrough exists, so the signature itself is asserted. `close()`'s wait for the reader
+and the failure counter's reset were both behaviours no test could tell had happened; both are now driven
+by `AuditTailLifecycleTest`, and reverting either goes red. Four mutations were run and each one failed:
+shortening the await to zero, deleting the reset, dropping the duration half of the fuse, and restoring
+the lazy tailer.
 
 **What a reviewer should attack.** Whether the batch can still be lost on a failed send or a disconnect;
 whether the lazy creation races another tick; whether the flush thresholds are still right now that the
@@ -138,5 +169,10 @@ audit-tail websocket handler. The quoted export loop is the current code.
 **Ran:** the `svc-admin-web` module suite with the branch-1 fix applied — 100 tests, zero failures — on
 2026-09-21. Not re-run since.
 
-**Not done:** no server started, no socket driven, no export produced from a running Mongoose, no client
-written. The end-to-end acceptance in §1 remains unmet and the §2 change is unimplemented.
+**Since revised.** Both were done. A server IS started and a socket IS driven, by the acceptance test
+described in §1 — which is also why the "no client written" line no longer holds: the JDK's own websocket
+client is the client. §2 is implemented and driven by `YamlContainerWriterTest`.
+
+**Still not done:** no export produced from a *running Mongoose* — the acceptance stands up
+`WebAdminService` with a stub introspection service over a real Chronicle queue, which is the service's
+own boundary, not the whole container. Mongoose writing the text log directly (§3) is untouched.

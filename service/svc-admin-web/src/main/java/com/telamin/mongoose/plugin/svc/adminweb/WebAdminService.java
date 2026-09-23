@@ -1017,11 +1017,25 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
             AuditTailState state = new AuditTailState(q, exec);
             ctx.attribute("audit-tail-state", state);
 
+            // Position the tail NOW, on the executor thread, rather than on the first tick.
+            //
+            // Found by the end-to-end acceptance and by nothing else: creating it lazily meant `toEnd()`
+            // ran up to one poll interval (25 ms) AFTER the client connected, so everything written in
+            // that window was silently skipped. Measured — a client that connected and immediately
+            // triggered activity received 0 of 250 records while the export contained all 250. Unit
+            // tests could not see it, because they create the state and the tailer in the same breath.
+            //
+            // It still runs on the reading thread, which is what Chronicle requires. A residual window
+            // remains between the queue opening above and this task starting — microseconds rather than
+            // tens of milliseconds — and closing it completely would mean capturing an index at connect
+            // and seeking to it here. That is not done; this is a stated limit, not a solved problem.
+            exec.execute(state::tailer);
+
             exec.scheduleAtFixedRate(() -> {
                 if (!ctx.session.isOpen() || state.paused) return;
                 try {
                     tick(state, state.tailer(), ctx::send, System.currentTimeMillis());
-                    state.consecutiveFailures = 0;
+                    state.succeeded();
                     // F4: the batch now survives a tick, so a client that never drains it would grow it
                     // for ever — about 40 records a second, each failure logged at debug. Silent
                     // unbounded growth in a live service is worse than the drop it replaced, so a client
@@ -1038,13 +1052,14 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
                     // failing while nothing is logged above debug is exactly the symptom that started
                     // this work — connected, healthy, delivering nothing. A delivery socket that cannot
                     // deliver now says so, once at warn with the cause, and gives up rather than lying.
-                    if (++state.consecutiveFailures == 1) {
+                    boolean giveUp = state.failed(System.currentTimeMillis());
+                    if (state.consecutiveFailures == 1) {
                         log.warn("audit tail tick failed for {} — will retry", processor, e);
                     } else {
                         log.debug("audit tail tick failed for {} ({} in a row)",
                                 processor, state.consecutiveFailures, e);
                     }
-                    if (state.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+                    if (giveUp) {
                         log.error("audit tail for {}: {} consecutive failures, closing the socket",
                                 processor, state.consecutiveFailures, e);
                         try {
@@ -1126,6 +1141,8 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
     static final int MAX_PENDING = 10_000;
     /** Consecutive failing ticks before the socket is closed rather than left looking healthy (F3). */
     static final int MAX_CONSECUTIVE_FAILURES = 20;
+    /** A run of failures must last this long as well as reach the count before the socket is given up on. */
+    static final int MIN_FAILURE_WINDOW_MS = 2_000;
 
     /**
      * One poll of the audit tail: drain what the tailer has, and send when the batch is big enough or
@@ -1141,13 +1158,18 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
      * a failed send keeps the records and the next tick retries, and {@code lastFlush} only advances on
      * success, so there is no stampede.
      *
+     * <p>{@code send} is a {@code Consumer<String>} on purpose. As {@code Consumer<Object>} the call
+     * site {@code ctx::send} bound to Javalin's {@code send(Object)}, so the wire format depended on the
+     * JSON mapper having an {@code instanceof String} passthrough — byte-identical today, and a quoted,
+     * escaped string for anyone who configures a mapper without it. Review caught that in the bytecode.
+     *
      * @param now the clock, passed in so latency behaviour is testable without sleeping
      * @return whether anything was sent
      * @throws java.io.IOException if a record cannot be projected to JSON; the caller's handler counts
      *                             it as a failing tick (F3) rather than swallowing it
      */
     static boolean tick(AuditTailState state, net.openhft.chronicle.queue.ExcerptTailer tailer,
-                        java.util.function.Consumer<Object> send, long now) throws java.io.IOException {
+                        java.util.function.Consumer<String> send, long now) throws java.io.IOException {
         while (state.pending.size() < MAX_PENDING) {
             try (net.openhft.chronicle.wire.DocumentContext dc = tailer.readingDocument()) {
                 if (!dc.isPresent()) break;
@@ -1183,8 +1205,16 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         private net.openhft.chronicle.queue.ExcerptTailer tailer;
         /** Records read but not yet sent. Survives a tick so a partial batch is flushed, never dropped. */
         final java.util.List<String> pending = new java.util.ArrayList<>();
-        /** Ticks that have failed in a row (F3); reset by any tick that does not throw. */
+        /**
+         * Ticks that have failed in a row (F3); reset by any tick that does not throw.
+         *
+         * <p>The RESET is the part worth guarding: without it, twenty intermittent failures spread over
+         * a socket's whole life would close a healthy connection, and a reconnect starts at the live end,
+         * so that client silently loses whatever arrived meanwhile.
+         */
         int consecutiveFailures = 0;
+        /** When the current run of failures began; 0 when there is no run. See {@link #failed(long)}. */
+        long firstFailureAt = 0;
         volatile boolean paused = false;
         volatile long lastFlush = System.currentTimeMillis();
 
@@ -1192,6 +1222,31 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
                        java.util.concurrent.ScheduledExecutorService e) {
             this.queue = q;
             this.exec = e;
+        }
+
+        /** A tick that did not throw. The RESET is the whole content of this method. */
+        void succeeded() {
+            consecutiveFailures = 0;
+            firstFailureAt = 0;
+        }
+
+        /**
+         * A tick that threw.
+         *
+         * <p>Giving up needs BOTH a count and a duration. Review asked whether the fuse was too short,
+         * and it was: at a 25 ms poll, {@value WebAdminService#MAX_CONSECUTIVE_FAILURES} consecutive failures is half a
+         * second, so a client that blocks briefly on one send loses the socket — and a reconnect starts
+         * at the live end, so it loses records too. The failures must also have persisted for
+         * {@value WebAdminService#MIN_FAILURE_WINDOW_MS} ms, which a transient stall does not reach and a genuinely
+         * broken socket passes without anyone waiting long.
+         *
+         * @return whether the socket should be given up on
+         */
+        boolean failed(long now) {
+            if (consecutiveFailures == 0) firstFailureAt = now;
+            consecutiveFailures++;
+            return consecutiveFailures >= MAX_CONSECUTIVE_FAILURES
+                    && now - firstFailureAt >= MIN_FAILURE_WINDOW_MS;
         }
 
         /** Single-threaded by construction: only the scheduled task calls this. */

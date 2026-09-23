@@ -168,6 +168,32 @@ class AuditTailTickTest {
     }
 
     /**
+     * The wire format, pinned at the signature rather than at the bytes.
+     *
+     * <p>Review read the bytecode and found {@code send} declared {@code Consumer<Object>}, so the call
+     * site {@code ctx::send} bound to Javalin's {@code send(Object)} and every frame went through the
+     * JSON mapper. It is byte-identical today only because JavalinJackson passes a String through
+     * untouched; configure a mapper without that and every frame becomes a quoted, escaped string.
+     *
+     * <p>{@code Consumer<String>} makes the compiler choose {@code send(String)}, so there is nothing
+     * left to assert about the bytes — which is exactly why this checks the declaration instead. No
+     * behavioural test can see the difference while the passthrough exists, and the day it stops
+     * existing is the day it would be found in production.
+     */
+    @Test
+    void theSendCallbackIsDeclaredOnStringsSoTheFrameIsNotReSerialised() throws Exception {
+        var tick = WebAdminService.class.getDeclaredMethod("tick",
+                WebAdminService.AuditTailState.class,
+                ExcerptTailer.class,
+                java.util.function.Consumer.class,
+                long.class);
+        var param = (java.lang.reflect.ParameterizedType) tick.getGenericParameterTypes()[2];
+        assertEquals(String.class, param.getActualTypeArguments()[0],
+                "tick must take a Consumer<String>: as Consumer<Object> the handler's ctx::send binds to "
+                        + "send(Object) and the wire format depends on the mapper's String passthrough");
+    }
+
+    /**
      * The tailer must be created on the thread that reads it, which is what {@code state.tailer()} does
      * lazily. This drives the state's own accessor, not a re-implementation of it.
      *
