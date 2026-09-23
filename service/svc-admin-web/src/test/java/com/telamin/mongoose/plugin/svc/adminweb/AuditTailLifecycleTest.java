@@ -18,6 +18,9 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -137,5 +140,89 @@ class AuditTailLifecycleTest {
         state.succeeded();
         assertEquals(0, state.firstFailureAt, "the run's start time must clear with its count");
         assertFalse(state.failed(now + 60_000), "the next failure starts a new run, however late it is");
+    }
+
+    /**
+     * The pause opcode. Review found that deleting the {@code paused} half of the tick's gate left the
+     * whole suite green — a tab that asked to pause would keep being sent frames.
+     */
+    @Test
+    void aPausedSocketIsNotPolledAndAClosedOneIsNotEither() {
+        WebAdminService.AuditTailState state =
+                new WebAdminService.AuditTailState(null, Executors.newSingleThreadScheduledExecutor());
+
+        assertTrue(WebAdminService.shouldPoll(state, true), "an open, running socket polls");
+
+        state.paused = true;
+        assertFalse(WebAdminService.shouldPoll(state, true),
+                "a socket that asked to pause must not be polled");
+
+        state.paused = false;
+        assertFalse(WebAdminService.shouldPoll(state, false),
+                "a closed socket must not be polled");
+
+        state.paused = true;
+        assertFalse(WebAdminService.shouldPoll(state, false), "and neither when both are true");
+    }
+
+    /**
+     * The log-tail fan-out, which had the same shape as the defect that started this work: a failed send
+     * dropped the subscriber and left its session open, so the client looked healthy and received
+     * nothing. Review found that removing the close left the suite green.
+     */
+    @Test
+    void aFailedLogFanOutDropsTheSubscriberAndClosesIt() {
+        AtomicBoolean closed = new AtomicBoolean();
+        List<Object> sent = new ArrayList<>();
+
+        assertFalse(WebAdminService.fanOutLogLine(true, sent::add, () -> closed.set(true), "line"),
+                "a successful send keeps the subscriber");
+        assertEquals(List.of("line"), sent);
+        assertFalse(closed.get(), "and must not close a working session");
+
+        assertTrue(WebAdminService.fanOutLogLine(true, o -> {
+            throw new IllegalStateException("client gone");
+        }, () -> closed.set(true), "line"), "a failed send drops the subscriber");
+        assertTrue(closed.get(),
+                "and CLOSES it — dropping it silently leaves a socket that looks healthy for ever");
+
+        closed.set(false);
+        assertTrue(WebAdminService.fanOutLogLine(false, sent::add, () -> closed.set(true), "line"),
+                "an already-closed session is dropped");
+        assertFalse(closed.get(), "without closing it a second time");
+    }
+
+    /**
+     * {@code lastFlush} advancing is what makes the latency window mean anything. Review found that not
+     * advancing it left the suite green — every tick would then look overdue and flush a partial batch,
+     * turning the 50ms batching rule into one frame per poll.
+     */
+    @Test
+    void aSuccessfulFlushAdvancesTheLatencyClock() throws IOException {
+        Path dir = queueWith(3);
+        try (ChronicleQueue q = SingleChronicleQueueBuilder.binary(dir.toFile()).build()) {
+            WebAdminService.AuditTailState state = new WebAdminService.AuditTailState(
+                    q, Executors.newSingleThreadScheduledExecutor());
+            ExcerptTailer tailer = q.createTailer().toStart();
+            List<Object> sent = new ArrayList<>();
+            long t0 = state.lastFlush;
+
+            long flushAt = t0 + WebAdminService.MAX_LATENCY_MS + 1;
+            assertTrue(WebAdminService.tick(state, tailer, sent::add, flushAt), "overdue: flushes");
+            assertEquals(flushAt, state.lastFlush, "the flush clock must move to when the flush happened");
+            assertEquals(1, sent.size());
+
+            // one more record arrives, still inside the fresh latency window
+            try (ChronicleQueue w = SingleChronicleQueueBuilder.binary(dir.toFile()).build()) {
+                ExcerptAppender a = w.createAppender();
+                try (DocumentContext dc = a.writingDocument()) {
+                    dc.wire().getValueOut().text("eventLogRecord:\n  logTime: 9999\n  event: Late\n");
+                }
+            }
+            assertFalse(WebAdminService.tick(state, tailer, sent::add, flushAt + 1),
+                    "immediately after a flush the window is fresh, so a single record waits");
+            assertEquals(1, sent.size(), "no second frame");
+            assertEquals(1, state.pending.size(), "and the record is kept, not dropped");
+        }
     }
 }

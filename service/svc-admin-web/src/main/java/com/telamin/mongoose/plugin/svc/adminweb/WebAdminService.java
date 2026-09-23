@@ -331,6 +331,14 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         javalin.before("/ws/*", this::enforceWsUpgradeAuth);
         javalin.ws("/ws/monitor", this::configureMonitorWs);
         javalin.ws("/ws/logs",    this::configureLogsWs);
+        // Open the queue and fix the tail's start position BEFORE the upgrade completes.
+        //
+        // This is the only place it can be done. A ws onConnect handler runs AFTER the HTTP 101, so the
+        // client is already writing while the server is still deciding where to start reading; measured
+        // at a median of 8.0ms and a maximum of 17.1ms of records lost that way, not the "microseconds"
+        // an earlier round of this work asserted without measuring. wsBeforeUpgrade is an HTTP handler
+        // and runs before the 101 is sent, so there is no window for the client to write into.
+        javalin.wsBeforeUpgrade("/ws/audit-tail/{processor}", this::preopenAuditTail);
         javalin.ws("/ws/audit-tail/{processor}", this::configureAuditTailWs);
 
         // Periodic sampler — broadcasts to all live monitor clients. When the
@@ -981,6 +989,84 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
      * Tab-hidden suspension via the {@code {"op":"pause"}} /
      * {@code {"op":"resume"}} opcodes.
      */
+    /**
+     * A queue opened, and a start position fixed, before a websocket upgrade completes.
+     *
+     * <p>{@link #startIndex} is where the tail must begin. {@link #emptyAtConnect} distinguishes "the
+     * queue held nothing" — where the whole queue is the client's — from "start after what was there",
+     * because an empty queue has no end index to seek to: {@code toEnd().index()} is 0 and seeking to it
+     * fails. Both halves are pinned by {@code ChronicleIndexSemanticsTest}.
+     */
+    static final class AuditTailPreopen {
+        final net.openhft.chronicle.queue.ChronicleQueue queue;
+        final long startIndex;
+        final boolean emptyAtConnect;
+        final long openedAtMillis = System.currentTimeMillis();
+
+        AuditTailPreopen(net.openhft.chronicle.queue.ChronicleQueue queue, long startIndex,
+                         boolean emptyAtConnect) {
+            this.queue = queue;
+            this.startIndex = startIndex;
+            this.emptyAtConnect = emptyAtConnect;
+        }
+    }
+
+    /** Pre-opens that no connect handler claimed, so a rejected upgrade cannot leak a queue. */
+    private final java.util.Map<AuditTailPreopen, Boolean> unclaimedPreopens =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    private static final long PREOPEN_ABANDON_MS = 30_000;
+
+    /**
+     * Runs on the upgrade request, before the 101 — see the registration site for why that matters.
+     *
+     * <p>It must never fail the upgrade. If anything here goes wrong the connect handler opens the queue
+     * itself, exactly as it did before, and the only cost is the window this exists to close.
+     */
+    private void preopenAuditTail(Context ctx) {
+        try {
+            String processor = ctx.pathParam("processor");
+            if (auditIntrospection == null) return;
+            com.telamin.mongoose.service.audit.AuditSinkHandle h = auditIntrospection.currentSink(processor);
+            if (h == null || h.path() == null) return;
+
+            sweepAbandonedPreopens();
+
+            net.openhft.chronicle.queue.ChronicleQueue q =
+                    net.openhft.chronicle.queue.impl.single.SingleChronicleQueueBuilder
+                            .binary(h.path()).build();
+            boolean empty = q.firstIndex() == Long.MAX_VALUE;
+            long startIndex;
+            try (net.openhft.chronicle.queue.ExcerptTailer positionProbe = q.createTailer()) {
+                startIndex = positionProbe.toEnd().index();
+            }
+            AuditTailPreopen preopen = new AuditTailPreopen(q, startIndex, empty);
+            unclaimedPreopens.put(preopen, Boolean.TRUE);
+            ctx.attribute("audit-tail-preopen", preopen);
+        } catch (Exception e) {
+            // Never block the upgrade on this. The connect handler still works without it.
+            log.warn("audit tail pre-open failed; falling back to opening at connect", e);
+        }
+    }
+
+    /**
+     * An upgrade that is rejected after the pre-open ran would otherwise leak its queue, because nothing
+     * downstream ever sees it. Anything older than {@value #PREOPEN_ABANDON_MS}ms and still unclaimed
+     * cannot belong to a live connect, so it is closed.
+     */
+    private void sweepAbandonedPreopens() {
+        long cutoff = System.currentTimeMillis() - PREOPEN_ABANDON_MS;
+        unclaimedPreopens.keySet().removeIf(p -> {
+            if (p.openedAtMillis > cutoff) return false;
+            try {
+                p.queue.close();
+            } catch (Exception e) {
+                log.debug("closing an abandoned audit-tail pre-open failed", e);
+            }
+            return true;
+        });
+    }
+
     private void configureAuditTailWs(io.javalin.websocket.WsConfig ws) {
         final long MAX_LATENCY_MS = WebAdminService.MAX_LATENCY_MS;
         final int BATCH_THRESHOLD = WebAdminService.BATCH_THRESHOLD;
@@ -1000,8 +1086,16 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
                 ctx.session.close();
                 return;
             }
-            net.openhft.chronicle.queue.ChronicleQueue q =
-                    net.openhft.chronicle.queue.impl.single.SingleChronicleQueueBuilder
+
+            // Claim what the pre-upgrade handler opened. That queue's start position was fixed before
+            // the client saw the socket open, which is what makes "delivered == written since connect"
+            // true rather than approximately true.
+            AuditTailPreopen preopen = ctx.attribute("audit-tail-preopen");
+            if (preopen != null) unclaimedPreopens.remove(preopen);
+
+            net.openhft.chronicle.queue.ChronicleQueue q = preopen != null
+                    ? preopen.queue
+                    : net.openhft.chronicle.queue.impl.single.SingleChronicleQueueBuilder
                             .binary(h.path()).build();
             // The tailer is NOT created here. Chronicle's StoreTailer is bound to the thread that
             // creates it, and this is the Jetty connect thread while every read below happens on the
@@ -1014,25 +1108,40 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
                         t.setDaemon(true);
                         return t;
                     });
-            AuditTailState state = new AuditTailState(q, exec);
+            // Fix the START POSITION synchronously, here, on the connect thread.
+            //
+            // Handing the positioning to the executor instead — `exec.execute(state::tailer)` — looks
+            // equivalent and is not. `onOpen` fires at the HTTP 101 upgrade, so from the client's side
+            // the window spans this whole handler: the Chronicle queue build above, the thread creation,
+            // and the executor picking the task up. MEASURED, by a probe that keeps a queue handle open
+            // across the connect exactly as the audit sink does: records written immediately after
+            // `onOpen` were lost in 19 of 20 rounds, most of those losing all 40 of them.
+            //
+            // An earlier round of this comment called that window "microseconds". That was reasoning,
+            // not measurement, and it was wrong by orders of magnitude. Review measured it.
+            //
+            // Reading an index is not reading a document, so this does not reintroduce the thread
+            // affinity defect: the throwaway tailer is used only here, and the reading tailer is still
+            // built on the executor thread, where it seeks to the index this one recorded.
+            // Without a pre-open, fall back to fixing the position here. That still beats deferring it
+            // to the executor, and it is what runs if wsBeforeUpgrade did not get to run.
+            boolean emptyAtConnect;
+            long startIndex;
+            if (preopen != null) {
+                emptyAtConnect = preopen.emptyAtConnect;
+                startIndex = preopen.startIndex;
+            } else {
+                emptyAtConnect = q.firstIndex() == Long.MAX_VALUE;
+                try (net.openhft.chronicle.queue.ExcerptTailer positionProbe = q.createTailer()) {
+                    startIndex = positionProbe.toEnd().index();
+                }
+            }
+
+            AuditTailState state = new AuditTailState(q, exec, startIndex, emptyAtConnect);
             ctx.attribute("audit-tail-state", state);
 
-            // Position the tail NOW, on the executor thread, rather than on the first tick.
-            //
-            // Found by the end-to-end acceptance and by nothing else: creating it lazily meant `toEnd()`
-            // ran up to one poll interval (25 ms) AFTER the client connected, so everything written in
-            // that window was silently skipped. Measured — a client that connected and immediately
-            // triggered activity received 0 of 250 records while the export contained all 250. Unit
-            // tests could not see it, because they create the state and the tailer in the same breath.
-            //
-            // It still runs on the reading thread, which is what Chronicle requires. A residual window
-            // remains between the queue opening above and this task starting — microseconds rather than
-            // tens of milliseconds — and closing it completely would mean capturing an index at connect
-            // and seeking to it here. That is not done; this is a stated limit, not a solved problem.
-            exec.execute(state::tailer);
-
             exec.scheduleAtFixedRate(() -> {
-                if (!ctx.session.isOpen() || state.paused) return;
+                if (!shouldPoll(state, ctx.session.isOpen())) return;
                 try {
                     tick(state, state.tailer(), ctx::send, System.currentTimeMillis());
                     state.succeeded();
@@ -1162,6 +1271,9 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
      * site {@code ctx::send} bound to Javalin's {@code send(Object)}, so the wire format depended on the
      * JSON mapper having an {@code instanceof String} passthrough — byte-identical today, and a quoted,
      * escaped string for anyone who configures a mapper without it. Review caught that in the bytecode.
+     * A behavioural test cannot see it only because this service does not expose its JSON mapper — a
+     * design choice rather than a law, so if that ever changes, assert the bytes and delete the
+     * reflection test.
      *
      * @param now the clock, passed in so latency behaviour is testable without sleeping
      * @return whether anything was sent
@@ -1193,6 +1305,42 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         return true;
     }
 
+    /**
+     * Whether this tick should do anything at all.
+     *
+     * <p>Extracted only so it can be driven. Review found that deleting the {@code paused} half left the
+     * suite green: a tab that had asked to pause would keep being sent frames, which is the opposite of
+     * what the opcode is for, and nothing would have noticed.
+     *
+     * @param sessionOpen whether the socket is still open, passed in because a {@code WsContext} cannot
+     *                    be constructed in a test
+     */
+    static boolean shouldPoll(AuditTailState state, boolean sessionOpen) {
+        return sessionOpen && !state.paused;
+    }
+
+    /**
+     * Deliver one log line to one subscriber, and say whether that subscriber should be dropped.
+     *
+     * <p>Extracted for the same reason as {@link #shouldPoll}: review found that removing the close on a
+     * failed send left the suite green, which is the exact shape of the defect that started this work —
+     * a subscriber dropped from the fan-out while its session stays open, so the client sits there
+     * looking healthy and receiving nothing for ever.
+     *
+     * @return whether to remove this subscriber from the fan-out
+     */
+    static boolean fanOutLogLine(boolean sessionOpen, java.util.function.Consumer<Object> send,
+                                 Runnable close, Object line) {
+        if (!sessionOpen) return true;
+        try {
+            send.accept(line);
+            return false;
+        } catch (Exception e) {
+            close.run();
+            return true;
+        }
+    }
+
     /** Package-private so a test can drive {@link #tick} against the real state (F1). */
     static final class AuditTailState {
         final net.openhft.chronicle.queue.ChronicleQueue queue;
@@ -1218,10 +1366,23 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         volatile boolean paused = false;
         volatile long lastFlush = System.currentTimeMillis();
 
+        /** Where the tail starts, fixed on the connect thread. {@code -1} means "the end, whenever asked". */
+        private final long startIndex;
+        /** Whether the queue held nothing when {@link #startIndex} was taken. */
+        private final boolean emptyAtConnect;
+
         AuditTailState(net.openhft.chronicle.queue.ChronicleQueue q,
                        java.util.concurrent.ScheduledExecutorService e) {
+            this(q, e, -1L, false);
+        }
+
+        AuditTailState(net.openhft.chronicle.queue.ChronicleQueue q,
+                       java.util.concurrent.ScheduledExecutorService e,
+                       long startIndex, boolean emptyAtConnect) {
             this.queue = q;
             this.exec = e;
+            this.startIndex = startIndex;
+            this.emptyAtConnect = emptyAtConnect;
         }
 
         /** A tick that did not throw. The RESET is the whole content of this method. */
@@ -1249,9 +1410,28 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
                     && now - firstFailureAt >= MIN_FAILURE_WINDOW_MS;
         }
 
-        /** Single-threaded by construction: only the scheduled task calls this. */
+        /**
+         * Single-threaded by construction: only the scheduled task calls this.
+         *
+         * <p>It seeks to the index the CONNECT thread recorded, rather than to wherever the end happens
+         * to be by the time this runs. Those are not the same place, and the distance between them is
+         * the whole connect handler — see there. {@code moveToIndex} returns false for an index that has
+         * not been written yet, which is the normal case for a queue that was empty at connect;
+         * {@code toEnd()} is then both correct and equivalent.
+         */
         net.openhft.chronicle.queue.ExcerptTailer tailer() {
-            if (tailer == null) tailer = queue.createTailer().toEnd();
+            if (tailer == null) {
+                net.openhft.chronicle.queue.ExcerptTailer t = queue.createTailer();
+                if (startIndex < 0) {
+                    t.toEnd();                    // no position was recorded: legacy behaviour
+                } else if (emptyAtConnect) {
+                    t.toStart();                  // nothing existed at connect, so everything is ours
+                } else if (!t.moveToIndex(startIndex)) {
+                    // A recorded index that will not resolve; do not replay history nobody was promised.
+                    t.toEnd();
+                }
+                tailer = t;
+            }
             return tailer;
         }
 
@@ -2984,25 +3164,19 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
 
     private void broadcastLogLine(LogTail.LogLine line) {
         for (WsContext c : logClients) {
-            try {
-                if (c.session.isOpen()) {
-                    c.send(line);
-                } else {
-                    logClients.remove(c);
-                }
-            } catch (Exception e) {
-                // F5: the same shape as the audit-tail defect, on a different socket. This dropped the
-                // subscriber silently and left its session OPEN, so a client stayed connected, looked
-                // healthy and received nothing, with nothing logged anywhere. Say it, and close the
-                // session rather than leaving a socket that will never deliver again.
-                log.warn("log tail send failed; dropping subscriber and closing its session", e);
-                logClients.remove(c);
+            // F5: the same shape as the audit-tail defect, on a different socket. A failed send used to
+            // drop the subscriber silently and leave its session OPEN, so a client stayed connected,
+            // looked healthy and received nothing, with nothing logged anywhere. The decision lives in
+            // fanOutLogLine so that it can be driven by a test; the logging stays here.
+            boolean drop = fanOutLogLine(c.session.isOpen(), c::send, () -> {
+                log.warn("log tail send failed; dropping subscriber and closing its session");
                 try {
                     c.session.close();
                 } catch (Exception ignored) {
                     // already gone, which is the outcome we wanted
                 }
-            }
+            }, line);
+            if (drop) logClients.remove(c);
         }
     }
 

@@ -1,10 +1,10 @@
 # Audit log work in `svc-admin-web` — brief for a reviewer, 2026-09-23
 
-Two changes to the audit log, on one branch, both written and both answered through three rounds of
+Two changes to the audit log, on one branch, both written and both answered through four rounds of
 review. This file is the record of what they are and what is and is not proved about them.
 
-**Branch** `fix/audit-tail-thread-safety`, six commits, base `origin/main` `df12155`. No pull request is
-open. Nothing is merged. Nothing is released.
+**Branch** `fix/audit-tail-thread-safety`, base `origin/main` `df12155`. No pull request is open.
+Nothing is merged. Nothing is released.
 
 ```
 4f83a02  Close the audit-tail acceptance end to end, and fix the defect it found
@@ -29,8 +29,8 @@ acceptance as impossible without a client that did not exist. Both are corrected
 in the file's own commits; it is noted here because a brief that quietly rewrites its own claims is
 worth less than one that says which of them did not hold.
 
-**Gates, as of `4f83a02`.** Whole repository: 20 reactor projects, 19 of which have tests, 283 tests, 0
-failures, 0 errors, 0 skipped. `svc-admin-web`: 115 tests, 0 failures.
+**Gates, after round 4.** Clean build of the whole repository: 20 reactor projects, 19 of which have
+tests, **294 tests**, 0 failures, 0 errors, 0 skipped. `svc-admin-web`: **126 tests**, 0 failures.
 
 ---
 
@@ -57,24 +57,43 @@ records, so they were unrecoverable and nothing reported the loss.
 that window was skipped. Silently, because a tail that starts late is indistinguishable from a quiet
 queue. This one is mine, not the original author's, and §4 is how it was found.
 
+**(d) And the first fix for (c) did not close it.** Moving the positioning to the executor at connect
+narrowed the window but left it open, because `onOpen` fires at the HTTP 101 upgrade — so from the
+client's side the window spans the whole connect handler, not just the scheduling. I described that
+residue as "microseconds" in a comment and in this file **without measuring it**, in the same document
+where I said not to do that. Review measured it and rejected the claim. My own measurement is worse than
+theirs: **records written immediately after `onOpen` were lost in 19 of 20 rounds**, and the window is a
+**median of 8.0 ms, maximum 17.1 ms** — three to four orders of magnitude out.
+
 ### The fixes
 
 | Defect | Fix |
 | --- | --- |
 | (a) | The tailer is created on the executor thread, which is the thread that reads it. |
 | (b) | The batch lives in the per-socket state and is cleared only after a successful send. |
-| (c) | `exec.execute(state::tailer)` positions the tail at connect, still on the reading thread. |
+| (c)+(d) | `javalin.wsBeforeUpgrade` opens the queue and fixes the start index **before the 101 is sent**, so there is no window for the client to write into. The reading tailer still gets built on the executor thread and seeks to that index. |
 
-**The residual window on (c).** Between the queue opening in the connect handler and that task starting
-there is still a gap — microseconds, rather than tens of milliseconds. Closing it completely means
-capturing an index at connect and seeking to it on the reader. **That is not done.** It is a stated
-limit, not a solved problem, and it is the thing in this branch I would attack first.
+**The window, measured after the fix.** 0 of 20 rounds lose records, and the first record delivered in
+every round was written **0µs** after `onOpen` — at rest, and again under a load average of 21 to 27.
+`AuditTailConnectWindowProbeTest` and `AuditTailConnectWindowMeasurementTest` are those two runs; the
+second prints a distribution rather than asserting a bound, so it cannot turn back into the kind of
+claim that caused this.
+
+Review's suggested fix — capture `toEnd().index()` in the connect handler — is **necessary but not
+sufficient**, and the measurement is why: the loss happens before that handler runs at all. It is in
+place as the fallback for when the pre-upgrade hook does not run.
+
+`ChronicleIndexSemanticsTest` pins the two facts the fix depends on, because both are easy to assume
+wrongly and I did assume one wrongly first: on a non-empty queue `moveToIndex` on a captured
+`toEnd().index()` returns true and reads exactly what followed; on an **empty** queue `toEnd().index()`
+is `0`, `moveToIndex(0)` returns false, and the tailer is correctly left at the start. My first attempt
+fell back to `toEnd()` when the seek failed, which skipped everything and made all 20 rounds lose.
 
 **A reconnect starts at the live end**, so a client that drops misses everything written while it was
 away. That is what a tail is rather than a defect, and it is asserted in `AuditTailTickTest` so it is
 known rather than discovered.
 
-### What review changed, in three rounds
+### What review changed, in four rounds
 
 **Round 1 — nothing protected the fix.** Both causes were correctly diagnosed and correctly fixed, and
 three production mutations each left the whole suite green, because every test drove a bare Chronicle
@@ -103,6 +122,24 @@ and the literal NUL byte that made `WebAdminService.java` read as binary to `gre
 
 **Round 3 — this brief's own numbers.** Corrected at the top.
 
+**Round 4 — DO NOT MERGE, on one blocker.** The blocker was (d) above: the "microseconds" claim, which
+review measured and disproved. Also taken:
+
+- **The acceptance passed for the wrong reason.** It opened a fresh queue inside `append()`, and a queue
+  build is slower than the server's positioning, so the connect window never showed up in it. It now
+  writes through a handle held open across the connect, as the sink does, and compares record **ids as
+  sets** rather than counts, so a duplicate and a loss cannot cancel out.
+  **It still does not catch the window, and that is now stated in the test.** Removing the pre-upgrade
+  fix leaves it green while the probe goes to 19 of 20. The reason is structural: starting from an empty
+  queue is what makes delivered and exported comparable, and it is also the one case the window cannot
+  hurt. The probe guards the window; the acceptance guards delivery.
+- **Three behaviours nothing guarded**, all green when mutated, all now red: the `paused` half of the
+  tick gate, the close on a failed log-tail fan-out send, and `lastFlush` advancing. The first two were
+  unreachable from a test and are extracted as `shouldPoll` and `fanOutLogLine`.
+- **The reflection test's justification was too strong.** "No behavioural test is possible" is true only
+  because this service does not expose its JSON mapper — a design choice, not a law. The comment now
+  says so, and says to delete the reflection test if that changes.
+
 ### Tests
 
 | Class | Tests | What it holds |
@@ -110,11 +147,17 @@ and the literal NUL byte that made `WebAdminService.java` read as binary to `gre
 | `AuditTailTickTest` | 6 | The service's own tick loop: the surviving batch, the full-batch flush, retry on a failed send, the ceiling, lazy-tailer thread affinity, the `Consumer<String>` signature |
 | `AuditTailLifecycleTest` | 3 | `close()` waits for a reader that is inside the queue; the failure reset; both halves of the fuse |
 | `AuditTailThreadingTest` | 3 | Chronicle's cross-thread refusal against a bare queue, so the affinity requirement is provably load-bearing rather than stylistic — if Chronicle ever stops refusing, this fails and tells the next reader the fix can be revisited |
-| `AuditTailDeliveryAcceptanceTest` | 1 | §4 |
+| `AuditTailDeliveryAcceptanceTest` | 1 | §4 — delivery, by id, against a live server and a real client |
+| `AuditTailConnectWindowProbeTest` | 1 | 20 rounds: nothing written after `onOpen` is lost. The guard for (c)+(d) |
+| `AuditTailConnectWindowMeasurementTest` | 1 | Prints the window's width; asserts nothing, so it cannot become a claim |
+| `ChronicleIndexSemanticsTest` | 3 | What `toEnd().index()` and `moveToIndex` do, empty and not |
+| `AuditRunningServerAcceptanceTest` | 3 | §5 — a booted `MongooseServer` with its own audit sink |
 
-**Mutations run at `4f83a02`, each one red:** `awaitTermination(250)` → `(0)`; deleting the reset in
-`succeeded()`; dropping the duration half of the fuse; restoring the lazy tailer. Round 1 recorded four
-further mutations going red against `78dd23a`; those were not re-run for this commit.
+**Mutations run, each one red:** `awaitTermination(250)` → `(0)`; deleting the reset in `succeeded()`;
+dropping the duration half of the fuse; restoring the lazy tailer; removing the `wsBeforeUpgrade`
+registration (probe only — the acceptance stays green, see above); dropping the `paused` half of the tick
+gate; dropping the close on a failed fan-out send; not advancing `lastFlush`. Review independently
+reproduced the first four and added two of its own. Round 1's four were not re-run.
 
 ---
 
@@ -193,25 +236,84 @@ makes the two counts comparable at all.
 
 ---
 
+## 5 · The runs against a booted server, and what one of them found
+
+Review asked for two runs against the real thing rather than against `WebAdminService` standing alone.
+Both were done. `AuditRunningServerAcceptanceTest` boots a real `MongooseServer` with
+`PerformanceMonitoringConfig.auditCapture` enabled, so the core builds its own `ChronicleAuditCaptureService`
+and `DirAuditIntrospectionService` and injects them. Nothing about the sink, the introspection or the
+export is stubbed.
+
+**RUN 2 — delivered equals exported, against a booted server.** produced 300, delivered 300, exported
+300, compared as id sets. Ten frames, sizes `[32, 28, 32, 28, …]`, so both flush paths fired: the
+32-record batch threshold and the 50 ms latency timer.
+
+**RUN 1 — the format, end to end, against the published analyser.** The export of a running server's
+sink, with a marker appended, read by
+`fluxtion-auditlog-analyser.jar` 1.18.0 — downloaded from the release, sha256
+`5a8c2a4f070ad06a7804894391b5660d3fe160c14d6f382ddf2ddff3f79a2f02`, 3,914,217 bytes — not a local build:
+
+| Export | `log.streamEnd` | `records` |
+| --- | --- | --- |
+| with marker, exporter change in place | `{"state": "complete", "recordsRead": 40, "declaredRecords": 40}` | 40 |
+| with marker, final separator removed | `{"state": "unterminated_marker", "recordsRead": 40}` | 40 |
+| no marker | `{"state": "unknown", "recordsRead": 40}` | 40 |
+
+The middle row is the one that matters as much as the first: it is the evidence that the one-line change
+is load-bearing. And `records` is 40 in every row, so the marker is not counted as a record by a reader
+built and released before this exporter existed.
+
+### The finding: a processor's audit log produces nothing
+
+The runs were meant to have a real processor generate the records. It cannot. A real handler on a real
+agent thread, calling `auditLog.info(...)` on every event, at level DEBUG, produces **zero** records:
+
+- the DataFlow Mongoose builds for a `customHandler` processor has **no `EventLogManager` auditor** —
+  `getAuditorById("eventLogger")` throws `NoSuchFieldException`;
+- **no class in mongoose-1.0.29 references that auditor at all**, so nothing ever installs one;
+- `POST /api/processors/{group}/{name}/audit/level` returns **200** and changes nothing;
+- the sink is created, `isLive` is true, and the queue directory holds only `metadata.cq4t` — no data
+  file is ever written.
+
+So Mongoose's own audit capture records an empty log for this kind of processor. That is a finding about
+the audit capture path, **not** about this branch, and nothing here depends on it — the runs write into
+the real sink directly instead, which is labelled in the test. It is filed here because it was found
+here and it is not recorded anywhere else.
+
+`theProcessorsAuditLogProducesNothing` asserts the behaviour **as it is**, so that the day it changes
+somebody is told. It does not assert that it is correct. It is not.
+
+---
+
 ## What is verified, and what is not
 
 **Verified.** Everything in the tables above, run on 2026-09-23 at `4f83a02`. The analyser behaviour in
 §2 against the published 1.18.0 jar. The four mutations in §1.
 
+**Verified in round 4, additionally.** The window measurements in §1; the three RUN 1 rows against the
+published 1.18.0 jar; RUN 2 against a booted server; the eight mutations.
+
 **Not verified.**
 
-- **No export from a running Mongoose.** The acceptance stands up `WebAdminService` with a stub
-  introspection service over a real Chronicle queue. That is the service's own boundary, not the whole
-  container.
-- **The residual window in §1(c)** is argued to be microseconds and is not measured.
-- **No load or soak test.** The ceiling, the fuse and the batch behaviour are driven at unit speed with
-  an injected clock, not observed under a real slow client.
+- **No record produced by a real processor**, because none can be — see §5. Everything downstream of the
+  sink is exercised with real bytes; the bytes themselves are written by the harness.
+- **The `MAX_PENDING` ceiling has no live-server test.** One was written and it failed, and the premise
+  rather than the service was wrong: a JDK websocket client that never calls `request()` applies flow
+  control in its own listener, not on the wire, so the server's sends kept succeeding and the batch never
+  grew. Reaching the ceiling live needs a client that stops reading at the TCP level. Recorded as not
+  done rather than replaced with an assertion that would pass without testing anything. The ceiling is
+  covered by `AuditTailTickTest`, where a failing send is the actual condition.
+- **No soak test.** The fuse and the batch behaviour are driven with an injected clock, not observed over
+  hours.
+- **The window was measured on one machine**, at rest and under a load average of 21–27. Not on CI.
 - **§3 is untouched.**
 
 ## What a reviewer should attack
 
-1. **The residual window on (c)** — is the index-at-connect approach the right fix, or does positioning
-   at connect need to move into the upgrade handler itself?
+1. **The pre-upgrade hook itself.** It opens a Chronicle queue on the upgrade request. If the upgrade is
+   then rejected, nothing downstream ever claims that queue — there is a 30-second sweep for exactly
+   that, and the sweep is the part I would attack: it runs only when another pre-open happens, so a
+   single abandoned queue on an idle server is held until the next connect.
 2. **Whether the batch can still be lost** on a failed send that is followed by a disconnect rather than
    a retry.
 3. **The flush thresholds** — 32 records / 50 ms — now that the batch survives across ticks rather than
