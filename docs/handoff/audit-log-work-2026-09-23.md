@@ -1,11 +1,17 @@
 # Audit log work in this repository — brief for another session, 2026-09-23
 
-Two pieces of work in `svc-admin-web` touch the audit log. One is written and waiting for review; one is
-not started and is now blocking a feature in the analyser. Neither is recorded anywhere in this
-repository, which is why this file exists: everything else about them lives on an unmerged branch of
+Two pieces of work in `svc-admin-web` touch the audit log. **Both are now written, reviewed once and
+answered, on `fix/audit-tail-thread-safety`.** This file exists because neither was recorded anywhere in
+this repository: everything about them lived on an unmerged branch of
 `telaminai/fluxtionauditlog-analyser`, where nobody working here would find it.
 
-Nothing here is a claim that either item is finished. Item 1 has never been reviewed by anyone.
+They are on one branch deliberately. They touch the same file and the same feature — one makes the tail
+deliver, the other makes an export's completeness claim mean anything — so they review and release
+together.
+
+**Gates on the branch:** the whole repository builds, all 20 modules, and `svc-admin-web` is 110 tests,
+0 failures, 0 errors, 0 skipped. **What is NOT claimed** is at the end of §1: the end-to-end acceptance
+needs a live server and a client that does not exist yet.
 
 ---
 
