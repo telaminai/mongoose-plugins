@@ -941,6 +941,7 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
              java.io.PrintWriter w = new java.io.PrintWriter(ctx.outputStream())) {
             net.openhft.chronicle.queue.ExcerptTailer tailer = q.createTailer();
             boolean first = true;
+            YamlContainerWriter container = new YamlContainerWriter(w);
             while (true) {
                 try (net.openhft.chronicle.wire.DocumentContext dc = tailer.readingDocument()) {
                     if (!dc.isPresent()) break;
@@ -951,14 +952,12 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
                         w.write(AuditRecordProjection.yamlToJson(yaml));
                         w.write('\n');
                     } else {
-                        // YAML `---` separated documents — drop-in for the
-                        // desktop fluxtion-visualiser's eventlog-parser.
-                        if (!first) w.write("\n---\n");
-                        w.write(yaml);
-                        first = false;
+                        // YAML `---` separated documents — drop-in for the analyser reader.
+                        container.document(yaml);
                     }
                 }
             }
+            container.end();          // UP-MON-01: terminate the LAST document too
             w.flush();
         } catch (Throwable e) {
             log.warn("audit export failed for {}", id, e);
@@ -983,9 +982,9 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
      * {@code {"op":"resume"}} opcodes.
      */
     private void configureAuditTailWs(io.javalin.websocket.WsConfig ws) {
-        final long MAX_LATENCY_MS = 50;
-        final int BATCH_THRESHOLD = 32;
-        final long POLL_INTERVAL_MS = 25;
+        final long MAX_LATENCY_MS = WebAdminService.MAX_LATENCY_MS;
+        final int BATCH_THRESHOLD = WebAdminService.BATCH_THRESHOLD;
+        final long POLL_INTERVAL_MS = WebAdminService.POLL_INTERVAL_MS;
         ws.onConnect(ctx -> {
             try { ctx.session.setIdleTimeout(java.time.Duration.ofMinutes(10)); }
             catch (Throwable t) { log.warn("could not set ws idle timeout", t); }
@@ -1021,41 +1020,41 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
             exec.scheduleAtFixedRate(() -> {
                 if (!ctx.session.isOpen() || state.paused) return;
                 try {
-                    net.openhft.chronicle.queue.ExcerptTailer tailer = state.tailer();
-                    // FIX 2: the batch lives in the state, not in the tick. It used to be a local, so a
-                    // tick that read records but did not meet the flush condition - fewer than the
-                    // threshold AND within the latency window - dropped them on the floor with the
-                    // tailer already advanced past them. Those records were unrecoverable and nothing
-                    // reported it. Carrying the batch means a later tick flushes what an earlier one read.
-                    java.util.List<Object> batch = state.pending;
-                    while (true) {
-                        try (net.openhft.chronicle.wire.DocumentContext dc = tailer.readingDocument()) {
-                            if (!dc.isPresent()) break;
-                            String yaml = dc.wire().getValueIn().text();
-                            if (yaml == null) continue;
-                            String json = AuditRecordProjection.yamlToJson(yaml);
-                            batch.add(JSON_FRAGMENT_MARK + json);  // sentinel to splice as raw JSON
-                            if (batch.size() >= BATCH_THRESHOLD) break;
-                        }
-                    }
-                    long now = System.currentTimeMillis();
-                    boolean shouldFlush = !batch.isEmpty()
-                            && (batch.size() >= BATCH_THRESHOLD
-                            || now - state.lastFlush > MAX_LATENCY_MS);
-                    if (shouldFlush) {
-                        StringBuilder sb = new StringBuilder("[");
-                        for (int i = 0; i < batch.size(); i++) {
-                            String raw = (String) batch.get(i);
-                            if (i > 0) sb.append(',');
-                            sb.append(raw.substring(JSON_FRAGMENT_MARK.length()));
-                        }
-                        sb.append(']');
-                        ctx.send(sb.toString());
-                        state.lastFlush = now;
-                        batch.clear();          // only what was actually sent is forgotten
+                    tick(state, state.tailer(), ctx::send, System.currentTimeMillis());
+                    state.consecutiveFailures = 0;
+                    // F4: the batch now survives a tick, so a client that never drains it would grow it
+                    // for ever — about 40 records a second, each failure logged at debug. Silent
+                    // unbounded growth in a live service is worse than the drop it replaced, so a client
+                    // that cannot keep up is told and disconnected.
+                    if (state.pending.size() >= MAX_PENDING) {
+                        log.warn("audit tail for {}: client fell behind, {} records pending, closing",
+                                processor, state.pending.size());
+                        ctx.send(java.util.Map.of("err", "client fell behind: " + state.pending.size()
+                                + " records pending, closing. Reconnect to resume from the live end"));
+                        ctx.session.close();
                     }
                 } catch (Exception e) {
-                    log.debug("audit tail tick failed for {}", processor, e);
+                    // F3: the cause of the original defect is fixed; this is its SHAPE. Every tick
+                    // failing while nothing is logged above debug is exactly the symptom that started
+                    // this work — connected, healthy, delivering nothing. A delivery socket that cannot
+                    // deliver now says so, once at warn with the cause, and gives up rather than lying.
+                    if (++state.consecutiveFailures == 1) {
+                        log.warn("audit tail tick failed for {} — will retry", processor, e);
+                    } else {
+                        log.debug("audit tail tick failed for {} ({} in a row)",
+                                processor, state.consecutiveFailures, e);
+                    }
+                    if (state.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+                        log.error("audit tail for {}: {} consecutive failures, closing the socket",
+                                processor, state.consecutiveFailures, e);
+                        try {
+                            ctx.send(java.util.Map.of("err", "audit tail failed "
+                                    + state.consecutiveFailures + " times: " + e));
+                            ctx.session.close();
+                        } catch (Exception ignored) {
+                            // the socket is already gone; onClose will release the state
+                        }
+                    }
                 }
             }, POLL_INTERVAL_MS, POLL_INTERVAL_MS, java.util.concurrent.TimeUnit.MILLISECONDS);
         });
@@ -1077,10 +1076,103 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         });
     }
 
-    private static final String JSON_FRAGMENT_MARK = " ";
 
     /** Per-WS state for the audit-tail subscription. */
-    private static final class AuditTailState {
+    static final long MAX_LATENCY_MS = 50;
+    static final int BATCH_THRESHOLD = 32;
+    static final long POLL_INTERVAL_MS = 25;
+    /**
+     * §1 container framing for the YAML export: `---` BETWEEN documents, and after the last one.
+     *
+     * <p><b>UP-MON-01, and why that last separator is not tidiness.</b> Audit format 1.1 §1a adds an
+     * optional stream-end marker — a final record saying the writer finished and how many records it
+     * wrote — and requires that marker to be followed by its separator. At the byte level a marker its
+     * writer has finished and one it is halfway through writing are the same bytes: measured on a reader
+     * that did not require termination, a marker caught after the first digit of "12" reported "this log
+     * declares 1 record and 12 were read — the marker is wrong", a confident and fabricated verdict about
+     * a file that was simply still being written. The separator is what makes the claim atomic.
+     *
+     * <p>That separator belongs HERE, to the export formatter, not to whatever writes the marker, so a
+     * marker writer cannot satisfy the rule on its own: its marker would always be the last,
+     * unterminated document. A trailing separator has always been legal, because `---` SEPARATES records
+     * and blank text after the last one is skipped, and every released reader accepts one.
+     *
+     * <p>Extracted rather than left inline so a test drives THIS and not a copy of it. The audit-tail fix
+     * on this branch was reviewed and found to have three passing tests that re-implemented the very loop
+     * they were meant to guard; the same mistake was available here.
+     */
+    static final class YamlContainerWriter {
+        private final java.io.Writer out;
+        private boolean any = false;
+
+        YamlContainerWriter(java.io.Writer out) {
+            this.out = out;
+        }
+
+        void document(String yaml) throws java.io.IOException {
+            if (any) out.write("\n---\n");
+            out.write(yaml);
+            any = true;
+        }
+
+        /** Close the container. An empty export writes nothing, which is still a valid container. */
+        void end() throws java.io.IOException {
+            if (any) out.write("\n---\n");
+        }
+    }
+
+
+    /** Records read but unsent before a client is judged to have fallen behind (F4). */
+    static final int MAX_PENDING = 10_000;
+    /** Consecutive failing ticks before the socket is closed rather than left looking healthy (F3). */
+    static final int MAX_CONSECUTIVE_FAILURES = 20;
+
+    /**
+     * One poll of the audit tail: drain what the tailer has, and send when the batch is big enough or
+     * old enough.
+     *
+     * <p><b>Why this is a method and not the body of the scheduled lambda.</b> Both defects this class
+     * was fixed for — a tailer built on the wrong thread, and a batch that lived only for one tick —
+     * could be reverted with the whole module suite staying green, because every test drove a bare
+     * Chronicle queue and re-implemented this loop. They proved the pattern was sound, not that this
+     * service used it. Extracting the body is what lets a test drive the real thing.
+     *
+     * <p>The batch lives in {@code state}, not here, and is cleared only after {@code send} returns:
+     * a failed send keeps the records and the next tick retries, and {@code lastFlush} only advances on
+     * success, so there is no stampede.
+     *
+     * @param now the clock, passed in so latency behaviour is testable without sleeping
+     * @return whether anything was sent
+     * @throws java.io.IOException if a record cannot be projected to JSON; the caller's handler counts
+     *                             it as a failing tick (F3) rather than swallowing it
+     */
+    static boolean tick(AuditTailState state, net.openhft.chronicle.queue.ExcerptTailer tailer,
+                        java.util.function.Consumer<Object> send, long now) throws java.io.IOException {
+        while (state.pending.size() < MAX_PENDING) {
+            try (net.openhft.chronicle.wire.DocumentContext dc = tailer.readingDocument()) {
+                if (!dc.isPresent()) break;
+                String yaml = dc.wire().getValueIn().text();
+                if (yaml == null) continue;
+                state.pending.add(AuditRecordProjection.yamlToJson(yaml));
+                if (state.pending.size() >= BATCH_THRESHOLD) break;
+            }
+        }
+        boolean shouldFlush = !state.pending.isEmpty()
+                && (state.pending.size() >= BATCH_THRESHOLD || now - state.lastFlush > MAX_LATENCY_MS);
+        if (!shouldFlush) return false;
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < state.pending.size(); i++) {
+            if (i > 0) sb.append(',');
+            sb.append(state.pending.get(i));      // already JSON; no sentinel, no tagged strings
+        }
+        send.accept(sb.append(']').toString());
+        state.lastFlush = now;
+        state.pending.clear();                    // only what was actually sent is forgotten
+        return true;
+    }
+
+    /** Package-private so a test can drive {@link #tick} against the real state (F1). */
+    static final class AuditTailState {
         final net.openhft.chronicle.queue.ChronicleQueue queue;
         final java.util.concurrent.ScheduledExecutorService exec;
         /**
@@ -1090,7 +1182,9 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
          */
         private net.openhft.chronicle.queue.ExcerptTailer tailer;
         /** Records read but not yet sent. Survives a tick so a partial batch is flushed, never dropped. */
-        final java.util.List<Object> pending = new java.util.ArrayList<>();
+        final java.util.List<String> pending = new java.util.ArrayList<>();
+        /** Ticks that have failed in a row (F3); reset by any tick that does not throw. */
+        int consecutiveFailures = 0;
         volatile boolean paused = false;
         volatile long lastFlush = System.currentTimeMillis();
 
@@ -1106,11 +1200,28 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
             return tailer;
         }
 
+        /**
+         * Stop the tick, and WAIT for it, before closing the queue.
+         *
+         * <p>F2, reproduced: closing a Chronicle queue while another thread is inside
+         * {@code readingDocument()} throws {@code ClosedIllegalStateException} on the reader. This runs
+         * on the Jetty close or error thread while the executor may be mid-read, so it happened on every
+         * close of a busy socket — and landed in the tick's own catch, where it was invisible.
+         * {@code shutdownNow} interrupts but does not wait; the await is the fix.
+         */
         void close() {
             exec.shutdownNow();
             try {
+                if (!exec.awaitTermination(250, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+                    log.warn("audit tail reader did not stop within 250ms; closing the queue anyway");
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            try {
                 queue.close();
-            } catch (Exception ignored) {
+            } catch (Exception e) {
+                log.debug("audit tail queue close failed", e);
             }
         }
     }
@@ -2825,8 +2936,17 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
                     logClients.remove(c);
                 }
             } catch (Exception e) {
-                // Best-effort delivery; subscriber list churn is fine.
+                // F5: the same shape as the audit-tail defect, on a different socket. This dropped the
+                // subscriber silently and left its session OPEN, so a client stayed connected, looked
+                // healthy and received nothing, with nothing logged anywhere. Say it, and close the
+                // session rather than leaving a socket that will never deliver again.
+                log.warn("log tail send failed; dropping subscriber and closing its session", e);
                 logClients.remove(c);
+                try {
+                    c.session.close();
+                } catch (Exception ignored) {
+                    // already gone, which is the outcome we wanted
+                }
             }
         }
     }
