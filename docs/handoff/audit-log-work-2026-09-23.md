@@ -3,8 +3,13 @@
 Two changes to the audit log, on one branch, both written and both answered through five rounds of
 review. This file is the record of what they are and what is and is not proved about them.
 
-**Branch** `fix/audit-tail-thread-safety`, base `origin/main` `df12155`. No pull request is open.
-Nothing is merged. Nothing is released.
+**MERGED to `main` 2026-09-23** as a fast-forward, `df12155..beadf70`, after five rounds of review with
+no findings outstanding. Not released — `main` is releasable, and a release is a separate decision.
+
+The one item this branch openly owed, the `MAX_PENDING` live-server test, is filed as
+[issue #38](https://github.com/telaminai/mongoose-plugins/issues/38) so it does not vanish with the
+branch. The finding it produced along the way, which is not about this work, is filed in the analyser's
+holding pen as `UP-MON-02`.
 
 ```
 4f83a02  Close the audit-tail acceptance end to end, and fix the defect it found
@@ -327,7 +332,7 @@ published 1.18.0 jar; RUN 2 against a booted server; the eight mutations.
   control in its own listener, not on the wire, so the server's sends kept succeeding and the batch never
   grew. Reaching the ceiling live needs a client that stops reading at the TCP level. Recorded as not
   done rather than replaced with an assertion that would pass without testing anything. The ceiling is
-  covered by `AuditTailTickTest`, where a failing send is the actual condition.
+  covered by `AuditTailTickTest`, where a failing send is the actual condition. **Filed as issue #38.**
 - **No soak test.** The fuse and the batch behaviour are driven with an injected clock, not observed over
   hours.
 - **The window was measured on one machine**, at rest and under a load average of 21–27. Not on CI.
