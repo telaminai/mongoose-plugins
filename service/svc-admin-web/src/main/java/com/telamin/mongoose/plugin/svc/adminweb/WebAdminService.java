@@ -331,6 +331,14 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         javalin.before("/ws/*", this::enforceWsUpgradeAuth);
         javalin.ws("/ws/monitor", this::configureMonitorWs);
         javalin.ws("/ws/logs",    this::configureLogsWs);
+        // Open the queue and fix the tail's start position BEFORE the upgrade completes.
+        //
+        // This is the only place it can be done. A ws onConnect handler runs AFTER the HTTP 101, so the
+        // client is already writing while the server is still deciding where to start reading; measured
+        // at a median of 8.0ms and a maximum of 17.1ms of records lost that way, not the "microseconds"
+        // an earlier round of this work asserted without measuring. wsBeforeUpgrade is an HTTP handler
+        // and runs before the 101 is sent, so there is no window for the client to write into.
+        javalin.wsBeforeUpgrade("/ws/audit-tail/{processor}", this::preopenAuditTail);
         javalin.ws("/ws/audit-tail/{processor}", this::configureAuditTailWs);
 
         // Periodic sampler — broadcasts to all live monitor clients. When the
@@ -941,6 +949,7 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
              java.io.PrintWriter w = new java.io.PrintWriter(ctx.outputStream())) {
             net.openhft.chronicle.queue.ExcerptTailer tailer = q.createTailer();
             boolean first = true;
+            YamlContainerWriter container = new YamlContainerWriter(w);
             while (true) {
                 try (net.openhft.chronicle.wire.DocumentContext dc = tailer.readingDocument()) {
                     if (!dc.isPresent()) break;
@@ -951,14 +960,12 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
                         w.write(AuditRecordProjection.yamlToJson(yaml));
                         w.write('\n');
                     } else {
-                        // YAML `---` separated documents — drop-in for the
-                        // desktop fluxtion-visualiser's eventlog-parser.
-                        if (!first) w.write("\n---\n");
-                        w.write(yaml);
-                        first = false;
+                        // YAML `---` separated documents — drop-in for the analyser reader.
+                        container.document(yaml);
                     }
                 }
             }
+            container.end();          // UP-MON-01: terminate the LAST document too
             w.flush();
         } catch (Throwable e) {
             log.warn("audit export failed for {}", id, e);
@@ -982,10 +989,88 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
      * Tab-hidden suspension via the {@code {"op":"pause"}} /
      * {@code {"op":"resume"}} opcodes.
      */
+    /**
+     * A queue opened, and a start position fixed, before a websocket upgrade completes.
+     *
+     * <p>{@link #startIndex} is where the tail must begin. {@link #emptyAtConnect} distinguishes "the
+     * queue held nothing" — where the whole queue is the client's — from "start after what was there",
+     * because an empty queue has no end index to seek to: {@code toEnd().index()} is 0 and seeking to it
+     * fails. Both halves are pinned by {@code ChronicleIndexSemanticsTest}.
+     */
+    static final class AuditTailPreopen {
+        final net.openhft.chronicle.queue.ChronicleQueue queue;
+        final long startIndex;
+        final boolean emptyAtConnect;
+        final long openedAtMillis = System.currentTimeMillis();
+
+        AuditTailPreopen(net.openhft.chronicle.queue.ChronicleQueue queue, long startIndex,
+                         boolean emptyAtConnect) {
+            this.queue = queue;
+            this.startIndex = startIndex;
+            this.emptyAtConnect = emptyAtConnect;
+        }
+    }
+
+    /** Pre-opens that no connect handler claimed, so a rejected upgrade cannot leak a queue. */
+    private final java.util.Map<AuditTailPreopen, Boolean> unclaimedPreopens =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    private static final long PREOPEN_ABANDON_MS = 30_000;
+
+    /**
+     * Runs on the upgrade request, before the 101 — see the registration site for why that matters.
+     *
+     * <p>It must never fail the upgrade. If anything here goes wrong the connect handler opens the queue
+     * itself, exactly as it did before, and the only cost is the window this exists to close.
+     */
+    private void preopenAuditTail(Context ctx) {
+        try {
+            String processor = ctx.pathParam("processor");
+            if (auditIntrospection == null) return;
+            com.telamin.mongoose.service.audit.AuditSinkHandle h = auditIntrospection.currentSink(processor);
+            if (h == null || h.path() == null) return;
+
+            sweepAbandonedPreopens();
+
+            net.openhft.chronicle.queue.ChronicleQueue q =
+                    net.openhft.chronicle.queue.impl.single.SingleChronicleQueueBuilder
+                            .binary(h.path()).build();
+            boolean empty = q.firstIndex() == Long.MAX_VALUE;
+            long startIndex;
+            try (net.openhft.chronicle.queue.ExcerptTailer positionProbe = q.createTailer()) {
+                startIndex = positionProbe.toEnd().index();
+            }
+            AuditTailPreopen preopen = new AuditTailPreopen(q, startIndex, empty);
+            unclaimedPreopens.put(preopen, Boolean.TRUE);
+            ctx.attribute("audit-tail-preopen", preopen);
+        } catch (Exception e) {
+            // Never block the upgrade on this. The connect handler still works without it.
+            log.warn("audit tail pre-open failed; falling back to opening at connect", e);
+        }
+    }
+
+    /**
+     * An upgrade that is rejected after the pre-open ran would otherwise leak its queue, because nothing
+     * downstream ever sees it. Anything older than {@value #PREOPEN_ABANDON_MS}ms and still unclaimed
+     * cannot belong to a live connect, so it is closed.
+     */
+    private void sweepAbandonedPreopens() {
+        long cutoff = System.currentTimeMillis() - PREOPEN_ABANDON_MS;
+        unclaimedPreopens.keySet().removeIf(p -> {
+            if (p.openedAtMillis > cutoff) return false;
+            try {
+                p.queue.close();
+            } catch (Exception e) {
+                log.debug("closing an abandoned audit-tail pre-open failed", e);
+            }
+            return true;
+        });
+    }
+
     private void configureAuditTailWs(io.javalin.websocket.WsConfig ws) {
-        final long MAX_LATENCY_MS = 50;
-        final int BATCH_THRESHOLD = 32;
-        final long POLL_INTERVAL_MS = 25;
+        final long MAX_LATENCY_MS = WebAdminService.MAX_LATENCY_MS;
+        final int BATCH_THRESHOLD = WebAdminService.BATCH_THRESHOLD;
+        final long POLL_INTERVAL_MS = WebAdminService.POLL_INTERVAL_MS;
         ws.onConnect(ctx -> {
             try { ctx.session.setIdleTimeout(java.time.Duration.ofMinutes(10)); }
             catch (Throwable t) { log.warn("could not set ws idle timeout", t); }
@@ -1001,52 +1086,64 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
                 ctx.session.close();
                 return;
             }
-            net.openhft.chronicle.queue.ChronicleQueue q =
-                    net.openhft.chronicle.queue.impl.single.SingleChronicleQueueBuilder
+
+            // Claim what the pre-upgrade handler opened. That queue's start position was fixed before
+            // the client saw the socket open, which is what makes "delivered == written since connect"
+            // true rather than approximately true.
+            AuditTailPreopen preopen = ctx.attribute("audit-tail-preopen");
+            if (preopen != null) unclaimedPreopens.remove(preopen);
+
+            net.openhft.chronicle.queue.ChronicleQueue q = preopen != null
+                    ? preopen.queue
+                    : net.openhft.chronicle.queue.impl.single.SingleChronicleQueueBuilder
                             .binary(h.path()).build();
-            net.openhft.chronicle.queue.ExcerptTailer tailer = q.createTailer().toEnd();
+            // The tailer is NOT created here. Chronicle's StoreTailer is bound to the thread that
+            // creates it, and this is the Jetty connect thread while every read below happens on the
+            // scheduled executor. Creating it here threw ThreadingIllegalStateException on EVERY tick,
+            // swallowed at debug level, so the socket connected, reported healthy and delivered nothing.
+            // It is created on first tick instead, on the thread that will use it.
             java.util.concurrent.ScheduledExecutorService exec =
                     java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
                         Thread t = new Thread(r, "audit-tail-" + processor);
                         t.setDaemon(true);
                         return t;
                     });
-            AuditTailState state = new AuditTailState(q, tailer, exec);
+            // Fix the START POSITION synchronously, here, on the connect thread.
+            //
+            // Handing the positioning to the executor instead — `exec.execute(state::tailer)` — looks
+            // equivalent and is not. `onOpen` fires at the HTTP 101 upgrade, so from the client's side
+            // the window spans this whole handler: the Chronicle queue build above, the thread creation,
+            // and the executor picking the task up. MEASURED, by a probe that keeps a queue handle open
+            // across the connect exactly as the audit sink does: records written immediately after
+            // `onOpen` were lost in 19 of 20 rounds, most of those losing all 40 of them.
+            //
+            // An earlier round of this comment called that window "microseconds". That was reasoning,
+            // not measurement, and it was wrong by orders of magnitude. Review measured it.
+            //
+            // Reading an index is not reading a document, so this does not reintroduce the thread
+            // affinity defect: the throwaway tailer is used only here, and the reading tailer is still
+            // built on the executor thread, where it seeks to the index this one recorded.
+            // Without a pre-open, fall back to fixing the position here. That still beats deferring it
+            // to the executor, and it is what runs if wsBeforeUpgrade did not get to run.
+            boolean emptyAtConnect;
+            long startIndex;
+            if (preopen != null) {
+                emptyAtConnect = preopen.emptyAtConnect;
+                startIndex = preopen.startIndex;
+            } else {
+                emptyAtConnect = q.firstIndex() == Long.MAX_VALUE;
+                try (net.openhft.chronicle.queue.ExcerptTailer positionProbe = q.createTailer()) {
+                    startIndex = positionProbe.toEnd().index();
+                }
+            }
+
+            AuditTailState state = new AuditTailState(q, exec, startIndex, emptyAtConnect);
             ctx.attribute("audit-tail-state", state);
 
-            exec.scheduleAtFixedRate(() -> {
-                if (!ctx.session.isOpen() || state.paused) return;
-                try {
-                    java.util.List<Object> batch = new java.util.ArrayList<>();
-                    while (true) {
-                        try (net.openhft.chronicle.wire.DocumentContext dc = tailer.readingDocument()) {
-                            if (!dc.isPresent()) break;
-                            String yaml = dc.wire().getValueIn().text();
-                            if (yaml == null) continue;
-                            String json = AuditRecordProjection.yamlToJson(yaml);
-                            batch.add(JSON_FRAGMENT_MARK + json);  // sentinel to splice as raw JSON
-                            if (batch.size() >= BATCH_THRESHOLD) break;
-                        }
-                    }
-                    long now = System.currentTimeMillis();
-                    boolean shouldFlush = !batch.isEmpty()
-                            && (batch.size() >= BATCH_THRESHOLD
-                            || now - state.lastFlush > MAX_LATENCY_MS);
-                    if (shouldFlush) {
-                        StringBuilder sb = new StringBuilder("[");
-                        for (int i = 0; i < batch.size(); i++) {
-                            String raw = (String) batch.get(i);
-                            if (i > 0) sb.append(',');
-                            sb.append(raw.substring(JSON_FRAGMENT_MARK.length()));
-                        }
-                        sb.append(']');
-                        ctx.send(sb.toString());
-                        state.lastFlush = now;
-                    }
-                } catch (Exception e) {
-                    log.debug("audit tail tick failed for {}", processor, e);
-                }
-            }, POLL_INTERVAL_MS, POLL_INTERVAL_MS, java.util.concurrent.TimeUnit.MILLISECONDS);
+            exec.scheduleAtFixedRate(
+                    () -> pollOnce(state, ctx.session.isOpen(), processor, ctx::send, ctx::send,
+                            () -> ctx.session.close(), System.currentTimeMillis()),
+                    POLL_INTERVAL_MS, POLL_INTERVAL_MS, java.util.concurrent.TimeUnit.MILLISECONDS);
         });
         ws.onMessage(ctx -> {
             AuditTailState state = ctx.attribute("audit-tail-state");
@@ -1066,29 +1163,324 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         });
     }
 
-    private static final String JSON_FRAGMENT_MARK = " ";
 
     /** Per-WS state for the audit-tail subscription. */
-    private static final class AuditTailState {
+    static final long MAX_LATENCY_MS = 50;
+    static final int BATCH_THRESHOLD = 32;
+    static final long POLL_INTERVAL_MS = 25;
+    /**
+     * §1 container framing for the YAML export: `---` BETWEEN documents, and after the last one.
+     *
+     * <p><b>UP-MON-01, and why that last separator is not tidiness.</b> Audit format 1.1 §1a adds an
+     * optional stream-end marker — a final record saying the writer finished and how many records it
+     * wrote — and requires that marker to be followed by its separator. At the byte level a marker its
+     * writer has finished and one it is halfway through writing are the same bytes: measured on a reader
+     * that did not require termination, a marker caught after the first digit of "12" reported "this log
+     * declares 1 record and 12 were read — the marker is wrong", a confident and fabricated verdict about
+     * a file that was simply still being written. The separator is what makes the claim atomic.
+     *
+     * <p>That separator belongs HERE, to the export formatter, not to whatever writes the marker, so a
+     * marker writer cannot satisfy the rule on its own: its marker would always be the last,
+     * unterminated document. A trailing separator has always been legal, because `---` SEPARATES records
+     * and blank text after the last one is skipped, and every released reader accepts one.
+     *
+     * <p>Extracted rather than left inline so a test drives THIS and not a copy of it. The audit-tail fix
+     * on this branch was reviewed and found to have three passing tests that re-implemented the very loop
+     * they were meant to guard; the same mistake was available here.
+     */
+    static final class YamlContainerWriter {
+        private final java.io.Writer out;
+        private boolean any = false;
+
+        YamlContainerWriter(java.io.Writer out) {
+            this.out = out;
+        }
+
+        void document(String yaml) throws java.io.IOException {
+            if (any) out.write("\n---\n");
+            out.write(yaml);
+            any = true;
+        }
+
+        /** Close the container. An empty export writes nothing, which is still a valid container. */
+        void end() throws java.io.IOException {
+            if (any) out.write("\n---\n");
+        }
+    }
+
+
+    /** Records read but unsent before a client is judged to have fallen behind (F4). */
+    static final int MAX_PENDING = 10_000;
+    /** Consecutive failing ticks before the socket is closed rather than left looking healthy (F3). */
+    static final int MAX_CONSECUTIVE_FAILURES = 20;
+    /** A run of failures must last this long as well as reach the count before the socket is given up on. */
+    static final int MIN_FAILURE_WINDOW_MS = 2_000;
+
+    /**
+     * One poll of the audit tail: drain what the tailer has, and send when the batch is big enough or
+     * old enough.
+     *
+     * <p><b>Why this is a method and not the body of the scheduled lambda.</b> Both defects this class
+     * was fixed for — a tailer built on the wrong thread, and a batch that lived only for one tick —
+     * could be reverted with the whole module suite staying green, because every test drove a bare
+     * Chronicle queue and re-implemented this loop. They proved the pattern was sound, not that this
+     * service used it. Extracting the body is what lets a test drive the real thing.
+     *
+     * <p>The batch lives in {@code state}, not here, and is cleared only after {@code send} returns:
+     * a failed send keeps the records and the next tick retries, and {@code lastFlush} only advances on
+     * success, so there is no stampede.
+     *
+     * <p>{@code send} is a {@code Consumer<String>} on purpose. As {@code Consumer<Object>} the call
+     * site {@code ctx::send} bound to Javalin's {@code send(Object)}, so the wire format depended on the
+     * JSON mapper having an {@code instanceof String} passthrough — byte-identical today, and a quoted,
+     * escaped string for anyone who configures a mapper without it. Review caught that in the bytecode.
+     * A behavioural test cannot see it only because this service does not expose its JSON mapper — a
+     * design choice rather than a law, so if that ever changes, assert the bytes and delete the
+     * reflection test.
+     *
+     * @param now the clock, passed in so latency behaviour is testable without sleeping
+     * @return whether anything was sent
+     * @throws java.io.IOException if a record cannot be projected to JSON; the caller's handler counts
+     *                             it as a failing tick (F3) rather than swallowing it
+     */
+    static boolean tick(AuditTailState state, net.openhft.chronicle.queue.ExcerptTailer tailer,
+                        java.util.function.Consumer<String> send, long now) throws java.io.IOException {
+        while (state.pending.size() < MAX_PENDING) {
+            try (net.openhft.chronicle.wire.DocumentContext dc = tailer.readingDocument()) {
+                if (!dc.isPresent()) break;
+                String yaml = dc.wire().getValueIn().text();
+                if (yaml == null) continue;
+                state.pending.add(AuditRecordProjection.yamlToJson(yaml));
+                if (state.pending.size() >= BATCH_THRESHOLD) break;
+            }
+        }
+        boolean shouldFlush = !state.pending.isEmpty()
+                && (state.pending.size() >= BATCH_THRESHOLD || now - state.lastFlush > MAX_LATENCY_MS);
+        if (!shouldFlush) return false;
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < state.pending.size(); i++) {
+            if (i > 0) sb.append(',');
+            sb.append(state.pending.get(i));      // already JSON; no sentinel, no tagged strings
+        }
+        send.accept(sb.append(']').toString());
+        state.lastFlush = now;
+        state.pending.clear();                    // only what was actually sent is forgotten
+        return true;
+    }
+
+    /**
+     * One scheduled poll, with everything the socket does around {@link #tick}: the gate, the
+     * fell-behind close, and the consecutive-failure fuse.
+     *
+     * <p><b>Why this is a method and not the lambda's body.</b> {@link #shouldPoll} and
+     * {@link #fanOutLogLine} were extracted in the previous round so the logic could be tested, and
+     * review then pointed out the gap that leaves: the tests called them directly, so nothing pinned
+     * that PRODUCTION still called them. Replacing {@code shouldPoll(state, open)} with plain
+     * {@code open} — pause and resume silently ignored — left the whole suite green. A test can only
+     * close that by running the call site, so the call site has to be something a test can run.
+     *
+     * @param sessionOpen whether the socket is still open; a {@code WsContext} cannot be built in a test
+     * @param send        the record frame sink, {@code Consumer<String>} so it binds to {@code send(String)}
+     * @param sendErr     the error-object sink, which does go through the JSON mapper
+     * @param close       closes the socket
+     */
+    static void pollOnce(AuditTailState state, boolean sessionOpen, String processor,
+                         java.util.function.Consumer<String> send,
+                         java.util.function.Consumer<Object> sendErr,
+                         Runnable close, long now) {
+        if (!shouldPoll(state, sessionOpen)) return;
+        try {
+            tick(state, state.tailer(), send, now);
+            state.succeeded();
+            // F4: the batch now survives a tick, so a client that never drains it would grow it for
+            // ever — about 40 records a second, each failure logged at debug. Silent unbounded growth in
+            // a live service is worse than the drop it replaced, so a client that cannot keep up is told
+            // and disconnected.
+            if (state.pending.size() >= MAX_PENDING) {
+                log.warn("audit tail for {}: client fell behind, {} records pending, closing",
+                        processor, state.pending.size());
+                sendErr.accept(java.util.Map.of("err", "client fell behind: " + state.pending.size()
+                        + " records pending, closing. Reconnect to resume from the live end"));
+                close.run();
+            }
+        } catch (Exception e) {
+            // F3: the cause of the original defect is fixed; this is its SHAPE. Every tick failing while
+            // nothing is logged above debug is exactly the symptom that started this work — connected,
+            // healthy, delivering nothing. A delivery socket that cannot deliver now says so, once at
+            // warn with the cause, and gives up rather than lying.
+            boolean giveUp = state.failed(now);
+            if (state.consecutiveFailures == 1) {
+                log.warn("audit tail tick failed for {} — will retry", processor, e);
+            } else {
+                log.debug("audit tail tick failed for {} ({} in a row)",
+                        processor, state.consecutiveFailures, e);
+            }
+            if (giveUp) {
+                log.error("audit tail for {}: {} consecutive failures, closing the socket",
+                        processor, state.consecutiveFailures, e);
+                try {
+                    sendErr.accept(java.util.Map.of("err", "audit tail failed "
+                            + state.consecutiveFailures + " times: " + e));
+                    close.run();
+                } catch (Exception ignored) {
+                    // the socket is already gone; onClose will release the state
+                }
+            }
+        }
+    }
+
+    /**
+     * Whether this tick should do anything at all.
+     *
+     * <p>Extracted only so it can be driven. Review found that deleting the {@code paused} half left the
+     * suite green: a tab that had asked to pause would keep being sent frames, which is the opposite of
+     * what the opcode is for, and nothing would have noticed.
+     *
+     * @param sessionOpen whether the socket is still open, passed in because a {@code WsContext} cannot
+     *                    be constructed in a test
+     */
+    static boolean shouldPoll(AuditTailState state, boolean sessionOpen) {
+        return sessionOpen && !state.paused;
+    }
+
+    /**
+     * Deliver one log line to one subscriber, and say whether that subscriber should be dropped.
+     *
+     * <p>Extracted for the same reason as {@link #shouldPoll}: review found that removing the close on a
+     * failed send left the suite green, which is the exact shape of the defect that started this work —
+     * a subscriber dropped from the fan-out while its session stays open, so the client sits there
+     * looking healthy and receiving nothing for ever.
+     *
+     * @return whether to remove this subscriber from the fan-out
+     */
+    static boolean fanOutLogLine(boolean sessionOpen, java.util.function.Consumer<Object> send,
+                                 Runnable close, Object line) {
+        if (!sessionOpen) return true;
+        try {
+            send.accept(line);
+            return false;
+        } catch (Exception e) {
+            close.run();
+            return true;
+        }
+    }
+
+    /** Package-private so a test can drive {@link #tick} against the real state (F1). */
+    static final class AuditTailState {
         final net.openhft.chronicle.queue.ChronicleQueue queue;
-        final net.openhft.chronicle.queue.ExcerptTailer tailer;
         final java.util.concurrent.ScheduledExecutorService exec;
+        /**
+         * Created on first use, which is always the executor thread. A Chronicle tailer belongs to its
+         * creating thread; building it in the connect handler and reading it here is what made every
+         * tick throw.
+         */
+        private net.openhft.chronicle.queue.ExcerptTailer tailer;
+        /** Records read but not yet sent. Survives a tick so a partial batch is flushed, never dropped. */
+        final java.util.List<String> pending = new java.util.ArrayList<>();
+        /**
+         * Ticks that have failed in a row (F3); reset by any tick that does not throw.
+         *
+         * <p>The RESET is the part worth guarding: without it, twenty intermittent failures spread over
+         * a socket's whole life would close a healthy connection, and a reconnect starts at the live end,
+         * so that client silently loses whatever arrived meanwhile.
+         */
+        int consecutiveFailures = 0;
+        /** When the current run of failures began; 0 when there is no run. See {@link #failed(long)}. */
+        long firstFailureAt = 0;
         volatile boolean paused = false;
         volatile long lastFlush = System.currentTimeMillis();
 
+        /** Where the tail starts, fixed on the connect thread. {@code -1} means "the end, whenever asked". */
+        private final long startIndex;
+        /** Whether the queue held nothing when {@link #startIndex} was taken. */
+        private final boolean emptyAtConnect;
+
         AuditTailState(net.openhft.chronicle.queue.ChronicleQueue q,
-                       net.openhft.chronicle.queue.ExcerptTailer t,
                        java.util.concurrent.ScheduledExecutorService e) {
-            this.queue = q;
-            this.tailer = t;
-            this.exec = e;
+            this(q, e, -1L, false);
         }
 
+        AuditTailState(net.openhft.chronicle.queue.ChronicleQueue q,
+                       java.util.concurrent.ScheduledExecutorService e,
+                       long startIndex, boolean emptyAtConnect) {
+            this.queue = q;
+            this.exec = e;
+            this.startIndex = startIndex;
+            this.emptyAtConnect = emptyAtConnect;
+        }
+
+        /** A tick that did not throw. The RESET is the whole content of this method. */
+        void succeeded() {
+            consecutiveFailures = 0;
+            firstFailureAt = 0;
+        }
+
+        /**
+         * A tick that threw.
+         *
+         * <p>Giving up needs BOTH a count and a duration. Review asked whether the fuse was too short,
+         * and it was: at a 25 ms poll, {@value WebAdminService#MAX_CONSECUTIVE_FAILURES} consecutive failures is half a
+         * second, so a client that blocks briefly on one send loses the socket — and a reconnect starts
+         * at the live end, so it loses records too. The failures must also have persisted for
+         * {@value WebAdminService#MIN_FAILURE_WINDOW_MS} ms, which a transient stall does not reach and a genuinely
+         * broken socket passes without anyone waiting long.
+         *
+         * @return whether the socket should be given up on
+         */
+        boolean failed(long now) {
+            if (consecutiveFailures == 0) firstFailureAt = now;
+            consecutiveFailures++;
+            return consecutiveFailures >= MAX_CONSECUTIVE_FAILURES
+                    && now - firstFailureAt >= MIN_FAILURE_WINDOW_MS;
+        }
+
+        /**
+         * Single-threaded by construction: only the scheduled task calls this.
+         *
+         * <p>It seeks to the index the CONNECT thread recorded, rather than to wherever the end happens
+         * to be by the time this runs. Those are not the same place, and the distance between them is
+         * the whole connect handler — see there. {@code moveToIndex} returns false for an index that has
+         * not been written yet, which is the normal case for a queue that was empty at connect;
+         * {@code toEnd()} is then both correct and equivalent.
+         */
+        net.openhft.chronicle.queue.ExcerptTailer tailer() {
+            if (tailer == null) {
+                net.openhft.chronicle.queue.ExcerptTailer t = queue.createTailer();
+                if (startIndex < 0) {
+                    t.toEnd();                    // no position was recorded: legacy behaviour
+                } else if (emptyAtConnect) {
+                    t.toStart();                  // nothing existed at connect, so everything is ours
+                } else if (!t.moveToIndex(startIndex)) {
+                    // A recorded index that will not resolve; do not replay history nobody was promised.
+                    t.toEnd();
+                }
+                tailer = t;
+            }
+            return tailer;
+        }
+
+        /**
+         * Stop the tick, and WAIT for it, before closing the queue.
+         *
+         * <p>F2, reproduced: closing a Chronicle queue while another thread is inside
+         * {@code readingDocument()} throws {@code ClosedIllegalStateException} on the reader. This runs
+         * on the Jetty close or error thread while the executor may be mid-read, so it happened on every
+         * close of a busy socket — and landed in the tick's own catch, where it was invisible.
+         * {@code shutdownNow} interrupts but does not wait; the await is the fix.
+         */
         void close() {
             exec.shutdownNow();
             try {
+                if (!exec.awaitTermination(250, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+                    log.warn("audit tail reader did not stop within 250ms; closing the queue anyway");
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            try {
                 queue.close();
-            } catch (Exception ignored) {
+            } catch (Exception e) {
+                log.debug("audit tail queue close failed", e);
             }
         }
     }
@@ -2796,16 +3188,19 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
 
     private void broadcastLogLine(LogTail.LogLine line) {
         for (WsContext c : logClients) {
-            try {
-                if (c.session.isOpen()) {
-                    c.send(line);
-                } else {
-                    logClients.remove(c);
+            // F5: the same shape as the audit-tail defect, on a different socket. A failed send used to
+            // drop the subscriber silently and leave its session OPEN, so a client stayed connected,
+            // looked healthy and received nothing, with nothing logged anywhere. The decision lives in
+            // fanOutLogLine so that it can be driven by a test; the logging stays here.
+            boolean drop = fanOutLogLine(c.session.isOpen(), c::send, () -> {
+                log.warn("log tail send failed; dropping subscriber and closing its session");
+                try {
+                    c.session.close();
+                } catch (Exception ignored) {
+                    // already gone, which is the outcome we wanted
                 }
-            } catch (Exception e) {
-                // Best-effort delivery; subscriber list churn is fine.
-                logClients.remove(c);
-            }
+            }, line);
+            if (drop) logClients.remove(c);
         }
     }
 
