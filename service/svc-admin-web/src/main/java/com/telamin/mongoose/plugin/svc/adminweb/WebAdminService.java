@@ -1140,47 +1140,10 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
             AuditTailState state = new AuditTailState(q, exec, startIndex, emptyAtConnect);
             ctx.attribute("audit-tail-state", state);
 
-            exec.scheduleAtFixedRate(() -> {
-                if (!shouldPoll(state, ctx.session.isOpen())) return;
-                try {
-                    tick(state, state.tailer(), ctx::send, System.currentTimeMillis());
-                    state.succeeded();
-                    // F4: the batch now survives a tick, so a client that never drains it would grow it
-                    // for ever — about 40 records a second, each failure logged at debug. Silent
-                    // unbounded growth in a live service is worse than the drop it replaced, so a client
-                    // that cannot keep up is told and disconnected.
-                    if (state.pending.size() >= MAX_PENDING) {
-                        log.warn("audit tail for {}: client fell behind, {} records pending, closing",
-                                processor, state.pending.size());
-                        ctx.send(java.util.Map.of("err", "client fell behind: " + state.pending.size()
-                                + " records pending, closing. Reconnect to resume from the live end"));
-                        ctx.session.close();
-                    }
-                } catch (Exception e) {
-                    // F3: the cause of the original defect is fixed; this is its SHAPE. Every tick
-                    // failing while nothing is logged above debug is exactly the symptom that started
-                    // this work — connected, healthy, delivering nothing. A delivery socket that cannot
-                    // deliver now says so, once at warn with the cause, and gives up rather than lying.
-                    boolean giveUp = state.failed(System.currentTimeMillis());
-                    if (state.consecutiveFailures == 1) {
-                        log.warn("audit tail tick failed for {} — will retry", processor, e);
-                    } else {
-                        log.debug("audit tail tick failed for {} ({} in a row)",
-                                processor, state.consecutiveFailures, e);
-                    }
-                    if (giveUp) {
-                        log.error("audit tail for {}: {} consecutive failures, closing the socket",
-                                processor, state.consecutiveFailures, e);
-                        try {
-                            ctx.send(java.util.Map.of("err", "audit tail failed "
-                                    + state.consecutiveFailures + " times: " + e));
-                            ctx.session.close();
-                        } catch (Exception ignored) {
-                            // the socket is already gone; onClose will release the state
-                        }
-                    }
-                }
-            }, POLL_INTERVAL_MS, POLL_INTERVAL_MS, java.util.concurrent.TimeUnit.MILLISECONDS);
+            exec.scheduleAtFixedRate(
+                    () -> pollOnce(state, ctx.session.isOpen(), processor, ctx::send, ctx::send,
+                            () -> ctx.session.close(), System.currentTimeMillis()),
+                    POLL_INTERVAL_MS, POLL_INTERVAL_MS, java.util.concurrent.TimeUnit.MILLISECONDS);
         });
         ws.onMessage(ctx -> {
             AuditTailState state = ctx.attribute("audit-tail-state");
@@ -1303,6 +1266,67 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         state.lastFlush = now;
         state.pending.clear();                    // only what was actually sent is forgotten
         return true;
+    }
+
+    /**
+     * One scheduled poll, with everything the socket does around {@link #tick}: the gate, the
+     * fell-behind close, and the consecutive-failure fuse.
+     *
+     * <p><b>Why this is a method and not the lambda's body.</b> {@link #shouldPoll} and
+     * {@link #fanOutLogLine} were extracted in the previous round so the logic could be tested, and
+     * review then pointed out the gap that leaves: the tests called them directly, so nothing pinned
+     * that PRODUCTION still called them. Replacing {@code shouldPoll(state, open)} with plain
+     * {@code open} — pause and resume silently ignored — left the whole suite green. A test can only
+     * close that by running the call site, so the call site has to be something a test can run.
+     *
+     * @param sessionOpen whether the socket is still open; a {@code WsContext} cannot be built in a test
+     * @param send        the record frame sink, {@code Consumer<String>} so it binds to {@code send(String)}
+     * @param sendErr     the error-object sink, which does go through the JSON mapper
+     * @param close       closes the socket
+     */
+    static void pollOnce(AuditTailState state, boolean sessionOpen, String processor,
+                         java.util.function.Consumer<String> send,
+                         java.util.function.Consumer<Object> sendErr,
+                         Runnable close, long now) {
+        if (!shouldPoll(state, sessionOpen)) return;
+        try {
+            tick(state, state.tailer(), send, now);
+            state.succeeded();
+            // F4: the batch now survives a tick, so a client that never drains it would grow it for
+            // ever — about 40 records a second, each failure logged at debug. Silent unbounded growth in
+            // a live service is worse than the drop it replaced, so a client that cannot keep up is told
+            // and disconnected.
+            if (state.pending.size() >= MAX_PENDING) {
+                log.warn("audit tail for {}: client fell behind, {} records pending, closing",
+                        processor, state.pending.size());
+                sendErr.accept(java.util.Map.of("err", "client fell behind: " + state.pending.size()
+                        + " records pending, closing. Reconnect to resume from the live end"));
+                close.run();
+            }
+        } catch (Exception e) {
+            // F3: the cause of the original defect is fixed; this is its SHAPE. Every tick failing while
+            // nothing is logged above debug is exactly the symptom that started this work — connected,
+            // healthy, delivering nothing. A delivery socket that cannot deliver now says so, once at
+            // warn with the cause, and gives up rather than lying.
+            boolean giveUp = state.failed(now);
+            if (state.consecutiveFailures == 1) {
+                log.warn("audit tail tick failed for {} — will retry", processor, e);
+            } else {
+                log.debug("audit tail tick failed for {} ({} in a row)",
+                        processor, state.consecutiveFailures, e);
+            }
+            if (giveUp) {
+                log.error("audit tail for {}: {} consecutive failures, closing the socket",
+                        processor, state.consecutiveFailures, e);
+                try {
+                    sendErr.accept(java.util.Map.of("err", "audit tail failed "
+                            + state.consecutiveFailures + " times: " + e));
+                    close.run();
+                } catch (Exception ignored) {
+                    // the socket is already gone; onClose will release the state
+                }
+            }
+        }
     }
 
     /**

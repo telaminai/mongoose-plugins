@@ -50,8 +50,10 @@ import static org.junit.jupiter.api.Assertions.*;
  * reported healthy, and delivered nothing.
  *
  * <p><b>What this test does NOT guard, measured rather than assumed.</b> Removing the pre-upgrade
- * positioning leaves this green while {@code AuditTailConnectWindowProbeTest} goes to 19 of 20 rounds
- * losing records. The reason is structural and worth stating: starting from an EMPTY queue is what makes
+ * positioning leaves this green ON THIS MACHINE while {@code AuditTailConnectWindowProbeTest} goes to
+ * 19 of 20 rounds losing records — but review saw the same mutation fail this test, so the sensitivity
+ * is real and merely timing-dependent. Treat the probe as the guard and this as a second line. The
+ * reason it can miss is structural and worth stating: starting from an EMPTY queue is what makes
  * delivered and exported cover the same window, and it is also the one case the connect window cannot
  * hurt — an empty queue has no end to skip past, so the tail starts at the beginning and everything
  * written afterwards is caught regardless of when the server got round to positioning. The probe is the

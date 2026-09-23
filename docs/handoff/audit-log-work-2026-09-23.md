@@ -1,6 +1,6 @@
 # Audit log work in `svc-admin-web` — brief for a reviewer, 2026-09-23
 
-Two changes to the audit log, on one branch, both written and both answered through four rounds of
+Two changes to the audit log, on one branch, both written and both answered through five rounds of
 review. This file is the record of what they are and what is and is not proved about them.
 
 **Branch** `fix/audit-tail-thread-safety`, base `origin/main` `df12155`. No pull request is open.
@@ -29,8 +29,8 @@ acceptance as impossible without a client that did not exist. Both are corrected
 in the file's own commits; it is noted here because a brief that quietly rewrites its own claims is
 worth less than one that says which of them did not hold.
 
-**Gates, after round 4.** Clean build of the whole repository: 20 reactor projects, 19 of which have
-tests, **294 tests**, 0 failures, 0 errors, 0 skipped. `svc-admin-web`: **126 tests**, 0 failures.
+**Gates, after round 5.** Clean build of the whole repository: 20 reactor projects, 19 of which have
+tests, **296 tests**, 0 failures, 0 errors, 0 skipped. `svc-admin-web`: **128 tests**, 0 failures.
 
 ---
 
@@ -93,7 +93,7 @@ fell back to `toEnd()` when the seek failed, which skipped everything and made a
 away. That is what a tail is rather than a defect, and it is asserted in `AuditTailTickTest` so it is
 known rather than discovered.
 
-### What review changed, in four rounds
+### What review changed, in five rounds
 
 **Round 1 — nothing protected the fix.** Both causes were correctly diagnosed and correctly fixed, and
 three production mutations each left the whole suite green, because every test drove a bare Chronicle
@@ -122,6 +122,13 @@ and the literal NUL byte that made `WebAdminService.java` read as binary to `gre
 
 **Round 3 — this brief's own numbers.** Corrected at the top.
 
+**Round 5 — blocker cleared, two unguarded call sites.** Extracting `shouldPoll` and `fanOutLogLine`
+made the logic testable but pinned nothing: the tests called them directly, so reverting either CALL
+SITE left the whole suite green. Both are now driven as production runs them — the scheduled poll is
+`pollOnce`, which a test invokes with a paused state, and `broadcastLogLine` is invoked directly with a
+`WsContext` over a `Proxy` Jetty session that fails every send. Both mutations are red. Review also
+scoped the external finding correctly; see §5.
+
 **Round 4 — DO NOT MERGE, on one blocker.** The blocker was (d) above: the "microseconds" claim, which
 review measured and disproved. Also taken:
 
@@ -129,10 +136,12 @@ review measured and disproved. Also taken:
   build is slower than the server's positioning, so the connect window never showed up in it. It now
   writes through a handle held open across the connect, as the sink does, and compares record **ids as
   sets** rather than counts, so a duplicate and a loss cannot cancel out.
-  **It still does not catch the window, and that is now stated in the test.** Removing the pre-upgrade
-  fix leaves it green while the probe goes to 19 of 20. The reason is structural: starting from an empty
-  queue is what makes delivered and exported comparable, and it is also the one case the window cannot
-  hurt. The probe guards the window; the acceptance guards delivery.
+  **How much it now catches is machine-dependent, and I understated it.** On my machine, removing the
+  pre-upgrade fix leaves the acceptance green while the probe goes to 19 of 20, and I wrote that up as
+  "it does not catch the window". On the reviewer's machine the same mutation fails the acceptance, the
+  probe AND the running-server run. The held-open handle made it sensitive after all, just not reliably
+  so. The probe stays the designated guard because it is the one that fails everywhere; the acceptance
+  is a second line, not no line.
 - **Three behaviours nothing guarded**, all green when mutated, all now red: the `paused` half of the
   tick gate, the close on a failed log-tail fan-out send, and `lastFlush` advancing. The first two were
   unreachable from a test and are extracted as `shouldPoll` and `fanOutLogLine`.
@@ -145,7 +154,8 @@ review measured and disproved. Also taken:
 | Class | Tests | What it holds |
 | --- | --- | --- |
 | `AuditTailTickTest` | 6 | The service's own tick loop: the surviving batch, the full-batch flush, retry on a failed send, the ceiling, lazy-tailer thread affinity, the `Consumer<String>` signature |
-| `AuditTailLifecycleTest` | 3 | `close()` waits for a reader that is inside the queue; the failure reset; both halves of the fuse |
+| `AuditTailLifecycleTest` | 7 | `close()` waits for a reader inside the queue; the failure reset; both halves of the fuse; `lastFlush` advancing; the pause gate, in isolation and at its call site |
+| `LogFanOutCallSiteTest` | 1 | `broadcastLogLine` itself closes a failing subscriber's session |
 | `AuditTailThreadingTest` | 3 | Chronicle's cross-thread refusal against a bare queue, so the affinity requirement is provably load-bearing rather than stylistic — if Chronicle ever stops refusing, this fails and tells the next reader the fix can be revisited |
 | `AuditTailDeliveryAcceptanceTest` | 1 | §4 — delivery, by id, against a live server and a real client |
 | `AuditTailConnectWindowProbeTest` | 1 | 20 rounds: nothing written after `onOpen` is lost. The guard for (c)+(d) |
@@ -155,9 +165,10 @@ review measured and disproved. Also taken:
 
 **Mutations run, each one red:** `awaitTermination(250)` → `(0)`; deleting the reset in `succeeded()`;
 dropping the duration half of the fuse; restoring the lazy tailer; removing the `wsBeforeUpgrade`
-registration (probe only — the acceptance stays green, see above); dropping the `paused` half of the tick
-gate; dropping the close on a failed fan-out send; not advancing `lastFlush`. Review independently
-reproduced the first four and added two of its own. Round 1's four were not re-run.
+registration; dropping the `paused` half of the tick gate; dropping the close on a failed fan-out send;
+not advancing `lastFlush`; **and the two call sites** — the scheduled poll ignoring `shouldPoll`, and the
+fan-out reverting to a silent drop. Review independently reproduced four of these, added two of its own,
+and found the two call-site gaps. Round 1's four were not re-run.
 
 ---
 
@@ -263,25 +274,39 @@ The middle row is the one that matters as much as the first: it is the evidence 
 is load-bearing. And `records` is 40 in every row, so the marker is not counted as a record by a reader
 built and released before this exporter existed.
 
-### The finding: a processor's audit log produces nothing
+### The finding: a `customHandler` processor's audit log produces nothing
 
-The runs were meant to have a real processor generate the records. It cannot. A real handler on a real
-agent thread, calling `auditLog.info(...)` on every event, at level DEBUG, produces **zero** records:
+The runs were meant to have a real processor generate the records. On this path it cannot. A real handler
+on a real agent thread, calling `auditLog.info(...)` on every event, at level DEBUG, produces **zero**
+records:
 
 - the DataFlow Mongoose builds for a `customHandler` processor has **no `EventLogManager` auditor** —
   `getAuditorById("eventLogger")` throws `NoSuchFieldException`;
-- **no class in mongoose-1.0.29 references that auditor at all**, so nothing ever installs one;
+- **no class in mongoose-1.0.29 references `EventLogManager`, `addAuditor` or `EventLogControlEvent`**
+  (review unpacked all 170 classes; my own scan agreed), so nothing ever installs one;
 - `POST /api/processors/{group}/{name}/audit/level` returns **200** and changes nothing;
 - the sink is created, `isLive` is true, and the queue directory holds only `metadata.cq4t` — no data
   file is ever written.
 
-So Mongoose's own audit capture records an empty log for this kind of processor. That is a finding about
-the audit capture path, **not** about this branch, and nothing here depends on it — the runs write into
-the real sink directly instead, which is labelled in the test. It is filed here because it was found
-here and it is not recorded anywhere else.
+**Scoped, because my first statement of this was too broad.** It is not true that Mongoose processors in
+general produce no audit records. Review pointed at the analyser's preserved real export fixture,
+`c21-real-export.yaml`: **25 records, of which 7 carry node entries and 18 are empty** — counted, not
+taken on trust. So an AOT-built processor does log through Mongoose. What is broken is the
+DataFlow-for-`customHandler` path specifically, and the claim now says that.
 
-`theProcessorsAuditLogProducesNothing` asserts the behaviour **as it is**, so that the day it changes
-somebody is told. It does not assert that it is correct. It is not.
+Two things follow, both review's:
+
+- **The analyser already diagnoses this exact case.** `ProducerDiagnostics.NO_NODE_LOGS` says the
+  `EventLogManager` auditor was never installed and names `addEventAudit()` as the likely missing call.
+  The product points at the cause and the fix.
+- **`c21` has been carrying the symptom in the fixture set all along** — 18 of its 25 records are empty —
+  which is a better demonstration of the shape than anything constructed here.
+
+Nothing on this branch depends on any of it; the runs write into the real sink directly, which is
+labelled in the test. It is filed here because it was found here and is recorded nowhere else.
+
+`aCustomHandlerProcessorsAuditLogProducesNothing` asserts the behaviour **as it is**, so the day it
+changes somebody is told. It does not assert that it is correct. It is not.
 
 ---
 

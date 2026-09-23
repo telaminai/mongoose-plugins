@@ -225,4 +225,43 @@ class AuditTailLifecycleTest {
             assertEquals(1, state.pending.size(), "and the record is kept, not dropped");
         }
     }
+
+    /**
+     * The pause gate at its CALL SITE, not in isolation.
+     *
+     * <p>Review found the gap the previous round left: {@code shouldPoll} was extracted and tested, but
+     * the tests called it directly, so replacing {@code shouldPoll(state, open)} with plain {@code open}
+     * in the scheduled poll left the whole suite green — pause and resume silently ignored. This drives
+     * {@link WebAdminService#pollOnce}, which is what the scheduler actually runs.
+     */
+    @Test
+    void aPausedSocketIsNotPolledByTheSchedulersOwnCallSite() throws IOException {
+        Path dir = queueWith(40);
+        try (ChronicleQueue q = SingleChronicleQueueBuilder.binary(dir.toFile()).build()) {
+            WebAdminService.AuditTailState state = new WebAdminService.AuditTailState(
+                    q, Executors.newSingleThreadScheduledExecutor());
+            state.tailer().toStart();                       // records are there to be read
+            List<String> sent = new ArrayList<>();
+            AtomicBoolean closed = new AtomicBoolean();
+
+            state.paused = true;
+            WebAdminService.pollOnce(state, true, "p", sent::add, o -> sent.add(String.valueOf(o)),
+                    () -> closed.set(true), state.lastFlush + 10_000);
+            assertTrue(sent.isEmpty(), () -> "a paused socket was sent " + sent.size() + " frames");
+            assertTrue(state.pending.isEmpty(), "a paused socket must not even READ — the tailer advances");
+
+            // a closed socket is the other half of the gate
+            state.paused = false;
+            WebAdminService.pollOnce(state, false, "p", sent::add, o -> sent.add(String.valueOf(o)),
+                    () -> closed.set(true), state.lastFlush + 10_000);
+            assertTrue(sent.isEmpty(), "a closed socket must not be polled either");
+            assertTrue(state.pending.isEmpty());
+
+            // and with the gate open it does deliver, so the test is not vacuously green
+            WebAdminService.pollOnce(state, true, "p", sent::add, o -> sent.add(String.valueOf(o)),
+                    () -> closed.set(true), state.lastFlush + 10_000);
+            assertEquals(1, sent.size(), "an open, running socket delivers");
+            assertFalse(closed.get(), "and is not closed");
+        }
+    }
 }

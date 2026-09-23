@@ -55,14 +55,19 @@ import static org.junit.jupiter.api.Assertions.*;
  * the sink and the websocket client are harness. The audit sink, the introspection service, the export
  * endpoint, the socket and everything they touch are shipped code.
  *
- * <p><b>Why the records are written by the harness rather than by the processor.</b> They have to be.
- * Driving real events through a real processor with {@code auditLog.info(...)} at level DEBUG produces
- * <b>zero</b> audit records, because the DataFlow that Mongoose builds for a {@code customHandler}
- * processor contains no {@code EventLogManager} auditor: {@code getAuditorById("eventLogger")} throws
- * {@code NoSuchFieldException}, and no class in mongoose-1.0.29 references that auditor at all. The
- * {@code POST /api/processors/{group}/{name}/audit/level} endpoint returns 200 and changes nothing. That
- * is a finding about the audit capture path, not about this branch, and it is recorded in the brief —
- * but it means the only way to get bytes into a real sink here is to write them.
+ * <p><b>Why the records are written by the harness rather than by the processor.</b> They have to be, on
+ * THIS path. Driving real events through a processor built from a {@code customHandler} with
+ * {@code auditLog.info(...)} at level DEBUG produces <b>zero</b> audit records: the DataFlow Mongoose
+ * builds for that path contains no {@code EventLogManager} auditor, so
+ * {@code getAuditorById("eventLogger")} throws {@code NoSuchFieldException} and the logger has nothing
+ * to publish through. The {@code POST /api/processors/{group}/{name}/audit/level} endpoint returns 200
+ * and changes nothing.
+ *
+ * <p><b>This is NOT a claim about Mongoose processors in general, and an earlier version of this comment
+ * wrongly read as one.</b> Review scoped it correctly: the analyser's preserved real export fixture
+ * {@code c21-real-export.yaml} holds 25 records of which 7 carry node entries — verified by counting
+ * them — so an AOT-built processor does log through Mongoose. What is broken is the
+ * DataFlow-for-{@code customHandler} path specifically.
  *
  * <p>The stream-end marker is harness for a second, separate reason: <b>the shipped marker writer does
  * not exist yet</b>. This says what the exporter does with a marker, not that Mongoose produces one.
@@ -251,17 +256,20 @@ class AuditRunningServerAcceptanceTest {
     // ------------------------------------------------------------------------------------------------
 
     /**
-     * A real processor, on a real agent thread, calling {@code auditLog.info} on every event, at level
-     * DEBUG, produces NOTHING. The graph Mongoose builds for a {@code customHandler} has no
-     * {@code EventLogManager} auditor for the logger to publish through.
+     * A processor built from a {@code customHandler}, on a real agent thread, calling
+     * {@code auditLog.info} on every event at level DEBUG, produces NOTHING — because the graph
+     * Mongoose builds for that path has no {@code EventLogManager} auditor to publish through.
      *
-     * <p>This asserts the behaviour as it is, so the day it changes somebody is told, rather than
-     * asserting it as if it were correct. It is not correct: it means Mongoose's own audit capture
+     * <p>Scoped deliberately: AOT-built processors DO log (see the class comment). This is about one
+     * construction path.
+     *
+     * <p>It asserts the behaviour as it is, so the day it changes somebody is told, rather than
+     * asserting it as if it were correct. It is not correct — it means Mongoose's own audit capture
      * records an empty log for this kind of processor, and the admin endpoint that sets the level
      * returns 200 while changing nothing.
      */
     @Test
-    void theProcessorsAuditLogProducesNothing() throws Exception {
+    void aCustomHandlerProcessorsAuditLogProducesNothing() throws Exception {
         boot();
 
         boolean auditorPresent = true;
@@ -285,8 +293,8 @@ class AuditRunningServerAcceptanceTest {
                 + " events; export holds " + countDocuments(exported) + " records");
 
         assertFalse(auditorPresent,
-                "an EventLogManager IS now in the graph — the audit-emission gap is fixed, and this test "
-                        + "plus the class comment and the brief should be updated to say so");
+                "an EventLogManager IS now in the graph for a customHandler processor — the gap is fixed, "
+                        + "and this test plus the class comment and the brief should be updated to say so");
         assertEquals(0, countDocuments(exported),
                 "records are now being captured — the gap is fixed; update this test");
     }
