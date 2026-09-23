@@ -36,6 +36,21 @@ against a bare queue, so the lazy creation is provably load-bearing rather than 
 ever stops refusing, that test fails and tells the next reader the fix can be revisited. Module suite:
 100 tests, zero failures.
 
+**Reviewed 2026-09-23 and answered in `78dd23a`, on the same branch.** The review found both causes
+correctly diagnosed and correctly fixed, and then found that nothing protected either fix: three
+production mutations each left the whole suite green, because every test drove a bare Chronicle queue and
+re-implemented the tick loop. The tick is now a package-private method the tests drive, and all four
+mutations go red. Also fixed: `close()` now waits for the tick before closing the queue (closing under an
+active read throws on the reader, reproduced); consecutive failing ticks are counted, logged at warn and
+eventually close the socket, so the *shape* that hid the original bug is gone; the surviving batch has a
+ceiling, because a stuck-but-open client grew it by about forty records a second for ever; the log-tail
+fan-out no longer drops subscribers silently with their session left open; and the literal NUL byte that
+made this file read as binary to `grep` and `diff` is gone.
+
+**A reconnect starts at `toEnd()`**, so a client that drops misses everything written while it was away.
+That is inherent to a tail rather than a defect, and it is stated here and in the tick tests so it is
+known rather than discovered.
+
 **What is still owed, and was never claimed.** The acceptance that matters — the count delivered equals
 the count exported for the same window — needs a live server and a client, and **no shipped client opens
 this socket**. That is the other half of the original finding and it is still open. A reviewer should
@@ -62,6 +77,13 @@ Separators go **between** documents and nothing is written after the last. The J
 unaffected; this is the only YAML container writer in the service.
 
 **The ask: also write `\n---\n` after the last document.** One line.
+
+**DONE in `78dd23a`**, on the same branch as item 1, so they review and release together. The framing
+rule is extracted as `YamlContainerWriter` rather than left inline — for the same reason item 1's blocker
+existed — and driven by `YamlContainerWriterTest`. Acceptance run against the **published** analyser
+1.18.0 jar rather than a local build: a marked export reads `complete`, the same export written the old
+way reads `unterminated_marker`, and an unmarked export reads exactly as it did before. Module suite 110
+run, 0 failures.
 
 **Why it is not cosmetic.** Audit format revision 1.1 adds an optional *stream-end marker* — a final
 record saying the writer finished and how many records it wrote — so a reader can tell a whole log from a
