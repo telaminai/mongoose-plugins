@@ -1198,8 +1198,64 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
 
         void document(String yaml) throws java.io.IOException {
             if (any) out.write("\n---\n");
-            out.write(yaml);
+            out.write(escapeSeparators(yaml));
             any = true;
+        }
+
+        /**
+         * Escape any line INSIDE a record that a reader would treat as a document separator
+         * (mongoose-plugins#39).
+         *
+         * <p><b>The attack.</b> The runtime writes {@code eventToString} and node values unescaped, and
+         * this writer used to emit the record text as-is. A payload containing a separator line — event
+         * {@code toString()} is routinely user-controlled: symbols, messages, parsed input — therefore
+         * ends the document early, and marker lines after it are read as a genuine stream-end marker.
+         * Measured with the published analyser: three records written, four read, split into two runs,
+         * reported {@code missing_records} against a forged {@code declaredRecords: 0}. The file claimed
+         * damage and nothing had been lost.
+         *
+         * <p><b>The predicate is the READER's, not an exact match.</b> Both framers trim space, tab and
+         * CR before comparing, so {@code "  ---"}, {@code "\t---"} and {@code "---\r"} all separate. A
+         * check for a line equal to {@code "---"} would let all three through.
+         *
+         * <p><b>Escape, never refuse.</b> Refusing the record would change the count — which is itself a
+         * payload-driven change of verdict — or drop a record the processor produced. Escaping keeps the
+         * record and the count, which is what V1 requires: a payload cannot change the verdict.
+         *
+         * <p><b>The price, stated.</b> This alters the logged text: an affected line gains a leading
+         * {@code \}. The value a reader sees is not byte-identical to what the event produced. That is
+         * the cost of keeping the framing trustworthy, and it is deliberate.
+         */
+        static String escapeSeparators(String yaml) {
+            if (yaml == null || yaml.indexOf('-') < 0) return yaml;
+            StringBuilder sb = null;
+            int from = 0;
+            while (from <= yaml.length()) {
+                int nl = yaml.indexOf('\n', from);
+                int end = nl < 0 ? yaml.length() : nl;
+                if (isSeparatorLine(yaml, from, end)) {
+                    if (sb == null) sb = new StringBuilder(yaml.length() + 16).append(yaml, 0, from);
+                    sb.append('\\').append(yaml, from, end);
+                } else if (sb != null) {
+                    sb.append(yaml, from, end);
+                }
+                if (nl < 0) break;
+                if (sb != null) sb.append('\n');
+                from = nl + 1;
+            }
+            return sb == null ? yaml : sb.toString();
+        }
+
+        /** True when {@code [from,end)} is a line that, after removing space, tab and CR, is {@code ---}. */
+        private static boolean isSeparatorLine(String s, int from, int end) {
+            int dashes = 0;
+            for (int i = from; i < end; i++) {
+                char c = s.charAt(i);
+                if (c == ' ' || c == '\t' || c == '\r') continue;
+                if (c != '-') return false;
+                if (++dashes > 3) return false;
+            }
+            return dashes == 3;
         }
 
         /** Close the container. An empty export writes nothing, which is still a valid container. */
