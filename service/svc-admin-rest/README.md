@@ -45,7 +45,7 @@ Invoke an admin command:
 ```bash
 curl -u "$ADMIN_USER:$ADMIN_PASSWORD" -X POST http://localhost:8080/admin \
   -H 'Content-Type: application/json' \
-  -d '{"command":"cache.state-cache.keys","args":[]}'
+  -d '{"command":"cache.state-cache.keys","arguments":[]}'
 ```
 
 ## Authentication

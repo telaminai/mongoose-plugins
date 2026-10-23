@@ -106,27 +106,49 @@ public class JavalinAdminCommandService implements EventFlowService<Object>, Lif
                 .before("/admin", this::enforceAuth)
                 .before("/api/*", this::enforceAuth)
                 .post("/admin", ctx -> {
-                    AdminCommandRequest adminCommandRequest = ctx.bodyAsClass(AdminCommandRequest.class);
-                    adminCommandRequest.setOutput(out -> ctx.json(new Message(out.toString())));
-                    adminCommandRequest.setErrOutput(out -> ctx.json(new Message("Failure - " + out)));
-                    log.info("adminCommandRequest: {}", adminCommandRequest);
-                    if (adminCommandRegistry != null) {
-                        adminCommandRegistry.processAdminCommandRequest(adminCommandRequest);
+                    final AdminCommandRequest adminCommandRequest;
+                    try {
+                        adminCommandRequest = ctx.bodyAsClass(AdminCommandRequest.class);
+                    } catch (Exception e) {
+                        // a malformed body, or the common mistake of sending "args" instead of "arguments": a 400
+                        // that names the expected shape, not a bare 500 from a null command further down
+                        ctx.status(HttpStatus.BAD_REQUEST).json(new Message(
+                                "invalid request body; expected {\"command\":\"<name>\",\"arguments\":[...]} "
+                                        + "(the argument list field is 'arguments', not 'args') - " + e.getMessage()));
+                        return;
                     }
+                    if (adminCommandRequest == null
+                            || adminCommandRequest.getCommand() == null || adminCommandRequest.getCommand().isBlank()) {
+                        ctx.status(HttpStatus.BAD_REQUEST).json(new Message(
+                                "missing 'command'; body must be {\"command\":\"<name>\",\"arguments\":[...]}"));
+                        return;
+                    }
+                    // ctx.json escapes newlines, quotes and control characters: the reply is always valid JSON
+                    adminCommandRequest.setOutput(out -> ctx.status(HttpStatus.OK).json(new Message(String.valueOf(out))));
+                    adminCommandRequest.setErrOutput(out -> ctx.status(HttpStatus.OK).json(new Message("Failure - " + out)));
+                    log.info("adminCommandRequest: {}", adminCommandRequest);
+                    runOr503(ctx, adminCommandRequest);
                 })
                 .post("/api/{action}", ctx -> {
                     String action = ctx.pathParam("action");
                     AdminCommandRequest adminCommandRequest = new AdminCommandRequest();
                     adminCommandRequest.setCommand(action);
-                    adminCommandRequest.setOutput(out -> ctx.json(out));
-                    adminCommandRequest.setErrOutput(out -> ctx.json(new Message("Failure - " + out)));
+                    adminCommandRequest.setOutput(out -> ctx.status(HttpStatus.OK).json(out));
+                    adminCommandRequest.setErrOutput(out -> ctx.status(HttpStatus.OK).json(new Message("Failure - " + out)));
                     log.info("adminCommandRequest: {}", adminCommandRequest);
-                    if (adminCommandRegistry != null) {
-                        adminCommandRegistry.processAdminCommandRequest(adminCommandRequest);
-                    }
+                    runOr503(ctx, adminCommandRequest);
                 })
 
                 .start(host, listenPort);
+    }
+
+    /** Runs the command, or answers 503 when no admin registry is wired (rather than an empty 200). */
+    private void runOr503(Context ctx, AdminCommandRequest adminCommandRequest) {
+        if (adminCommandRegistry == null) {
+            ctx.status(HttpStatus.SERVICE_UNAVAILABLE).json(new Message("admin command registry not available"));
+            return;
+        }
+        adminCommandRegistry.processAdminCommandRequest(adminCommandRequest);
     }
 
     private void enforceAuth(Context ctx) {
@@ -242,6 +264,12 @@ public class JavalinAdminCommandService implements EventFlowService<Object>, Lif
         private String message;
     }
 
+    /**
+     * @deprecated the wire contract is {@link AdminCommandRequest}, whose argument list field is {@code arguments}.
+     * This type's {@code args} field is a common source of confusion and is not used by the endpoint; kept only for
+     * source compatibility.
+     */
+    @Deprecated
     @Data
     public static class AdminCommand {
         private String command;

@@ -4,6 +4,9 @@
  */
 package com.telamin.mongoose.plugin.svc.adminrest;
 
+import com.telamin.mongoose.service.admin.AdminCommandRegistry;
+import com.telamin.mongoose.service.admin.AdminCommandRequest;
+import com.telamin.mongoose.service.admin.AdminFunction;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -14,12 +17,47 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.List;
 
 class JavalinAdminCommandServiceTest {
 
     private JavalinAdminCommandService svc;
     private int port;
+    private final StubRegistry registry = new StubRegistry();
+
+    /** Answers every command with {@link #reply}, recording what it was asked. */
+    static class StubRegistry implements AdminCommandRegistry {
+        final List<AdminCommandRequest> requests = new ArrayList<>();
+        String reply = "ok";
+
+        @Override
+        public <OUT, ERR> void registerCommand(String name, AdminFunction<OUT, ERR> command) {
+        }
+
+        @Override
+        public void processAdminCommandRequest(AdminCommandRequest request) {
+            requests.add(request);
+            request.getOutput().accept(reply);
+        }
+
+        @Override
+        public List<String> commandList() {
+            return List.of();
+        }
+    }
+
+    private void startNoAuth(boolean withRegistry) {
+        port = freePort();
+        svc = new JavalinAdminCommandService();
+        svc.setListenPort(port);
+        svc.setHost("127.0.0.1");
+        if (withRegistry) {
+            svc.adminRegistry(registry, "adminRegistry");
+        }
+        svc.init();
+    }
 
     private static int freePort() {
         try (ServerSocket s = new ServerSocket(0)) {
@@ -51,6 +89,7 @@ class JavalinAdminCommandServiceTest {
         svc = new JavalinAdminCommandService();
         svc.setListenPort(port);
         svc.setHost("127.0.0.1");
+        svc.adminRegistry(registry, "adminRegistry");
         svc.init();
 
         HttpResponse<String> r = post("/api/help", null, null);
@@ -63,6 +102,7 @@ class JavalinAdminCommandServiceTest {
         svc = new JavalinAdminCommandService();
         svc.setListenPort(port);
         svc.setHost("127.0.0.1");
+        svc.adminRegistry(registry, "adminRegistry");
         svc.setAuthMode(JavalinAdminCommandService.AuthMode.BASIC);
         svc.setUsername("admin");
         svc.setPassword("s3cret");
@@ -80,6 +120,7 @@ class JavalinAdminCommandServiceTest {
         svc = new JavalinAdminCommandService();
         svc.setListenPort(port);
         svc.setHost("127.0.0.1");
+        svc.adminRegistry(registry, "adminRegistry");
         svc.setAuthMode(JavalinAdminCommandService.AuthMode.BASIC);
         svc.setUsername("admin");
         svc.setPassword("s3cret");
@@ -96,6 +137,7 @@ class JavalinAdminCommandServiceTest {
         svc = new JavalinAdminCommandService();
         svc.setListenPort(port);
         svc.setHost("127.0.0.1");
+        svc.adminRegistry(registry, "adminRegistry");
         svc.setAuthMode(JavalinAdminCommandService.AuthMode.BASIC);
         svc.setUsername("admin");
         svc.setPassword("s3cret");
@@ -112,6 +154,7 @@ class JavalinAdminCommandServiceTest {
         svc = new JavalinAdminCommandService();
         svc.setListenPort(port);
         svc.setHost("127.0.0.1");
+        svc.adminRegistry(registry, "adminRegistry");
         svc.setAuthMode(JavalinAdminCommandService.AuthMode.BEARER);
         svc.setBearerToken("token-123");
         svc.init();
@@ -128,6 +171,7 @@ class JavalinAdminCommandServiceTest {
         svc = new JavalinAdminCommandService();
         svc.setListenPort(port);
         svc.setHost("127.0.0.1");
+        svc.adminRegistry(registry, "adminRegistry");
         svc.setAuthMode(JavalinAdminCommandService.AuthMode.BEARER);
         svc.setBearerToken("token-123");
         svc.init();
@@ -142,6 +186,7 @@ class JavalinAdminCommandServiceTest {
         svc = new JavalinAdminCommandService();
         svc.setListenPort(port);
         svc.setHost("127.0.0.1");
+        svc.adminRegistry(registry, "adminRegistry");
         svc.setAuthMode(JavalinAdminCommandService.AuthMode.BEARER);
         svc.setBearerToken("token-123");
         svc.init();
@@ -155,6 +200,7 @@ class JavalinAdminCommandServiceTest {
         svc = new JavalinAdminCommandService();
         svc.setListenPort(freePort());
         svc.setHost("127.0.0.1");
+        svc.adminRegistry(registry, "adminRegistry");
         svc.setAuthMode(JavalinAdminCommandService.AuthMode.BASIC);
         // no username/password set
         Assertions.assertThrows(IllegalStateException.class, svc::init);
@@ -166,6 +212,7 @@ class JavalinAdminCommandServiceTest {
         svc = new JavalinAdminCommandService();
         svc.setListenPort(freePort());
         svc.setHost("127.0.0.1");
+        svc.adminRegistry(registry, "adminRegistry");
         svc.setAuthMode(JavalinAdminCommandService.AuthMode.BEARER);
         // no bearer token set
         Assertions.assertThrows(IllegalStateException.class, svc::init);
@@ -177,5 +224,82 @@ class JavalinAdminCommandServiceTest {
         svc = new JavalinAdminCommandService();
         Assertions.assertDoesNotThrow(svc::tearDown);
         svc = null;
+    }
+
+    @Test
+    void admin_command_is_run_and_the_reply_is_escaped_json() throws Exception {
+        registry.reply = "line one\nsays \"quoted\"\ttabbed";
+        startNoAuth(true);
+
+        HttpResponse<String> r = post("/admin", "{\"command\":\"cache.keys\",\"arguments\":[\"a\",\"b\"]}", null);
+
+        Assertions.assertEquals(200, r.statusCode(), r.body());
+        Assertions.assertEquals(1, registry.requests.size());
+        Assertions.assertEquals("cache.keys", registry.requests.get(0).getCommand());
+        Assertions.assertEquals(List.of("a", "b"), registry.requests.get(0).getArguments());
+        Assertions.assertEquals("{\"message\":\"line one\\nsays \\\"quoted\\\"\\ttabbed\"}", r.body());
+    }
+
+    @Test
+    void admin_body_without_a_command_is_a_400_naming_the_shape() throws Exception {
+        startNoAuth(true);
+
+        HttpResponse<String> r = post("/admin", "{\"arguments\":[]}", null);
+
+        Assertions.assertEquals(400, r.statusCode(), r.body());
+        Assertions.assertTrue(r.body().contains("command"), r.body());
+        Assertions.assertTrue(registry.requests.isEmpty(), "nothing run");
+    }
+
+    @Test
+    void admin_body_that_is_not_json_is_a_400() throws Exception {
+        startNoAuth(true);
+
+        HttpResponse<String> r = post("/admin", "{not json", null);
+
+        Assertions.assertEquals(400, r.statusCode(), r.body());
+        Assertions.assertTrue(registry.requests.isEmpty(), "nothing run");
+    }
+
+    @Test
+    void admin_body_with_args_instead_of_arguments_is_a_400_that_says_so() throws Exception {
+        startNoAuth(true);
+
+        HttpResponse<String> r = post("/admin", "{\"command\":\"help\",\"args\":[\"x\"]}", null);
+
+        Assertions.assertEquals(400, r.statusCode(), r.body());
+        Assertions.assertTrue(r.body().contains("arguments"), r.body());
+        Assertions.assertTrue(registry.requests.isEmpty(), "nothing run");
+    }
+
+    @Test
+    void admin_without_a_registry_is_a_503() throws Exception {
+        startNoAuth(false);
+
+        HttpResponse<String> r = post("/admin", "{\"command\":\"help\",\"arguments\":[]}", null);
+
+        Assertions.assertEquals(503, r.statusCode(), r.body());
+    }
+
+    @Test
+    void api_action_without_a_registry_is_a_503() throws Exception {
+        startNoAuth(false);
+
+        HttpResponse<String> r = post("/api/help", null, null);
+
+        Assertions.assertEquals(503, r.statusCode(), r.body());
+    }
+
+    @Test
+    void api_action_is_run_and_replies() throws Exception {
+        registry.reply = "a \"b\"";
+        startNoAuth(true);
+
+        HttpResponse<String> r = post("/api/help", null, null);
+
+        Assertions.assertEquals(200, r.statusCode(), r.body());
+        Assertions.assertEquals("help", registry.requests.get(0).getCommand());
+        // Javalin's ctx.json writes a String as-is; structured outputs are serialised as JSON
+        Assertions.assertEquals("a \"b\"", r.body());
     }
 }
