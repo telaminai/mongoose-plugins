@@ -4504,7 +4504,7 @@ document.addEventListener('alpine:init', () => {
                         'Content-Type': 'application/json',
                         'X-CSRF-Token': this.csrfToken || ''
                     },
-                    body: JSON.stringify({ args: args || [] })
+                    body: JSON.stringify({ arguments: args || [] })
                 });
                 if (!r.ok) return { output: [], err: ['HTTP ' + r.status] };
                 return await r.json();
@@ -5305,7 +5305,7 @@ document.addEventListener('alpine:init', () => {
                         'Content-Type': 'application/json',
                         'X-CSRF-Token': this.csrfToken || ''
                     },
-                    body: JSON.stringify({ args })
+                    body: JSON.stringify({ arguments: args })
                 });
                 if (r.status === 401) {
                     this.authed = false;
