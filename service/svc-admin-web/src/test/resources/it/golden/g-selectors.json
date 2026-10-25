@@ -1,0 +1,73 @@
+{
+  "GET /api/audit/files" : {
+    "body" : [ {
+      "cycle" : "<N>",
+      "id" : "capture-<ID>",
+      "isLive" : true,
+      "lastWriteAt" : "<TS>",
+      "path" : "<WORK>/audit/capture-<ID>",
+      "processorName" : "gA/pricer",
+      "recordCount" : "<N>",
+      "sizeBytes" : "<N>",
+      "startedAt" : "<TS>"
+    }, {
+      "cycle" : "<N>",
+      "id" : "capture-<ID>",
+      "isLive" : true,
+      "lastWriteAt" : "<TS>",
+      "path" : "<WORK>/audit/capture-<ID>",
+      "processorName" : "gB/pricer",
+      "recordCount" : "<N>",
+      "sizeBytes" : "<N>",
+      "startedAt" : "<TS>"
+    } ],
+    "status" : 200
+  },
+  "POST /api/audit/gB%2Fpricer/start" : {
+    "body" : {
+      "processor" : "gB/pricer",
+      "recording" : true
+    },
+    "status" : 200
+  },
+  "POST /api/audit/gB/pricer/start (raw slash)" : {
+    "body" : "Endpoint POST /api/audit/gB/pricer/start not found",
+    "status" : 404
+  },
+  "POST /api/audit/pricer/start (ambiguous)" : {
+    "body" : {
+      "err" : "processor 'pricer' is ambiguous: use one of [gA/pricer, gB/pricer]"
+    },
+    "status" : 404
+  },
+  "POST /api/audit/pricer/stop (ambiguous)" : {
+    "body" : {
+      "err" : "processor 'pricer' is ambiguous: use one of [gA/pricer, gB/pricer]"
+    },
+    "status" : 404
+  },
+  "audit.start gA/pricer" : {
+    "body" : {
+      "command" : "audit.start",
+      "err" : [ ],
+      "output" : [ "audit: RECORDING gA/pricer" ]
+    },
+    "status" : 200
+  },
+  "audit.start pricer (ambiguous)" : {
+    "body" : {
+      "command" : "audit.start",
+      "err" : [ "audit: processor 'pricer' is ambiguous: use one of [gA/pricer, gB/pricer]" ],
+      "output" : [ ]
+    },
+    "status" : 200
+  },
+  "audit.stop gA/pricer" : {
+    "body" : {
+      "command" : "audit.stop",
+      "err" : [ ],
+      "output" : [ "audit: STOPPED gA/pricer" ]
+    },
+    "status" : 200
+  }
+}

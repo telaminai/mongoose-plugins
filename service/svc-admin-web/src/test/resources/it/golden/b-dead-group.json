@@ -1,0 +1,55 @@
+{
+  "GET /api/agents" : {
+    "body" : {
+      "agents" : [ {
+        "daemon" : false,
+        "feeds" : [ {
+          "callback" : "onEventCallBack",
+          "feed" : "feed",
+          "path" : "doomed/feed/onEventCallBack"
+        } ],
+        "group" : "doomed",
+        "idleStrategyClass" : "org.agrona.concurrent.YieldingIdleStrategy",
+        "kind" : "processor",
+        "members" : [ {
+          "className" : "com.telamin.mongoose.plugin.svc.adminweb.it.Fixtures$Healthy",
+          "kind" : "processor",
+          "name" : "ok",
+          "subscriptions" : [ {
+            "callback" : "CallBackType$OnEventCallBack@<HASH>]",
+            "feed" : "EventSubscriptionKey[eventSourceKey=EventSourceKey[sourceName=feed], callBackType=com.telamin.mongoose.service.CallBackType$OnEventCallBack@<HASH>]"
+          } ]
+        } ],
+        "priority" : 5,
+        "thread" : "doomed",
+        "threadState" : "TERMINATED",
+        "type" : "processor"
+      } ]
+    },
+    "status" : 200
+  },
+  "control.group.status doomed" : {
+    "body" : {
+      "command" : "control.group.status",
+      "err" : [ ],
+      "output" : [ "ControlGroupStatus[group=doomed, state=DEAD, outstandingRequests=0, captureResourcesHeld=0, captureResourceSlotsInUse=0, captureCloseFailures={}, captureCleanupFailures={}, quarantinedProcessors={}]" ]
+    },
+    "status" : 200
+  },
+  "server.processors.list" : {
+    "body" : {
+      "command" : "server.processors.list",
+      "err" : [ ],
+      "output" : [ "\ngroup:doomed\nprocessors:\n\tdoomed/ok -> com.telamin.mongoose.plugin.svc.adminweb.it.Fixtures$Healthy@<HASH>\n\n" ]
+    },
+    "status" : 200
+  },
+  "server.processors.stop doomed/ok" : {
+    "body" : {
+      "command" : "server.processors.stop",
+      "err" : [ ],
+      "output" : [ "stopping processor:doomed/ok", "stop NOT_RUNNING: group doomed is DEAD" ]
+    },
+    "status" : 200
+  }
+}

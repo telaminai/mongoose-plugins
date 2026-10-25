@@ -1,0 +1,48 @@
+{
+  "GET /api/agents" : {
+    "body" : {
+      "agents" : [ {
+        "daemon" : false,
+        "feeds" : [ {
+          "callback" : "onEventCallBack",
+          "feed" : "feed",
+          "path" : "slowstop/feed/onEventCallBack"
+        } ],
+        "group" : "slowstop",
+        "idleStrategyClass" : "org.agrona.concurrent.YieldingIdleStrategy",
+        "kind" : "processor",
+        "members" : [ ],
+        "priority" : 5,
+        "thread" : "Thread-<N>",
+        "threadState" : "NEW",
+        "type" : "processor"
+      } ]
+    },
+    "status" : 200
+  },
+  "GET /api/server" : {
+    "body" : {
+      "pid" : "<pid>",
+      "runtime" : "<runtime>",
+      "startTime" : "<N>",
+      "uptimeMs" : "<N>"
+    },
+    "status" : 200
+  },
+  "GET /api/shutdown" : {
+    "body" : "Endpoint GET /api/shutdown not found",
+    "status" : 404
+  },
+  "GET /healthz" : {
+    "body" : "OK",
+    "status" : 200
+  },
+  "control.group.status slowstop" : {
+    "body" : {
+      "command" : "control.group.status",
+      "err" : [ ],
+      "output" : [ "ControlGroupStatus[group=slowstop, state=CLOSING, outstandingRequests=1, captureResourcesHeld=0, captureResourceSlotsInUse=0, captureCloseFailures={}, captureCleanupFailures={}, quarantinedProcessors={}]" ]
+    },
+    "status" : 200
+  }
+}

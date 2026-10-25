@@ -1,0 +1,70 @@
+{
+  "GET /api/audit/files (recording)" : {
+    "body" : [ {
+      "cycle" : "<N>",
+      "id" : "capture-<ID>",
+      "isLive" : true,
+      "lastWriteAt" : "<TS>",
+      "path" : "<WORK>/audit/capture-<ID>",
+      "processorName" : "cap/rec",
+      "recordCount" : "<N>",
+      "sizeBytes" : "<N>",
+      "startedAt" : "<TS>"
+    } ],
+    "status" : 200
+  },
+  "POST /api/audit/rec2/start (limit)" : {
+    "body" : {
+      "err" : "audit start for 'rec2' FAILED: open failed: physical capture resource limit reached"
+    },
+    "status" : 409
+  },
+  "audit.list" : {
+    "body" : {
+      "command" : "audit.list",
+      "err" : [ ],
+      "output" : [ "audit files:\n\t  id=capture-<ID> selector=cap/rec path=<WORK>/audit/capture-<ID>  ? records  <N> bytes" ]
+    },
+    "status" : 200
+  },
+  "audit.start rec" : {
+    "body" : {
+      "command" : "audit.start",
+      "err" : [ ],
+      "output" : [ "audit: RECORDING rec" ]
+    },
+    "status" : 200
+  },
+  "audit.start rec2 (limit)" : {
+    "body" : {
+      "command" : "audit.start",
+      "err" : [ "audit: audit start for 'rec2' FAILED: open failed: physical capture resource limit reached" ],
+      "output" : [ ]
+    },
+    "status" : 200
+  },
+  "audit.status" : {
+    "body" : {
+      "command" : "audit.status",
+      "err" : [ ],
+      "output" : [ "audit status:" ]
+    },
+    "status" : 200
+  },
+  "audit.stop rec" : {
+    "body" : {
+      "command" : "audit.stop",
+      "err" : [ ],
+      "output" : [ "audit: STOPPED rec" ]
+    },
+    "status" : 200
+  },
+  "control.group.status cap" : {
+    "body" : {
+      "command" : "control.group.status",
+      "err" : [ ],
+      "output" : [ "ControlGroupStatus[group=cap, state=RUNNING, outstandingRequests=0, captureResourcesHeld=0, captureResourceSlotsInUse=1, captureCloseFailures={1=java.lang.IllegalStateException: forced capture close failure}, captureCleanupFailures={1=physical close: java.lang.IllegalStateException: forced capture close failure}, quarantinedProcessors={}]" ]
+    },
+    "status" : 200
+  }
+}

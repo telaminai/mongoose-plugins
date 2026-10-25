@@ -1,0 +1,18 @@
+{
+  "server.processors.stop (no args)" : {
+    "body" : {
+      "command" : "server.processors.stop",
+      "err" : [ "exception: Index 1 out of bounds for length 1" ],
+      "output" : [ ]
+    },
+    "status" : 200
+  },
+  "server.processors.stop nosuch/x" : {
+    "body" : {
+      "command" : "server.processors.stop",
+      "err" : [ ],
+      "output" : [ "stopping processor:nosuch/x", "stop pending (still applies): nosuch/x" ]
+    },
+    "status" : 200
+  }
+}

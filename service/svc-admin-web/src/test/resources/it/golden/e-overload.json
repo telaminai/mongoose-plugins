@@ -1,0 +1,37 @@
+{
+  "GET /api/commands" : {
+    "body" : {
+      "adminAvailable" : true,
+      "commands" : [ "?", "audit.list", "audit.start", "audit.status", "audit.stop", "commands", "control.audit.export", "control.audit.export.status", "control.group.status", "eventSources", "help", "latency.disable", "latency.enable", "latency.reset", "latency.status", "latency.toggle", "server.processors.list", "server.processors.stop", "server.service.list" ]
+    },
+    "status" : 200
+  },
+  "GET /api/health" : {
+    "body" : "Endpoint GET /api/health not found",
+    "status" : 404
+  },
+  "GET /api/queues" : {
+    "body" : {
+      "sources" : [ {
+        "queues" : [ {
+          "agentGroup" : "slow",
+          "callback" : "onEventCallBack",
+          "path" : "slow/feed/onEventCallBack"
+        } ],
+        "source" : "feed"
+      }, {
+        "queues" : [ ],
+        "source" : "adminCommandRegistry"
+      } ]
+    },
+    "status" : 200
+  },
+  "control.group.status slow" : {
+    "body" : {
+      "command" : "control.group.status",
+      "err" : [ ],
+      "output" : [ "ControlGroupStatus[group=slow, state=RUNNING, outstandingRequests=0, captureResourcesHeld=0, captureResourceSlotsInUse=0, captureCloseFailures={}, captureCleanupFailures={}, quarantinedProcessors={}]" ]
+    },
+    "status" : 200
+  }
+}

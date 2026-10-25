@@ -1,0 +1,10 @@
+{
+  "server.processors.stop busy/consumer (mailbox full)" : {
+    "body" : {
+      "command" : "server.processors.stop",
+      "err" : [ ],
+      "output" : [ "stopping processor:busy/consumer", "stop REFUSED: group busy: processor-stop queue stayed full (4096) for 100 ms; is the group's thread running?" ]
+    },
+    "status" : 200
+  }
+}

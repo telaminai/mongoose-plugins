@@ -1,0 +1,98 @@
+{
+  "GET /api/agents" : {
+    "body" : {
+      "agents" : [ {
+        "daemon" : false,
+        "feeds" : [ {
+          "callback" : "onEventCallBack",
+          "feed" : "feed",
+          "path" : "pricing/feed/onEventCallBack"
+        } ],
+        "group" : "pricing",
+        "idleStrategyClass" : "org.agrona.concurrent.YieldingIdleStrategy",
+        "kind" : "processor",
+        "members" : [ {
+          "className" : "com.telamin.mongoose.plugin.svc.adminweb.it.Fixtures$Healthy",
+          "kind" : "processor",
+          "name" : "peer",
+          "subscriptions" : [ {
+            "callback" : "CallBackType$OnEventCallBack@<HASH>]",
+            "feed" : "EventSubscriptionKey[eventSourceKey=EventSourceKey[sourceName=feed], callBackType=com.telamin.mongoose.service.CallBackType$OnEventCallBack@<HASH>]"
+          } ]
+        } ],
+        "priority" : 5,
+        "thread" : "pricing",
+        "threadState" : "<LIVE>",
+        "type" : "processor"
+      }, {
+        "daemon" : false,
+        "feeds" : [ {
+          "callback" : "onEventCallBack",
+          "feed" : "feed",
+          "path" : "hand/feed/onEventCallBack"
+        } ],
+        "group" : "hand",
+        "idleStrategyClass" : "org.agrona.concurrent.YieldingIdleStrategy",
+        "kind" : "processor",
+        "members" : [ {
+          "className" : "com.telamin.mongoose.plugin.svc.adminweb.it.Fixtures$ThrowingHandwritten",
+          "kind" : "processor",
+          "name" : "handwritten",
+          "subscriptions" : [ {
+            "callback" : "CallBackType$OnEventCallBack@<HASH>]",
+            "feed" : "EventSubscriptionKey[eventSourceKey=EventSourceKey[sourceName=feed], callBackType=com.telamin.mongoose.service.CallBackType$OnEventCallBack@<HASH>]"
+          } ]
+        } ],
+        "priority" : 5,
+        "thread" : "hand",
+        "threadState" : "<LIVE>",
+        "type" : "processor"
+      } ]
+    },
+    "status" : 200
+  },
+  "REST POST /admin stop" : {
+    "body" : {
+      "message" : "stop FAILED: processor quarantined; lifecycle cleanup requires operator resolution"
+    },
+    "status" : 200
+  },
+  "REST POST /api/control.group.status" : {
+    "body" : {
+      "message" : "Failure - usage: control.group.status <group>"
+    },
+    "status" : 200
+  },
+  "control.group.status hand" : {
+    "body" : {
+      "command" : "control.group.status",
+      "err" : [ ],
+      "output" : [ "ControlGroupStatus[group=hand, state=RUNNING, outstandingRequests=0, captureResourcesHeld=0, captureResourceSlotsInUse=0, captureCloseFailures={}, captureCleanupFailures={}, quarantinedProcessors={}]" ]
+    },
+    "status" : 200
+  },
+  "control.group.status pricing" : {
+    "body" : {
+      "command" : "control.group.status",
+      "err" : [ ],
+      "output" : [ "ControlGroupStatus[group=pricing, state=RUNNING, outstandingRequests=0, captureResourcesHeld=0, captureResourceSlotsInUse=0, captureCloseFailures={}, captureCleanupFailures={}, quarantinedProcessors={pricer=com.telamin.mongoose.dutycycle.ProcessorDispatchException: generated processor execution failed during event dispatch; processor=com.telamin.mongoose.plugin.svc.adminweb.it.Fixtures$ThrowingGenerated; processor requires isolation; no retry or automatic recovery}]" ]
+    },
+    "status" : 200
+  },
+  "server.processors.list" : {
+    "body" : {
+      "command" : "server.processors.list",
+      "err" : [ ],
+      "output" : [ "\ngroup:pricing\nprocessors:\n\tpricing/peer -> com.telamin.mongoose.plugin.svc.adminweb.it.Fixtures$Healthy@<HASH>\n\ngroup:hand\nprocessors:\n\thand/handwritten -> com.telamin.mongoose.plugin.svc.adminweb.it.Fixtures$ThrowingHandwritten@<HASH>\n\n" ]
+    },
+    "status" : 200
+  },
+  "server.processors.stop pricing/pricer" : {
+    "body" : {
+      "command" : "server.processors.stop",
+      "err" : [ ],
+      "output" : [ "stopping processor:pricing/pricer", "stop FAILED: processor quarantined; lifecycle cleanup requires operator resolution" ]
+    },
+    "status" : 200
+  }
+}
