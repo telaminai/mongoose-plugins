@@ -218,6 +218,10 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         if (authMode == AuthMode.BEARER && (resolvedBearerToken() == null || resolvedBearerToken().isEmpty())) {
             throw new IllegalStateException("BEARER auth selected but bearerToken not configured");
         }
+        if (exposedWithoutAuth(host, authMode)) {
+            log.warn("web admin is reachable off-box on {}:{} with no authentication; set authMode BASIC or BEARER"
+                    + " (and front it with TLS), or bind host 127.0.0.1", host, listenPort);
+        }
 
         String resolvedSecret = resolveEnv(sessionSecret);
         if (resolvedSecret == null || resolvedSecret.isEmpty()) {
@@ -3379,5 +3383,20 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
             values.add(value.asText());
         }
         return values;
+    }
+
+    /**
+     * Whether the admin endpoint would be reachable from another host with no authentication: bound to anything other
+     * than a loopback address while {@code authMode} is {@code NONE}. A host that cannot be resolved counts as exposed.
+     */
+    static boolean exposedWithoutAuth(String host, AuthMode authMode) {
+        if (authMode != AuthMode.NONE) {
+            return false;
+        }
+        try {
+            return !java.net.InetAddress.getByName(host).isLoopbackAddress();
+        } catch (java.net.UnknownHostException e) {
+            return true;
+        }
     }
 }

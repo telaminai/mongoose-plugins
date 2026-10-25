@@ -175,7 +175,7 @@ Asset load order matters: `app.js` loads **eagerly** (no `defer`) so the `alpine
 ## Operational notes
 
 - Implements `EventFlowService<Object>` to fit the Mongoose service-injection model, but it does not push events into the dispatch pipeline — `subscribe`/`unSubscribe`/`setEventToQueuePublisher` are intentional no-ops.
-- Default `host` is `127.0.0.1` (loopback). For multi-host access, change explicitly and front with TLS.
+- Default `host` is `127.0.0.1` (loopback). **Off-box access** is one setting: set `host: 0.0.0.0` (or a specific interface address) and an `authMode` (`BASIC` or `BEARER`). With `authMode: NONE` on a non-loopback host, `init()` logs a warning naming the host and port. Front an off-box UI with TLS; the WebSocket `Origin` allow-list follows the bind host:port, so use a reverse proxy for a different external origin.
 - Javalin uses SLF4J; without a binding you'll see "no logger" notices. Add `org.apache.logging.log4j:log4j-slf4j2-impl` in production.
 
 ## Performance monitoring
