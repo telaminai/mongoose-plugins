@@ -23,8 +23,9 @@
     <properties>
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
-        <fluxtion.bom.version>1.0.67</fluxtion.bom.version>
-        <mongoose.version>1.0.30</mongoose.version>
+        <fluxtion.bom.version>1.0.79</fluxtion.bom.version>
+        <fluxtion.runtime.version>1.1.2</fluxtion.runtime.version>
+        <mongoose.version>1.0.33-rc1</mongoose.version>
         <log4j2.version>2.24.3</log4j2.version>
         <lombok.version>1.18.42</lombok.version>
         <jackson.version>2.18.2</jackson.version>
@@ -81,6 +82,13 @@
 
     <dependencyManagement>
         <dependencies>
+            <!-- The compiler BOM pins an older base runtime. Keep the host and
+                 plugin graphs on the runtime used by the Mongoose candidate. -->
+            <dependency>
+                <groupId>com.telamin.fluxtion</groupId>
+                <artifactId>fluxtion-runtime</artifactId>
+                <version>${fluxtion.runtime.version}</version>
+            </dependency>
             <dependency>
                 <groupId>com.telamin.fluxtion</groupId>
                 <artifactId>fluxtion-bom</artifactId>

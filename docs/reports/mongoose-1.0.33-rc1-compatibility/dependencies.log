@@ -1,0 +1,327 @@
+[INFO] Scanning for projects...
+[WARNING] 
+[WARNING] Some problems were encountered while building the effective model for com.telamin:svc-admin-rest:jar:1.0.46-SNAPSHOT
+[WARNING] 'build.plugins.plugin.version' for org.apache.maven.plugins:maven-surefire-plugin is missing. @ com.telamin:mongoose-plugins:1.0.46-SNAPSHOT, /private/tmp/mongoose-plugins-rc1-check/pom.xml, line 214, column 21
+[WARNING] 
+[WARNING] Some problems were encountered while building the effective model for com.telamin:svc-admin-telnet:jar:1.0.46-SNAPSHOT
+[WARNING] 'build.plugins.plugin.version' for org.apache.maven.plugins:maven-surefire-plugin is missing. @ com.telamin:mongoose-plugins:1.0.46-SNAPSHOT, /private/tmp/mongoose-plugins-rc1-check/pom.xml, line 214, column 21
+[WARNING] 
+[WARNING] Some problems were encountered while building the effective model for com.telamin:svc-admin-web:jar:1.0.46-SNAPSHOT
+[WARNING] 'build.plugins.plugin.version' for org.apache.maven.plugins:maven-surefire-plugin is missing. @ line 36, column 21
+[WARNING] 
+[WARNING] Some problems were encountered while building the effective model for com.telamin:svc-micrometer:jar:1.0.46-SNAPSHOT
+[WARNING] 'build.plugins.plugin.version' for org.apache.maven.plugins:maven-surefire-plugin is missing. @ com.telamin:mongoose-plugins:1.0.46-SNAPSHOT, /private/tmp/mongoose-plugins-rc1-check/pom.xml, line 214, column 21
+[WARNING] 
+[WARNING] Some problems were encountered while building the effective model for com.telamin:svc-cache:jar:1.0.46-SNAPSHOT
+[WARNING] 'build.plugins.plugin.version' for org.apache.maven.plugins:maven-surefire-plugin is missing. @ com.telamin:mongoose-plugins:1.0.46-SNAPSHOT, /private/tmp/mongoose-plugins-rc1-check/pom.xml, line 214, column 21
+[WARNING] 
+[WARNING] Some problems were encountered while building the effective model for com.telamin:svc-jdbc:jar:1.0.46-SNAPSHOT
+[WARNING] 'build.plugins.plugin.version' for org.apache.maven.plugins:maven-surefire-plugin is missing. @ com.telamin:mongoose-plugins:1.0.46-SNAPSHOT, /private/tmp/mongoose-plugins-rc1-check/pom.xml, line 214, column 21
+[WARNING] 
+[WARNING] Some problems were encountered while building the effective model for com.telamin:svc-loader-yaml:jar:1.0.46-SNAPSHOT
+[WARNING] 'build.plugins.plugin.version' for org.apache.maven.plugins:maven-surefire-plugin is missing. @ com.telamin:mongoose-plugins:1.0.46-SNAPSHOT, /private/tmp/mongoose-plugins-rc1-check/pom.xml, line 214, column 21
+[WARNING] 
+[WARNING] Some problems were encountered while building the effective model for com.telamin:svc-loader-spring:jar:1.0.46-SNAPSHOT
+[WARNING] 'build.plugins.plugin.version' for org.apache.maven.plugins:maven-surefire-plugin is missing. @ com.telamin:mongoose-plugins:1.0.46-SNAPSHOT, /private/tmp/mongoose-plugins-rc1-check/pom.xml, line 214, column 21
+[WARNING] 
+[WARNING] Some problems were encountered while building the effective model for com.telamin:svc-loader-feed:jar:1.0.46-SNAPSHOT
+[WARNING] 'build.plugins.plugin.version' for org.apache.maven.plugins:maven-surefire-plugin is missing. @ com.telamin:mongoose-plugins:1.0.46-SNAPSHOT, /private/tmp/mongoose-plugins-rc1-check/pom.xml, line 214, column 21
+[WARNING] 
+[WARNING] Some problems were encountered while building the effective model for com.telamin:svc-loader-sink:jar:1.0.46-SNAPSHOT
+[WARNING] 'build.plugins.plugin.version' for org.apache.maven.plugins:maven-surefire-plugin is missing. @ com.telamin:mongoose-plugins:1.0.46-SNAPSHOT, /private/tmp/mongoose-plugins-rc1-check/pom.xml, line 214, column 21
+[WARNING] 
+[WARNING] Some problems were encountered while building the effective model for com.telamin:connector-aeron:jar:1.0.46-SNAPSHOT
+[WARNING] 'build.plugins.plugin.version' for org.apache.maven.plugins:maven-surefire-plugin is missing. @ com.telamin:mongoose-plugins:1.0.46-SNAPSHOT, /private/tmp/mongoose-plugins-rc1-check/pom.xml, line 214, column 21
+[WARNING] 
+[WARNING] Some problems were encountered while building the effective model for com.telamin:connector-chronicle:jar:1.0.46-SNAPSHOT
+[WARNING] 'build.plugins.plugin.version' for org.apache.maven.plugins:maven-surefire-plugin is missing. @ com.telamin:mongoose-plugins:1.0.46-SNAPSHOT, /private/tmp/mongoose-plugins-rc1-check/pom.xml, line 214, column 21
+[WARNING] 
+[WARNING] Some problems were encountered while building the effective model for com.telamin:connector-file:jar:1.0.46-SNAPSHOT
+[WARNING] 'build.plugins.plugin.version' for org.apache.maven.plugins:maven-surefire-plugin is missing. @ com.telamin:mongoose-plugins:1.0.46-SNAPSHOT, /private/tmp/mongoose-plugins-rc1-check/pom.xml, line 214, column 21
+[WARNING] 
+[WARNING] Some problems were encountered while building the effective model for com.telamin:connector-kafka:jar:1.0.46-SNAPSHOT
+[WARNING] 'build.plugins.plugin.version' for org.apache.maven.plugins:maven-surefire-plugin is missing. @ com.telamin:mongoose-plugins:1.0.46-SNAPSHOT, /private/tmp/mongoose-plugins-rc1-check/pom.xml, line 214, column 21
+[WARNING] 
+[WARNING] Some problems were encountered while building the effective model for com.telamin:connector-multicast:jar:1.0.46-SNAPSHOT
+[WARNING] 'build.plugins.plugin.version' for org.apache.maven.plugins:maven-surefire-plugin is missing. @ com.telamin:mongoose-plugins:1.0.46-SNAPSHOT, /private/tmp/mongoose-plugins-rc1-check/pom.xml, line 214, column 21
+[WARNING] 
+[WARNING] Some problems were encountered while building the effective model for com.telamin:lib-jsonserialiser:jar:1.0.46-SNAPSHOT
+[WARNING] 'build.plugins.plugin.version' for org.apache.maven.plugins:maven-surefire-plugin is missing. @ com.telamin:mongoose-plugins:1.0.46-SNAPSHOT, /private/tmp/mongoose-plugins-rc1-check/pom.xml, line 214, column 21
+[WARNING] 
+[WARNING] Some problems were encountered while building the effective model for com.telamin:lib-fanout:jar:1.0.46-SNAPSHOT
+[WARNING] 'build.plugins.plugin.version' for org.apache.maven.plugins:maven-surefire-plugin is missing. @ com.telamin:mongoose-plugins:1.0.46-SNAPSHOT, /private/tmp/mongoose-plugins-rc1-check/pom.xml, line 214, column 21
+[WARNING] 
+[WARNING] Some problems were encountered while building the effective model for com.telamin:mongoose-test-support:jar:1.0.46-SNAPSHOT
+[WARNING] 'build.plugins.plugin.version' for org.apache.maven.plugins:maven-surefire-plugin is missing. @ com.telamin:mongoose-plugins:1.0.46-SNAPSHOT, /private/tmp/mongoose-plugins-rc1-check/pom.xml, line 214, column 21
+[WARNING] 
+[WARNING] Some problems were encountered while building the effective model for com.telamin:config-schema-gen:jar:1.0.46-SNAPSHOT
+[WARNING] 'build.plugins.plugin.version' for org.apache.maven.plugins:maven-surefire-plugin is missing. @ line 120, column 21
+[WARNING] 
+[WARNING] Some problems were encountered while building the effective model for com.telamin:mongoose-plugins:pom:1.0.46-SNAPSHOT
+[WARNING] 'build.plugins.plugin.version' for org.apache.maven.plugins:maven-surefire-plugin is missing. @ line 214, column 21
+[WARNING] 
+[WARNING] It is highly recommended to fix these problems because they threaten the stability of your build.
+[WARNING] 
+[WARNING] For this reason, future Maven versions might no longer support building such malformed projects.
+[WARNING] 
+[INFO] ------------------------------------------------------------------------
+[INFO] Reactor Build Order:
+[INFO] 
+[INFO] telamin :: mongoose-plugins                                        [pom]
+[INFO] telamin :: mongoose-plugins :: svc-admin-rest                      [jar]
+[INFO] telamin :: mongoose-plugins :: svc-admin-telnet                    [jar]
+[INFO] telamin :: mongoose-plugins :: svc-admin-web                       [jar]
+[INFO] telamin :: mongoose-plugins :: svc-micrometer                      [jar]
+[INFO] telamin :: mongoose-plugins :: svc-cache                           [jar]
+[INFO] telamin :: mongoose-plugins :: svc-jdbc                            [jar]
+[INFO] telamin :: mongoose-plugins :: svc-loader-yaml                     [jar]
+[INFO] telamin :: mongoose-plugins :: svc-loader-spring                   [jar]
+[INFO] telamin :: mongoose-plugins :: svc-loader-feed                     [jar]
+[INFO] telamin :: mongoose-plugins :: svc-loader-sink                     [jar]
+[INFO] telamin :: mongoose-plugins :: connector-aeron                     [jar]
+[INFO] telamin :: mongoose-plugins :: mongoose-test-support               [jar]
+[INFO] telamin :: mongoose-plugins :: connector-chronicle                 [jar]
+[INFO] telamin :: mongoose-plugins :: connector-file                      [jar]
+[INFO] telamin :: mongoose-plugins :: connector-kafka                     [jar]
+[INFO] telamin :: mongoose-plugins :: connector-multicast                 [jar]
+[INFO] telamin :: mongoose-plugins :: lib-jsonserialiser                  [jar]
+[INFO] telamin :: mongoose-plugins :: lib-fanout                          [jar]
+[INFO] mongoose-plugins :: tooling :: config-schema-gen                   [jar]
+[INFO] 
+[INFO] --------------------< com.telamin:mongoose-plugins >--------------------
+[INFO] Building telamin :: mongoose-plugins 1.0.46-SNAPSHOT              [1/20]
+[INFO]   from pom.xml
+[INFO] --------------------------------[ pom ]---------------------------------
+[INFO] 
+[INFO] --- dependency:3.7.0:tree (default-cli) @ mongoose-plugins ---
+[INFO] com.telamin:mongoose-plugins:pom:1.0.46-SNAPSHOT
+[INFO] \- com.telamin:mongoose:jar:1.0.33-rc1:compile
+[INFO]    \- com.telamin.fluxtion:fluxtion-runtime:jar:1.1.2:compile
+[INFO] 
+[INFO] ---------------------< com.telamin:svc-admin-rest >---------------------
+[INFO] Building telamin :: mongoose-plugins :: svc-admin-rest 1.0.46-SNAPSHOT [2/20]
+[INFO]   from service/svc-admin-rest/pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- dependency:3.7.0:tree (default-cli) @ svc-admin-rest ---
+[INFO] com.telamin:svc-admin-rest:jar:1.0.46-SNAPSHOT
+[INFO] \- com.telamin:mongoose:jar:1.0.33-rc1:compile
+[INFO]    \- com.telamin.fluxtion:fluxtion-runtime:jar:1.1.2:compile
+[INFO] 
+[INFO] --------------------< com.telamin:svc-admin-telnet >--------------------
+[INFO] Building telamin :: mongoose-plugins :: svc-admin-telnet 1.0.46-SNAPSHOT [3/20]
+[INFO]   from service/svc-admin-telnet/pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- dependency:3.7.0:tree (default-cli) @ svc-admin-telnet ---
+[INFO] com.telamin:svc-admin-telnet:jar:1.0.46-SNAPSHOT
+[INFO] \- com.telamin:mongoose:jar:1.0.33-rc1:compile
+[INFO]    \- com.telamin.fluxtion:fluxtion-runtime:jar:1.1.2:compile
+[INFO] 
+[INFO] ---------------------< com.telamin:svc-admin-web >----------------------
+[INFO] Building telamin :: mongoose-plugins :: svc-admin-web 1.0.46-SNAPSHOT [4/20]
+[INFO]   from service/svc-admin-web/pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- dependency:3.7.0:tree (default-cli) @ svc-admin-web ---
+[INFO] com.telamin:svc-admin-web:jar:1.0.46-SNAPSHOT
+[INFO] \- com.telamin:mongoose:jar:1.0.33-rc1:compile
+[INFO]    \- com.telamin.fluxtion:fluxtion-runtime:jar:1.1.2:compile
+[INFO] 
+[INFO] ---------------------< com.telamin:svc-micrometer >---------------------
+[INFO] Building telamin :: mongoose-plugins :: svc-micrometer 1.0.46-SNAPSHOT [5/20]
+[INFO]   from service/svc-micrometer/pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- dependency:3.7.0:tree (default-cli) @ svc-micrometer ---
+[INFO] com.telamin:svc-micrometer:jar:1.0.46-SNAPSHOT
+[INFO] \- com.telamin:mongoose:jar:1.0.33-rc1:compile
+[INFO]    \- com.telamin.fluxtion:fluxtion-runtime:jar:1.1.2:compile
+[INFO] 
+[INFO] -----------------------< com.telamin:svc-cache >------------------------
+[INFO] Building telamin :: mongoose-plugins :: svc-cache 1.0.46-SNAPSHOT [6/20]
+[INFO]   from service/svc-cache/pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- dependency:3.7.0:tree (default-cli) @ svc-cache ---
+[INFO] com.telamin:svc-cache:jar:1.0.46-SNAPSHOT
+[INFO] \- com.telamin:mongoose:jar:1.0.33-rc1:compile
+[INFO]    \- com.telamin.fluxtion:fluxtion-runtime:jar:1.1.2:compile
+[INFO] 
+[INFO] ------------------------< com.telamin:svc-jdbc >------------------------
+[INFO] Building telamin :: mongoose-plugins :: svc-jdbc 1.0.46-SNAPSHOT  [7/20]
+[INFO]   from service/svc-jdbc/pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- dependency:3.7.0:tree (default-cli) @ svc-jdbc ---
+[INFO] com.telamin:svc-jdbc:jar:1.0.46-SNAPSHOT
+[INFO] \- com.telamin:mongoose:jar:1.0.33-rc1:compile
+[INFO]    \- com.telamin.fluxtion:fluxtion-runtime:jar:1.1.2:compile
+[INFO] 
+[INFO] --------------------< com.telamin:svc-loader-yaml >---------------------
+[INFO] Building telamin :: mongoose-plugins :: svc-loader-yaml 1.0.46-SNAPSHOT [8/20]
+[INFO]   from service/svc-loader-yaml/pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- dependency:3.7.0:tree (default-cli) @ svc-loader-yaml ---
+[INFO] com.telamin:svc-loader-yaml:jar:1.0.46-SNAPSHOT
+[INFO] +- com.telamin.fluxtion:fluxtion-builder:jar:1.0.79:compile
+[INFO] |  +- com.telamin.fluxtion:fluxtion-builder-api:jar:1.1.1:compile
+[INFO] |  \- com.telamin.fluxtion:fluxtion-runtime:jar:1.1.2:compile
+[INFO] \- com.telamin:mongoose:jar:1.0.33-rc1:compile
+[INFO] 
+[INFO] -------------------< com.telamin:svc-loader-spring >--------------------
+[INFO] Building telamin :: mongoose-plugins :: svc-loader-spring 1.0.46-SNAPSHOT [9/20]
+[INFO]   from service/svc-loader-spring/pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- dependency:3.7.0:tree (default-cli) @ svc-loader-spring ---
+[INFO] com.telamin:svc-loader-spring:jar:1.0.46-SNAPSHOT
+[INFO] +- com.telamin.fluxtion:fluxtion-builder:jar:1.0.79:compile
+[INFO] |  +- com.telamin.fluxtion:fluxtion-builder-api:jar:1.1.1:compile
+[INFO] |  \- com.telamin.fluxtion:fluxtion-runtime:jar:1.1.2:compile
+[INFO] \- com.telamin:mongoose:jar:1.0.33-rc1:compile
+[INFO] 
+[INFO] --------------------< com.telamin:svc-loader-feed >---------------------
+[INFO] Building telamin :: mongoose-plugins :: svc-loader-feed 1.0.46-SNAPSHOT [10/20]
+[INFO]   from service/svc-loader-feed/pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- dependency:3.7.0:tree (default-cli) @ svc-loader-feed ---
+[INFO] com.telamin:svc-loader-feed:jar:1.0.46-SNAPSHOT
+[INFO] \- com.telamin:mongoose:jar:1.0.33-rc1:compile
+[INFO]    \- com.telamin.fluxtion:fluxtion-runtime:jar:1.1.2:compile
+[INFO] 
+[INFO] --------------------< com.telamin:svc-loader-sink >---------------------
+[INFO] Building telamin :: mongoose-plugins :: svc-loader-sink 1.0.46-SNAPSHOT [11/20]
+[INFO]   from service/svc-loader-sink/pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- dependency:3.7.0:tree (default-cli) @ svc-loader-sink ---
+[INFO] com.telamin:svc-loader-sink:jar:1.0.46-SNAPSHOT
+[INFO] \- com.telamin:mongoose:jar:1.0.33-rc1:compile
+[INFO]    \- com.telamin.fluxtion:fluxtion-runtime:jar:1.1.2:compile
+[INFO] 
+[INFO] --------------------< com.telamin:connector-aeron >---------------------
+[INFO] Building telamin :: mongoose-plugins :: connector-aeron 1.0.46-SNAPSHOT [12/20]
+[INFO]   from connector/connector-aeron/pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- dependency:3.7.0:tree (default-cli) @ connector-aeron ---
+[INFO] com.telamin:connector-aeron:jar:1.0.46-SNAPSHOT
+[INFO] \- com.telamin:mongoose:jar:1.0.33-rc1:compile
+[INFO]    \- com.telamin.fluxtion:fluxtion-runtime:jar:1.1.2:compile
+[INFO] 
+[INFO] -----------------< com.telamin:mongoose-test-support >------------------
+[INFO] Building telamin :: mongoose-plugins :: mongoose-test-support 1.0.46-SNAPSHOT [13/20]
+[INFO]   from test-support/mongoose-test-support/pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- dependency:3.7.0:tree (default-cli) @ mongoose-test-support ---
+[INFO] com.telamin:mongoose-test-support:jar:1.0.46-SNAPSHOT
+[INFO] +- com.telamin.fluxtion:fluxtion-builder:jar:1.0.79:test
+[INFO] |  +- com.telamin.fluxtion:fluxtion-builder-api:jar:1.1.1:test
+[INFO] |  \- com.telamin.fluxtion:fluxtion-runtime:jar:1.1.2:compile
+[INFO] \- com.telamin:mongoose:jar:1.0.33-rc1:compile
+[INFO] 
+[INFO] ------------------< com.telamin:connector-chronicle >-------------------
+[INFO] Building telamin :: mongoose-plugins :: connector-chronicle 1.0.46-SNAPSHOT [14/20]
+[INFO]   from connector/connector-chronicle/pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- dependency:3.7.0:tree (default-cli) @ connector-chronicle ---
+[INFO] com.telamin:connector-chronicle:jar:1.0.46-SNAPSHOT
+[INFO] \- com.telamin:mongoose:jar:1.0.33-rc1:compile
+[INFO]    \- com.telamin.fluxtion:fluxtion-runtime:jar:1.1.2:compile
+[INFO] 
+[INFO] ---------------------< com.telamin:connector-file >---------------------
+[INFO] Building telamin :: mongoose-plugins :: connector-file 1.0.46-SNAPSHOT [15/20]
+[INFO]   from connector/connector-file/pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- dependency:3.7.0:tree (default-cli) @ connector-file ---
+[INFO] com.telamin:connector-file:jar:1.0.46-SNAPSHOT
+[INFO] \- com.telamin:mongoose:jar:1.0.33-rc1:compile
+[INFO]    \- com.telamin.fluxtion:fluxtion-runtime:jar:1.1.2:compile
+[INFO] 
+[INFO] --------------------< com.telamin:connector-kafka >---------------------
+[INFO] Building telamin :: mongoose-plugins :: connector-kafka 1.0.46-SNAPSHOT [16/20]
+[INFO]   from connector/connector-kafka/pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- dependency:3.7.0:tree (default-cli) @ connector-kafka ---
+[INFO] com.telamin:connector-kafka:jar:1.0.46-SNAPSHOT
+[INFO] \- com.telamin:mongoose:jar:1.0.33-rc1:compile
+[INFO]    \- com.telamin.fluxtion:fluxtion-runtime:jar:1.1.2:compile
+[INFO] 
+[INFO] ------------------< com.telamin:connector-multicast >-------------------
+[INFO] Building telamin :: mongoose-plugins :: connector-multicast 1.0.46-SNAPSHOT [17/20]
+[INFO]   from connector/connector-multicast/pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- dependency:3.7.0:tree (default-cli) @ connector-multicast ---
+[INFO] com.telamin:connector-multicast:jar:1.0.46-SNAPSHOT
+[INFO] \- com.telamin:mongoose:jar:1.0.33-rc1:compile
+[INFO]    \- com.telamin.fluxtion:fluxtion-runtime:jar:1.1.2:compile
+[INFO] 
+[INFO] -------------------< com.telamin:lib-jsonserialiser >-------------------
+[INFO] Building telamin :: mongoose-plugins :: lib-jsonserialiser 1.0.46-SNAPSHOT [18/20]
+[INFO]   from library/lib-jsonserialiser/pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- dependency:3.7.0:tree (default-cli) @ lib-jsonserialiser ---
+[INFO] com.telamin:lib-jsonserialiser:jar:1.0.46-SNAPSHOT
+[INFO] \- com.telamin:mongoose:jar:1.0.33-rc1:compile
+[INFO]    \- com.telamin.fluxtion:fluxtion-runtime:jar:1.1.2:compile
+[INFO] 
+[INFO] -----------------------< com.telamin:lib-fanout >-----------------------
+[INFO] Building telamin :: mongoose-plugins :: lib-fanout 1.0.46-SNAPSHOT [19/20]
+[INFO]   from library/lib-fanout/pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- dependency:3.7.0:tree (default-cli) @ lib-fanout ---
+[INFO] com.telamin:lib-fanout:jar:1.0.46-SNAPSHOT
+[INFO] \- com.telamin:mongoose:jar:1.0.33-rc1:compile
+[INFO]    \- com.telamin.fluxtion:fluxtion-runtime:jar:1.1.2:compile
+[INFO] 
+[INFO] -------------------< com.telamin:config-schema-gen >--------------------
+[INFO] Building mongoose-plugins :: tooling :: config-schema-gen 1.0.46-SNAPSHOT [20/20]
+[INFO]   from tooling/config-schema-gen/pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- dependency:3.7.0:tree (default-cli) @ config-schema-gen ---
+[INFO] com.telamin:config-schema-gen:jar:1.0.46-SNAPSHOT
+[INFO] +- com.telamin:svc-loader-yaml:jar:1.0.46-SNAPSHOT:compile
+[INFO] |  \- com.telamin.fluxtion:fluxtion-builder:jar:1.0.79:compile
+[INFO] |     \- com.telamin.fluxtion:fluxtion-builder-api:jar:1.1.1:compile
+[INFO] \- com.telamin:mongoose:jar:1.0.33-rc1:compile
+[INFO]    \- com.telamin.fluxtion:fluxtion-runtime:jar:1.1.2:compile
+[INFO] ------------------------------------------------------------------------
+[INFO] Reactor Summary for telamin :: mongoose-plugins 1.0.46-SNAPSHOT:
+[INFO] 
+[INFO] telamin :: mongoose-plugins ........................ SUCCESS [  0.346 s]
+[INFO] telamin :: mongoose-plugins :: svc-admin-rest ...... SUCCESS [  0.047 s]
+[INFO] telamin :: mongoose-plugins :: svc-admin-telnet .... SUCCESS [  0.009 s]
+[INFO] telamin :: mongoose-plugins :: svc-admin-web ....... SUCCESS [  0.012 s]
+[INFO] telamin :: mongoose-plugins :: svc-micrometer ...... SUCCESS [  0.004 s]
+[INFO] telamin :: mongoose-plugins :: svc-cache ........... SUCCESS [  0.009 s]
+[INFO] telamin :: mongoose-plugins :: svc-jdbc ............ SUCCESS [  0.003 s]
+[INFO] telamin :: mongoose-plugins :: svc-loader-yaml ..... SUCCESS [  0.029 s]
+[INFO] telamin :: mongoose-plugins :: svc-loader-spring ... SUCCESS [  0.004 s]
+[INFO] telamin :: mongoose-plugins :: svc-loader-feed ..... SUCCESS [  0.002 s]
+[INFO] telamin :: mongoose-plugins :: svc-loader-sink ..... SUCCESS [  0.002 s]
+[INFO] telamin :: mongoose-plugins :: connector-aeron ..... SUCCESS [  0.004 s]
+[INFO] telamin :: mongoose-plugins :: mongoose-test-support SUCCESS [  0.004 s]
+[INFO] telamin :: mongoose-plugins :: connector-chronicle . SUCCESS [  0.012 s]
+[INFO] telamin :: mongoose-plugins :: connector-file ...... SUCCESS [  0.001 s]
+[INFO] telamin :: mongoose-plugins :: connector-kafka ..... SUCCESS [  0.003 s]
+[INFO] telamin :: mongoose-plugins :: connector-multicast . SUCCESS [  0.003 s]
+[INFO] telamin :: mongoose-plugins :: lib-jsonserialiser .. SUCCESS [  0.001 s]
+[INFO] telamin :: mongoose-plugins :: lib-fanout .......... SUCCESS [  0.002 s]
+[INFO] mongoose-plugins :: tooling :: config-schema-gen ... SUCCESS [  0.008 s]
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD SUCCESS
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  0.655 s
+[INFO] Finished at: 2026-10-25T16:41:21Z
+[INFO] ------------------------------------------------------------------------

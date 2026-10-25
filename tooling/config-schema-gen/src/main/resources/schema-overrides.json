@@ -10,7 +10,8 @@
       "filename": { "required": true, "format": "path", "doc": "Path of the output file." }
     },
     "mongoose-memory:source": {
-      "cacheEventLog": { "doc": "Retain published events in memory for replay." }
+      "cacheEventLog": { "doc": "Cache events before startup and replay them when the source starts." },
+      "retainEventLogAfterStart": { "doc": "Continue retaining events after startup; the in-memory log grows for the lifetime of the source. Off by default." }
     },
 
     "connector-file:source": {
