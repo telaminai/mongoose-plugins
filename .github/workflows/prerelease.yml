@@ -1,9 +1,9 @@
-name: Publish qualified plugin pre-release
+name: Publish qualified plugin release
 
 on:
   push:
     tags:
-      - 'v*-rc*'
+      - 'v[0-9]*'
 
 permissions:
   contents: read
@@ -26,7 +26,7 @@ jobs:
           python3 - <<'PYTHON'
           import os, re, xml.etree.ElementTree as ET
           version = ET.parse('pom.xml').getroot().find('{http://maven.apache.org/POM/4.0.0}version').text
-          assert re.fullmatch(r'\d+\.\d+\.\d+-rc\d+', version), version
+          assert re.fullmatch(r'\d+\.\d+\.\d+(?:-rc\d+)?', version), version
           assert os.environ['RELEASE_TAG'] == 'v' + version, 'tag/POM mismatch'
           PYTHON
           git log -1 --format='%H %s'
@@ -38,7 +38,7 @@ jobs:
           server-username: MAVEN_USERNAME
           server-password: MAVEN_CENTRAL_TOKEN
       - name: Publish the tagged reactor to Repsy
-        run: ./mvnw -B clean deploy
+        run: ./mvnw -B -ntp -Dmaven.test.redirectTestOutputToFile=true clean deploy
         env:
           MAVEN_USERNAME: ${{ secrets.REPSY_USER }}
           MAVEN_CENTRAL_TOKEN: ${{ secrets.REPSY_PASSWORD }}
