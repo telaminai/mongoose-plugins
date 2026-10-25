@@ -2,7 +2,7 @@
 
 Two regression packs drive the failure scenarios of `failure-ux-proposal.md` (a–h) against a real
 Mongoose 1.0.33-rc1 server, in-process, with svc-admin-web and svc-admin-rest bound to 127.0.0.1 on free
-ports. They live in `src/test/java/com/telamin/mongoose/plugin/svc/adminweb/it/` and run only under the
+ports. They live in `src/it/java/com/telamin/mongoose/plugin/svc/adminweb/it/` (compiled only by the profile, against rc1) and run only under the
 `admin-web-it` profile, so the normal build stays fast.
 
 ```sh
@@ -14,7 +14,7 @@ mvn -Padmin-web-it verify -pl service/svc-admin-web -Dit.groups=proposed -Dit.ex
 
 | Class | Tag | What it asserts |
 |---|---|---|
-| `AdminRestScenarioIT` | `rest-it` | per scenario: exact JSON (golden files in `src/test/resources/it/golden/`, volatile values normalised) plus the failure facts |
+| `AdminRestScenarioIT` | `rest-it` | per scenario: exact JSON (golden files in `src/it/resources/it/golden/`, volatile values normalised) plus the failure facts |
 | `AdminWebUiScenarioIT` | `ui-it` | per scenario: what the operator sees through `data-testid` selectors; no console/page errors, failed requests or unexpected HTTP errors |
 | `AdminProposedIT`, `AdminWebUiProposedIT` | `proposed` | the behaviour the proposal asks for; each test names its section. Excluded by default; they fail until it lands |
 

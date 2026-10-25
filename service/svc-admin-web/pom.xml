@@ -15,7 +15,6 @@
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <playwright.version>1.49.0</playwright.version>
     </properties>
 
     <dependencies>
@@ -31,20 +30,6 @@
             <version>2.18.3</version>
         </dependency>
 
-        <!-- admin-web-it packs: the REST plugin is driven beside the web plugin, and Playwright
-             drives the bundled UI in headless Chromium. Test scope only. -->
-        <dependency>
-            <groupId>com.telamin</groupId>
-            <artifactId>svc-admin-rest</artifactId>
-            <version>${project.version}</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>com.microsoft.playwright</groupId>
-            <artifactId>playwright</artifactId>
-            <version>${playwright.version}</version>
-            <scope>test</scope>
-        </dependency>
     </dependencies>
 
     <build>
@@ -77,9 +62,57 @@
             <properties>
                 <it.groups>rest-it,ui-it</it.groups>
                 <it.excludedGroups>proposed</it.excludedGroups>
+                <playwright.version>1.49.0</playwright.version>
+                <!-- the packs exercise the 1.0.33 control plane; the default build keeps the reactor's Mongoose -->
+                <mongoose.version>1.0.33-rc1</mongoose.version>
             </properties>
+            <dependencyManagement>
+                <dependencies>
+                    <!-- the Mongoose candidate runs on Fluxtion runtime 1.1.2; the reactor's BOM pins an older one -->
+                    <dependency>
+                        <groupId>com.telamin.fluxtion</groupId>
+                        <artifactId>fluxtion-runtime</artifactId>
+                        <version>1.1.2</version>
+                    </dependency>
+                </dependencies>
+            </dependencyManagement>
+            <dependencies>
+                <!-- the REST plugin is driven beside the web plugin; Playwright drives the bundled UI -->
+                <dependency>
+                    <groupId>com.telamin</groupId>
+                    <artifactId>svc-admin-rest</artifactId>
+                    <version>${project.version}</version>
+                    <scope>test</scope>
+                </dependency>
+                <dependency>
+                    <groupId>com.microsoft.playwright</groupId>
+                    <artifactId>playwright</artifactId>
+                    <version>${playwright.version}</version>
+                    <scope>test</scope>
+                </dependency>
+            </dependencies>
             <build>
                 <plugins>
+                    <!-- the pack sources need the rc1 API, so they compile only in this profile -->
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>build-helper-maven-plugin</artifactId>
+                        <version>3.6.0</version>
+                        <executions>
+                            <execution>
+                                <id>add-it-sources</id>
+                                <phase>generate-test-sources</phase>
+                                <goals><goal>add-test-source</goal></goals>
+                                <configuration><sources><source>src/it/java</source></sources></configuration>
+                            </execution>
+                            <execution>
+                                <id>add-it-resources</id>
+                                <phase>generate-test-resources</phase>
+                                <goals><goal>add-test-resource</goal></goals>
+                                <configuration><resources><resource><directory>src/it/resources</directory></resource></resources></configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-failsafe-plugin</artifactId>
@@ -98,7 +131,7 @@
                             <systemPropertyVariables>
                                 <mongoose.servers.dir>${project.build.directory}/servers</mongoose.servers.dir>
                                 <it.artifacts.dir>${project.build.directory}/admin-web-it</it.artifacts.dir>
-                                <it.golden.dir>${project.basedir}/src/test/resources/it/golden</it.golden.dir>
+                                <it.golden.dir>${project.basedir}/src/it/resources/it/golden</it.golden.dir>
                             </systemPropertyVariables>
                         </configuration>
                         <executions>

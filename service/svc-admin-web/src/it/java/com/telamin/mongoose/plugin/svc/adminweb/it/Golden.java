@@ -95,7 +95,7 @@ final class Golden {
     /** Compare against {@code it/golden/<scenario>.json}, or write it with {@code -Dgolden.update=true}. */
     void verify() throws Exception {
         String actual = normalised();
-        Path dir = Path.of(System.getProperty("it.golden.dir", "src/test/resources/it/golden"));
+        Path dir = Path.of(System.getProperty("it.golden.dir", "src/it/resources/it/golden"));
         Path file = dir.resolve(scenario + ".json");
         Path artifacts = Files.createDirectories(Path.of(System.getProperty("it.artifacts.dir", "target/admin-web-it"), "rest"));
         Files.writeString(artifacts.resolve(scenario + ".actual.json"), actual);

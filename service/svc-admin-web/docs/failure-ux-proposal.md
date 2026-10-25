@@ -3,7 +3,7 @@
 Status: proposal. Validated against Mongoose **1.0.33-rc1** (`feature/control-plane` dfbfdd9, PR #76) on
 2026-10-25. Issue #77 (FailureKind) and #79 (overload policy) are design-only; §6 covers what they add.
 
-Every claim in §1 is pinned by a test in `src/test/java/.../it/`: the current behaviour in
+Every claim in §1 is pinned by a test in `src/it/java/.../it/`: the current behaviour in
 `AdminRestScenarioIT` / `AdminWebUiScenarioIT`, the behaviour proposed here in `AdminProposedIT` /
 `AdminWebUiProposedIT` (tag `proposed`, failing until implemented). See `testing-admin-web-it.md`.
 

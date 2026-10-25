@@ -48,7 +48,7 @@ jobs:
       - name: Install Chromium and its OS dependencies
         run: |
           mvn -B -q -pl service/svc-admin-web -am install -DskipTests
-          mvn -B -q -pl service/svc-admin-web exec:java -Dexec.classpathScope=test \
+          mvn -B -q -Padmin-web-it -pl service/svc-admin-web exec:java -Dexec.classpathScope=test \
             -Dexec.mainClass=com.microsoft.playwright.CLI -Dexec.args="install --with-deps chromium"
 
       - name: Unit suite + REST and UI packs
