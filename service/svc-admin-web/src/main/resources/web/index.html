@@ -111,7 +111,7 @@
             <!-- Overview — landing summary: processors / feeds / sinks /
                  key services / audit state. Default view on load. -->
             <div class="nav-group">
-                <button class="nav-item" :class="{active: activeView==='overview'}" @click="go('overview')">
+                <button class="nav-item" data-testid="nav-overview" :class="{active: activeView==='overview'}" @click="go('overview')">
                     <svg class="ico"><use href="#i-dashboard"/></svg><span>Overview</span>
                 </button>
             </div>
@@ -122,7 +122,7 @@
                  server summary into wiring details is one click, not
                  two. Was "Integration" in the previous nav. -->
             <div class="nav-group" x-show="servicesAvailable || agentsAvailable || queuesAvailable">
-                <button class="nav-item"
+                <button class="nav-item" data-testid="nav-managed"
                         :class="{active: ['agents','services','queues'].includes(activeView)}"
                         @click="go('agents')">
                     <svg class="ico"><use href="#i-services"/></svg><span>Managed services</span>
@@ -160,7 +160,7 @@
                     <button class="nav-item" :class="{active: activeView==='performance'}" @click="go('performance')" x-show="throughput">
                         <svg class="ico"><use href="#i-topology"/></svg><span>Server performance</span>
                     </button>
-                    <button class="nav-item" :class="{active: activeView==='app-counters'}" @click="go('app-counters')" x-show="throughput">
+                    <button class="nav-item" data-testid="nav-app-counters" :class="{active: activeView==='app-counters'}" @click="go('app-counters')" x-show="throughput">
                         <svg class="ico"><use href="#i-topology"/></svg><span>App counters</span>
                         <span class="nav-count" x-show="(throughput?.custom?.length ?? 0)" x-text="(throughput?.custom?.length ?? 0)"></span>
                     </button>
@@ -185,7 +185,7 @@
                     <button class="nav-item" :class="{active: activeView==='console'}" @click="go('console')">
                         <svg class="ico"><use href="#i-console"/></svg><span>Console</span>
                     </button>
-                    <button class="nav-item"
+                    <button class="nav-item" data-testid="nav-commands"
                             :class="{active: activeView==='commands', disabled: !adminAvailable}"
                             :disabled="!adminAvailable"
                             :title="!adminAvailable ? 'AdminCommandRegistry not registered — add the service to enable command dispatch.' : null"
@@ -389,11 +389,11 @@
                                 </tr></thead>
                                 <tbody>
                                     <template x-for="p in overviewData.processors" :key="p.group + ':' + p.name">
-                                        <tr class="overview-row-click" @click="overviewOpenProcessor(p)" :title="'Open processor graph for ' + p.name">
+                                        <tr class="overview-row-click" data-testid="overview-processor-row" :data-processor="p.group + '/' + p.name" @click="overviewOpenProcessor(p)" :title="'Open processor graph for ' + p.name">
                                             <td class="mono ellipsis" :title="p.name" x-text="p.name"></td>
                                             <td class="muted small ellipsis" :title="p.group" x-text="p.group"></td>
                                             <td>
-                                                <span class="pill" :class="p.auditing ? 'pill-ok' : 'pill-muted'"
+                                                <span class="pill" data-testid="overview-processor-audit" :class="p.auditing ? 'pill-ok' : 'pill-muted'"
                                                       x-text="p.auditing ? 'recording' : 'off'"></span>
                                             </td>
                                             <td class="mono small muted ellipsis" :title="p.classFqn"
@@ -583,13 +583,13 @@
                             <div class="overview-audit">
                                 <div class="overview-audit-stat">
                                     <div class="muted small">Recording</div>
-                                    <div class="mono" x-text="overviewData.audit.recordingProcessors.length + ' processor(s)'"></div>
+                                    <div class="mono" data-testid="overview-audit-recording" x-text="overviewData.audit.recordingProcessors.length + ' processor(s)'"></div>
                                     <div class="mono small muted ellipsis" :title="overviewData.audit.recordingProcessors.join(', ') || ''"
                                          x-text="overviewData.audit.recordingProcessors.join(', ') || '—'"></div>
                                 </div>
                                 <div class="overview-audit-stat">
                                     <div class="muted small">Files on disk</div>
-                                    <div class="mono" x-text="overviewData.audit.fileCount"></div>
+                                    <div class="mono" data-testid="overview-audit-files" x-text="overviewData.audit.fileCount"></div>
                                 </div>
                                 <div class="overview-audit-stat">
                                     <div class="muted small">Actions</div>
@@ -822,7 +822,7 @@
                             </tr>
                         </thead>
                         <tbody>
-                            <template x-for="row in replayProcessorRows()" :key="row.name">
+                            <template x-for="row in replayProcessorRows()" :key="row.group + '/' + row.name">
                                 <tr class="clickable" @click="openProcessorForReplay(row.group, row.name)">
                                     <td class="mono strong" x-text="row.name"></td>
                                     <td class="mono muted" x-text="row.group"></td>
@@ -1017,10 +1017,10 @@
                         </thead>
                         <tbody>
                             <template x-for="c in appCountersFiltered()" :key="c.name">
-                                <tr>
+                                <tr data-testid="app-counter-row" :data-counter="c.name">
                                     <td class="mono strong" x-text="c.name"></td>
                                     <td class="num" :class="c.rate > 0 ? 'rate-live' : ''" x-text="formatRate(c.rate)"></td>
-                                    <td class="num muted" x-text="formatCount(c.total)"></td>
+                                    <td class="num muted" data-testid="app-counter-total" x-text="formatCount(c.total)"></td>
                                 </tr>
                             </template>
                         </tbody>
@@ -1053,12 +1053,12 @@
                     <div class="card cmd-list-card">
                         <div class="input-icon">
                             <svg class="ico"><use href="#i-search"/></svg>
-                            <input type="search" placeholder="Filter commands…" x-model="filter">
+                            <input type="search" data-testid="cmd-filter" placeholder="Filter commands…" x-model="filter">
                         </div>
                         <ul class="cmd-list">
                             <template x-for="cmd in filteredCommands()" :key="cmd">
                                 <li>
-                                    <button class="cmd" :class="{active: selected===cmd}" @click="select(cmd)" x-text="cmd"></button>
+                                    <button class="cmd" data-testid="cmd-item" :data-command="cmd" :class="{active: selected===cmd}" @click="select(cmd)" x-text="cmd"></button>
                                 </li>
                             </template>
                             <template x-if="commands.length===0">
@@ -1084,8 +1084,8 @@
                                 </div>
                                 <form @submit.prevent="invoke()">
                                     <label class="field-label">Arguments <span class="muted">— one per line</span></label>
-                                    <textarea x-model="argsText" rows="3" spellcheck="false" placeholder="(no arguments)"></textarea>
-                                    <button type="submit" class="btn btn-primary" :disabled="running">
+                                    <textarea data-testid="cmd-args" x-model="argsText" rows="3" spellcheck="false" placeholder="(no arguments)"></textarea>
+                                    <button type="submit" class="btn btn-primary" data-testid="cmd-run" :disabled="running">
                                         <svg class="ico" x-show="!running"><use href="#i-play"/></svg>
                                         <span x-text="running ? 'Running…' : 'Run command'"></span>
                                     </button>
@@ -1098,8 +1098,8 @@
                                             <svg class="ico"><use href="#i-copy"/></svg>Copy
                                         </button>
                                     </div>
-                                    <pre class="out" x-show="lastResult?.output?.length"><template x-for="(line, i) in (lastResult?.output ?? [])" :key="i"><span x-text="line + '\n'"></span></template></pre>
-                                    <pre class="err" x-show="lastResult?.err?.length"><template x-for="(line, i) in (lastResult?.err ?? [])" :key="i"><span x-text="line + '\n'"></span></template></pre>
+                                    <pre class="out" data-testid="cmd-output" x-show="lastResult?.output?.length"><template x-for="(line, i) in (lastResult?.output ?? [])" :key="i"><span x-text="line + '\n'"></span></template></pre>
+                                    <pre class="err" data-testid="cmd-error" x-show="lastResult?.err?.length"><template x-for="(line, i) in (lastResult?.err ?? [])" :key="i"><span x-text="line + '\n'"></span></template></pre>
                                     <p class="muted" x-show="lastResult && !lastResult?.output?.length && !lastResult?.err?.length">(no output)</p>
                                 </div>
 
@@ -1472,7 +1472,7 @@
                              Overview + Services pages. -->
                         <div class="overview-stack" x-show="agents.length">
                             <template x-for="a in agents" :key="a.group">
-                                <section class="overview-card" :class="{ collapsed: isAgentsCardCollapsed(a.group) }">
+                                <section class="overview-card" data-testid="agent-card" :data-group="a.group" :class="{ collapsed: isAgentsCardCollapsed(a.group) }">
                                     <header class="overview-card-head"
                                             @click="toggleAgentsCard(a.group)"
                                             role="button" tabindex="0"
@@ -1481,13 +1481,13 @@
                                         <span class="overview-card-caret" x-text="isAgentsCardCollapsed(a.group) ? '▸' : '▾'"></span>
                                         <h2 class="mono" x-text="a.group"></h2>
                                         <span class="tag" :class="threadTagClass(a.state)" x-show="a.state" x-text="a.state"></span>
-                                        <span class="overview-card-count" x-text="(a.members ?? []).length"></span>
+                                        <span class="overview-card-count" data-testid="agent-card-count" x-text="(a.members ?? []).length"></span>
                                         <span class="overview-card-summary muted small" x-text="agentCardSummary(a)"></span>
                                         <button type="button" class="btn btn-ghost btn-sm overview-card-copy"
                                                 @click.stop="copyAgentJson(a)"
                                                 title="Copy as JSON">Copy</button>
                                         <button type="button" class="btn btn-ghost btn-sm"
-                                                @click.stop="openAgent(a.group)"
+                                                @click.stop="openAgent(a.group)" data-testid="agent-open"
                                                 title="Open detail page">Open</button>
                                     </header>
                                     <div class="overview-card-body" x-show="!isAgentsCardCollapsed(a.group)">
@@ -1549,7 +1549,7 @@
                                 <div class="kv"><span class="kv-k">Type</span><span class="kv-v" x-text="(agentDetail.kind || agentDetail.type || 'agent') + ' group'"></span></div>
                                 <div class="kv"><span class="kv-k">Processors</span><span class="kv-v" x-text="(agentDetail.members ?? []).length"></span></div>
                                 <div class="kv" x-show="agentDetail.thread"><span class="kv-k">Thread</span><span class="kv-v mono" x-text="agentDetail.thread"></span></div>
-                                <div class="kv" x-show="agentDetail.threadState"><span class="kv-k">Thread state</span><span class="kv-v"><span class="tag" :class="threadTagClass(agentDetail.threadState)" x-text="agentDetail.threadState"></span></span></div>
+                                <div class="kv" x-show="agentDetail.threadState"><span class="kv-k">Thread state</span><span class="kv-v"><span class="tag" data-testid="agent-thread-state" :class="threadTagClass(agentDetail.threadState)" x-text="agentDetail.threadState"></span></span></div>
                                 <div class="kv" x-show="agentDetail.priority"><span class="kv-k">Priority</span><span class="kv-v" x-text="agentDetail.priority + (agentDetail.daemon ? ' (daemon)' : '')"></span></div>
                                 <div class="kv" x-show="agentDetail.idleStrategyClass"><span class="kv-k">Idle strategy</span><span class="kv-v mono" x-text="agentDetail.idleStrategyClass" :title="agentDetail.idleStrategyClass"></span></div>
                             </div>

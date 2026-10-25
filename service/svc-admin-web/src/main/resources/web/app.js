@@ -654,10 +654,14 @@ document.addEventListener('alpine:init', () => {
                     auditEnabled = audit.serviceState
                             ? audit.serviceState !== 'noop'
                             : true;
-                    const files = audit.files || [];
+                    // GET /api/audit/files answers a bare array of capture handles; only a live
+                    // handle means recording. Mongoose 1.0.33 keys handles by the qualified
+                    // selector "group/name" (processorName), so match rows on that too.
+                    const files = Array.isArray(audit) ? audit : (audit.files || []);
                     fileCount = files.length;
                     for (const f of files) {
-                        if (f.processor) recording.add(f.processor);
+                        const key = f.processorName || f.processor;
+                        if (key && (f.isLive ?? true)) recording.add(key);
                     }
                 }
 
@@ -675,7 +679,7 @@ document.addEventListener('alpine:init', () => {
                             name: p.name,
                             group: groupName,
                             classFqn: p.className || p.class || '',
-                            auditing: recording.has(p.name)
+                            auditing: recording.has(p.name) || recording.has(groupName + '/' + p.name)
                         });
                     }
                 }
@@ -3551,6 +3555,11 @@ document.addEventListener('alpine:init', () => {
             this.replayRefreshRecordingState();
         },
 
+        /** Mongoose 1.0.33 capture selector "group/name", or null without a group. */
+        auditSelector(target) {
+            return target && target.group && target.name ? target.group + '/' + target.name : null;
+        },
+
         async replayLoadFiles() {
             try {
                 const r = await fetch('/api/audit/files', { credentials: 'same-origin' });
@@ -3563,8 +3572,9 @@ document.addEventListener('alpine:init', () => {
                 // Show only files for the current target processor — keeps
                 // the dropdown tight on a multi-processor server.
                 const procName = this.processorGraphTarget?.name;
+                const selector = this.auditSelector(this.processorGraphTarget);
                 this.replayFiles = procName
-                    ? all.filter(f => f.processorName === procName)
+                    ? all.filter(f => f.processorName === procName || f.processorName === selector)
                     : all;
                 this.replayError = '';
             } catch (e) {
@@ -3602,7 +3612,8 @@ document.addEventListener('alpine:init', () => {
                 const r = await fetch('/api/audit/files', { credentials: 'same-origin' });
                 if (!r.ok) return;
                 const all = await r.json();
-                this.replayRecording = all.some(f => f.processorName === procName && f.isLive);
+                const selector = this.auditSelector(this.processorGraphTarget);
+                this.replayRecording = all.some(f => (f.processorName === procName || f.processorName === selector) && f.isLive);
             } catch (_) { /* swallow */ }
         },
 
@@ -3611,7 +3622,9 @@ document.addEventListener('alpine:init', () => {
             if (!procName) return;
             const verb = this.replayRecording ? 'stop' : 'start';
             try {
-                const r = await fetch(`/api/audit/${encodeURIComponent(procName)}/${verb}`, {
+                // the qualified selector: a bare name is refused as ambiguous when two groups share it
+                const target = this.auditSelector(this.processorGraphTarget) || procName;
+                const r = await fetch(`/api/audit/${encodeURIComponent(target)}/${verb}`, {
                     method: 'POST',
                     credentials: 'same-origin',
                     headers: {
@@ -3734,7 +3747,7 @@ document.addEventListener('alpine:init', () => {
             }
             for (const a of (this.agents || [])) {
                 for (const m of (a.members ?? [])) {
-                    const audit = auditByName.get(m.name);
+                    const audit = auditByName.get(a.group + '/' + m.name) || auditByName.get(m.name);
                     rows.push({
                         name: m.name,
                         group: a.group,
