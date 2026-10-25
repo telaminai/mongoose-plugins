@@ -90,6 +90,8 @@ public final class ScenarioServer implements AutoCloseable {
         cfg.setControlWaitMillis(3_000);
 
         server = MongooseServer.bootServer(cfg);
+        // Registered after boot, so on 1.0.33 its built-in "up" health check stays DOWN "service not started"
+        // although it publishes: every scenario therefore also shows a HEALTH_DOWN feed/up issue (a real fact).
         server.registerEventSource("feed", feed);
         awaitTrue("web admin up", () -> get("/healthz").statusCode() == 200, 10_000);
     }

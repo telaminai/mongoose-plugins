@@ -51,23 +51,66 @@ class AdminWebUiScenarioIT {
         }
     }
 
+    static com.microsoft.playwright.Locator card(Browser b, String kind, String subject) {
+        return b.page.locator("[data-testid=issue-card][data-kind=" + kind + "]"
+                + (subject == null ? "" : "[data-subject=\"" + subject + "\"]"));
+    }
+
     @Test
     void a_quarantine(TestInfo info) throws Exception {
         try (ScenarioServer s = new ScenarioServer(1_500)) {
-            Scenarios.quarantine(s);
+            Scenarios.quarantine(s, true);
             ui(info, s, b -> {
                 b.open();
                 assertThat(b.processorRow("pricing/peer")).isVisible();
                 assertThat(b.processorRow("hand/handwritten")).isVisible();
-                // CURRENT (misleading): the quarantined processor is simply absent from the overview
-                assertThat(b.processorRow("pricing/pricer")).hasCount(0);
-                b.shot("overview-pricer-vanished");
-                String status = b.command("control.group.status", "pricing");
-                assertTrue(status.contains("quarantinedProcessors={pricer="), status);
-                b.shot("commands-group-status");
+                // M1 (proposal §4.1): the quarantined processor stays on the overview, marked
+                assertThat(b.processorRow("pricing/pricer").locator("[data-testid=overview-processor-state]")).hasText("QUARANTINED");
+                // M1 (proposal §3): the header pill reports the worst open issue, not just the connection
+                assertThat(b.byTestId("issues-pill")).hasAttribute("data-worst", "CRITICAL");
+                assertThat(b.byTestId("issues-strip-worst")).hasText("CRITICAL");
+                var card = card(b, "PROCESSOR_QUARANTINED", "pricing/pricer");
+                assertThat(card).isVisible();
+                assertThat(card.locator("[data-testid=issue-severity]")).hasText("CRITICAL");
+                assertThat(card.locator("[data-testid=issue-impact]")).containsText("no output from pricing/pricer");
+                assertThat(card.locator("[data-testid=issue-what]")).containsText("ProcessorDispatchException: generated processor execution failed");
+                assertThat(card.locator("[data-testid=issue-evidence-unavailable]")).containsText("not available in this Mongoose version");
+                // evidence: the processor's capture, downloadable for the analyser
+                var link = card.locator("[data-testid=issue-evidence-link]");
+                assertThat(link).hasText("Download for the analyser");
+                String href = link.getAttribute("href");
+                assertTrue(href.startsWith("/api/audit/file/") && href.endsWith("/export"), href);
+                var download = s.get(href);
+                assertEquals(200, download.statusCode());
+                assertTrue(download.body().contains("---"), "a YAML capture export");
+                // no action may manufacture success (#77); replace and stop are explained, not offered
+                assertThat(card.locator("[data-testid=issue-action][data-action=mark-resolved]")).hasCount(0);
+                assertThat(card.locator("[data-testid=issue-action][data-action=replace]")).isDisabled();
+                assertThat(card.locator("[data-testid=issue-action][data-action=stop]")).isDisabled();
+                b.shot("overview-quarantine-card");
+                // export evidence runs control.audit.export into a new directory and reports completeness
+                card.locator("[data-testid=issue-action][data-action=export-evidence]").click();
+                card.locator("[data-testid=issue-export-dir]").fill(s.workDir.resolve("evidence-pricing").toString());
+                card.locator("[data-testid=issue-export-run]").click();
+                var output = card.locator("[data-testid=issue-export-output]");
+                for (int i = 0; i < 20 && !output.innerText().contains("completeness="); i++) {
+                    b.page.waitForTimeout(250);
+                    card.locator("[data-testid=issue-export-status]").click();
+                }
+                assertThat(output).containsText("completeness=");
+                assertTrue(java.nio.file.Files.isDirectory(s.workDir.resolve("evidence-pricing")));
+                b.shot("quarantine-evidence-exported");
+                // acknowledging moves the card; it stays open and the pill stays CRITICAL
+                card.locator("[data-testid=issue-action][data-action=acknowledge]").click();
+                assertThat(card).hasAttribute("data-acknowledged", "true");
+                assertThat(b.page.locator("[data-testid=issues-section][data-section=ACK] [data-testid=issue-card][data-kind=PROCESSOR_QUARANTINED]")).isVisible();
+                assertThat(b.byTestId("issues-pill")).hasAttribute("data-worst", "CRITICAL");
+                b.shot("quarantine-acknowledged-still-open");
                 String stop = b.command("server.processors.stop", "pricing/pricer");
                 assertTrue(stop.contains("stop FAILED: processor quarantined"), stop);
-                b.shot("commands-stop-refused");
+                b.open();
+                assertThat(card(b, "REQUEST_FAILED", "pricing/pricer").locator("[data-testid=issue-outcome]")).hasText("FAILED");
+                b.shot("stop-failed-recorded");
             });
         }
     }
@@ -78,15 +121,18 @@ class AdminWebUiScenarioIT {
             Scenarios.deadGroup(s);
             ui(info, s, b -> {
                 b.open();
-                // CURRENT (misleading): the dead group's processor looks like any other
-                assertThat(b.processorRow("doomed/ok")).isVisible();
+                // M1 (proposal §4.2): the dead group's processor is marked, and the group is an issue
+                assertThat(b.processorRow("doomed/ok").locator("[data-testid=overview-processor-state]")).hasText("group DEAD");
+                var issue = card(b, "GROUP_DEAD", "doomed");
+                assertThat(issue.locator("[data-testid=issue-impact]")).containsText("No processor in doomed runs");
+                assertThat(issue.locator("[data-testid=issue-action][data-action=restart-process]")).isDisabled();
+                b.shot("overview-dead-group-card");
                 b.byTestId("nav-managed").click();
-                var card = b.page.locator("[data-testid=agent-card][data-group=doomed]");
-                assertThat(card).isVisible();
-                assertThat(card.locator("[data-testid=agent-card-count]")).hasText("1");
-                b.shot("agents-list-doomed-looks-normal");
-                card.locator("[data-testid=agent-open]").click();
-                // only the agent detail shows the hint: the thread is TERMINATED
+                var agent = b.page.locator("[data-testid=agent-card][data-group=doomed]");
+                assertThat(agent.locator("[data-testid=agent-control-state]")).hasText("DEAD");
+                assertThat(agent.locator("[data-testid=agent-card-count]")).hasText("1");
+                b.shot("agents-list-doomed-dead");
+                agent.locator("[data-testid=agent-open]").click();
                 assertThat(b.byTestId("agent-thread-state")).hasText("TERMINATED");
                 b.shot("agent-detail-terminated");
                 assertTrue(b.command("control.group.status", "doomed").contains("state=DEAD"));
@@ -100,13 +146,21 @@ class AdminWebUiScenarioIT {
             var blocker = Scenarios.blockingStop(s);
             ui(info, s, b -> {
                 b.open();
-                // CURRENT (missing): nothing says the server is STOPPING with an incomplete StopResult;
-                // the overview simply shows no processors
+                // M1 (proposal §4.3): a banner with the StopResult, and a CRITICAL issue
+                assertThat(b.byTestId("stop-result-banner")).containsText("groups still running: slowstop");
+                assertThat(b.byTestId("stop-result-banner")).containsText("Server STOPPING");
+                var issue = card(b, "SHUTDOWN_INCOMPLETE", "server");
+                assertThat(issue.locator("[data-testid=issue-evidence]")).containsText("state CLOSING, outstanding requests 1");
+                assertThat(issue.locator("[data-testid=issue-action][data-action=retry-stop]")).isDisabled();
+                // Mongoose still drops a CLOSING group's processors from its registry (proposal A11)
                 assertThat(b.page.locator("[data-testid=overview-processor-row]")).hasCount(0);
-                b.shot("overview-during-incomplete-stop");
+                b.shot("overview-incomplete-stop-banner");
+                b.byTestId("nav-managed").click();
+                assertThat(b.byTestId("stop-result-banner")).isVisible();
+                assertThat(b.page.locator("[data-testid=agent-card][data-group=slowstop] [data-testid=agent-control-state]")).hasText("CLOSING");
+                b.shot("agents-closing-banner-on-every-view");
                 String status = b.command("control.group.status", "slowstop");
                 assertTrue(status.contains("state=CLOSING"), status);
-                b.shot("commands-group-closing");
             });
             blocker.release.countDown();
             assertTrue(s.server.shutdown().complete());
@@ -121,20 +175,30 @@ class AdminWebUiScenarioIT {
                 b.open();
                 assertTrue(b.command("audit.start", "rec").contains("audit: RECORDING rec"));
                 b.open();
-                // fixed on this branch: the overview used to count 0 recording processors whatever the server said
                 assertThat(b.processorRow("cap/rec").locator("[data-testid=overview-processor-audit]")).hasText("recording");
                 assertThat(b.byTestId("overview-audit-recording")).hasText("1 processor(s)");
                 b.shot("overview-recording");
                 assertTrue(b.command("audit.stop", "rec").contains("audit: STOPPED rec"));
                 ScenarioServer.awaitTrue("close failed", () -> !s.server.controlGroupStatus("cap").captureCloseFailures().isEmpty(), 5_000);
                 b.open();
-                // CURRENT (misleading): a capture whose physical close FAILED looks like a finished file
+                // M1 (proposal §4.4): the failed close is an issue, by resource id
+                var issue = card(b, "CAPTURE_CLOSE_FAILED", "cap resource 1");
+                assertThat(issue.locator("[data-testid=issue-severity]")).hasText("DEGRADED");
+                assertThat(issue.locator("[data-testid=issue-evidence]")).containsText("forced capture close failure");
+                assertThat(issue.locator("[data-testid=issue-evidence-unavailable]").first()).containsText("Which capture");
+                assertThat(issue.locator("[data-testid=issue-action][data-action=retry-close]")).isDisabled();
+                // which capture the resource was is not exposed on 1.0.33 (A2): the row still reads "off"
                 assertThat(b.processorRow("cap/rec").locator("[data-testid=overview-processor-audit]")).hasText("off");
-                assertThat(b.byTestId("overview-audit-files")).hasText("1");
-                b.shot("overview-close-failed-looks-fine");
+                b.shot("overview-close-failed-card");
                 String limit = b.command("audit.start", "rec2");
                 assertTrue(limit.contains("physical capture resource limit reached"), limit);
-                b.shot("commands-limit-refused");
+                b.open();
+                var refused = card(b, "REQUEST_REFUSED", "rec2");
+                assertThat(refused.locator("[data-testid=issue-impact]")).containsText("A capture slot is held");
+                b.shot("overview-limit-refused-card");
+                // the verify action opens the capture file list
+                issue.locator("[data-testid=issue-action][data-action=open-captures]").click();
+                assertThat(b.page.locator("section.view[x-show=\"activeView==='replay'\"]")).isVisible();
                 assertTrue(b.command("control.group.status", "cap").contains("captureCloseFailures={1="));
             });
         }
@@ -148,22 +212,25 @@ class AdminWebUiScenarioIT {
             ui(info, s, b -> {
                 b.open();
                 assertThat(b.processorRow("slow/consumer")).isVisible();
-                // CURRENT (missing): nothing on the overview or the queues view says items were dropped
-                String visible = b.page.locator("body").innerText().toLowerCase();
-                assertFalse(visible.contains("dropped") || visible.contains("degraded"), "no loss indication on the overview");
-                b.shot("overview-no-loss-shown");
+                // M1 (proposal §4.5): queue loss is a DEGRADED issue with the count; first loss is not live on 1.0.33
+                var issue = card(b, "QUEUE_LOSS", "feed → slow");
+                assertThat(issue.locator("[data-testid=issue-severity]")).hasText("DEGRADED");
+                assertThat(issue.locator("[data-testid=issue-evidence]")).containsText("Dropped: " + dropped);
+                assertThat(issue.locator("[data-testid=issue-evidence-unavailable]")).containsText("first loss");
+                assertThat(issue.locator("[data-testid=issue-action][data-action=clear]")).isDisabled();
+                b.shot("overview-queue-loss-card");
                 b.byTestId("nav-managed").click();
-                assertThat(b.page.locator("[data-testid=agent-card][data-group=slow]")).isVisible();
-                assertFalse(b.page.locator("body").innerText().toLowerCase().contains("dropped"));
-                b.shot("managed-services-no-loss-shown");
-                // CURRENT (shown but misleading): the per-queue drop counter appears only as an anonymous
-                // "app counter" named queue.<path>.dropped, with no health, severity or first-loss link
+                b.page.locator(".integration-tab", new com.microsoft.playwright.Page.LocatorOptions().setHasText("Queues")).click();
+                b.page.locator("button", new com.microsoft.playwright.Page.LocatorOptions().setHasText("Expand all")).click();
+                assertThat(b.page.locator("[data-testid=queue-dropped]:visible")).hasText(dropped + " dropped");
+                assertThat(b.page.locator("[data-testid=queue-health]:visible")).hasText("DEGRADED");
+                b.shot("queues-dropped-and-health");
+                // still CURRENT: the raw counter also appears under App counters
                 b.byTestId("nav-app-counters").click();
                 var drop = b.page.locator("[data-testid=app-counter-row][data-counter$=\".dropped\"]");
                 assertThat(drop).hasCount(1);
                 assertThat(drop).hasAttribute("data-counter",
                         java.util.regex.Pattern.compile("^queue\\./feed/feed/group/slow/subscriber/.*\\.dropped$"));
-                assertThat(drop.locator("[data-testid=app-counter-total]")).not().hasText("0");
                 b.shot("app-counters-raw-drop-counter");
             });
         }
@@ -178,9 +245,20 @@ class AdminWebUiScenarioIT {
                 String refused = b.command("server.processors.stop", "busy/consumer");
                 assertTrue(refused.contains("stop REFUSED: group busy: processor-stop queue stayed full (4096)"), refused);
                 b.shot("commands-mailbox-full");
-                // CURRENT (misleading): a stop of something that does not exist reads as pending
+                // Mongoose 1.0.33 still prints "pending" for a name nothing holds
                 assertTrue(b.command("server.processors.stop", "nosuch/x").contains("stop pending (still applies)"));
-                b.shot("commands-stop-unknown-pending");
+                b.open();
+                // M1 (proposal §4.6): both are INFO issues with the reason and a hint
+                var full = card(b, "REQUEST_REFUSED", "busy/consumer");
+                assertThat(full.locator("[data-testid=issue-outcome]")).hasText("REFUSED");
+                assertThat(full.locator("[data-testid=issue-impact]")).containsText("not draining its control mailbox");
+                var unknown = card(b, "REQUEST_UNCONFIRMED", "nosuch/x");
+                assertThat(unknown.locator("[data-testid=issue-outcome]")).hasText("UNKNOWN_TARGET");
+                assertThat(unknown.locator("[data-testid=issue-impact]")).containsText("Most likely nothing was stopped");
+                // the group filter narrows the panel
+                b.byTestId("issues-filter-kind").selectOption("REQUEST_UNCONFIRMED");
+                assertThat(b.page.locator("[data-testid=issue-card]")).hasCount(1);
+                b.shot("overview-refusal-cards");
             });
             busy.parker().release.countDown();
         }
@@ -215,6 +293,16 @@ class AdminWebUiScenarioIT {
                 // CURRENT (not reachable): no command or view shows Mongoose record/replay status
                 assertThat(b.page.locator("[data-testid=cmd-item]")).hasCount(0);
                 b.shot("commands-no-replay");
+                // M1: with no failure provoked, the only issue is the harness feed's built-in "up" check, which
+                // Mongoose 1.0.33 leaves DOWN for a source registered after boot; the panel also lists what
+                // 1.0.33 cannot show, so an empty panel would never read as healthy
+                b.open();
+                assertThat(b.page.locator("[data-testid=issue-card]")).hasCount(1);
+                assertThat(card(b, "HEALTH_DOWN", "feed/up").locator("[data-testid=issue-what]")).containsText("service not started");
+                b.byTestId("issues-gaps-toggle").click();
+                assertThat(b.page.locator("[data-testid=issue-gap]", new com.microsoft.playwright.Page.LocatorOptions().setHasText("Replay status"))).isVisible();
+                assertThat(b.page.locator("[data-testid=issue-gap]", new com.microsoft.playwright.Page.LocatorOptions().setHasText("Handwritten handler failures"))).isVisible();
+                b.shot("overview-no-known-issues-with-gaps");
             });
         }
     }

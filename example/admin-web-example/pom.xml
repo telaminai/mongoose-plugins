@@ -9,8 +9,8 @@
         <modules> list, so the main build stays fast and unaffected.
 
         Run from this directory:
-            mvn -pl ../../service/svc-admin-web -am install   (one-time / after svc-admin-web changes)
-            mvn exec:exec                                      (boot the example)
+            mvn exec:exec                                      (boot the example on the released plugins)
+        To try local svc-admin-web changes, set plugins.version to a SNAPSHOT you installed.
 
         Then browse http://127.0.0.1:8181/healthz
 
@@ -28,9 +28,17 @@
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <mongoose.version>1.0.28</mongoose.version>
-        <plugins.version>1.0.39-SNAPSHOT</plugins.version>
+        <mongoose.version>1.0.33</mongoose.version>
+        <plugins.version>1.0.46</plugins.version>
     </properties>
+
+    <!-- released plugins and Mongoose are published to the public Fluxtion repository -->
+    <repositories>
+        <repository>
+            <id>repsy-fluxtion-public</id>
+            <url>https://repo.repsy.io/mvn/fluxtion/fluxtion-public</url>
+        </repository>
+    </repositories>
 
     <dependencies>
         <dependency>

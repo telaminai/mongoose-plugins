@@ -28,6 +28,11 @@ final class Scenarios {
 
     /** a. Generated processor quarantined; handwritten processor throws (ordinary retry, nothing contained). */
     static Quarantine quarantine(ScenarioServer s) {
+        return quarantine(s, false);
+    }
+
+    /** As {@link #quarantine(ScenarioServer)}; {@code capture} records pricing/pricer before it fails. */
+    static Quarantine quarantine(ScenarioServer s, boolean capture) {
         var pricer = new Fixtures.ThrowingGenerated();
         var peer = new Fixtures.Healthy();
         var hw = new Fixtures.ThrowingHandwritten();
@@ -35,6 +40,10 @@ final class Scenarios {
         s.add("pricing", "peer", () -> peer);
         s.add("hand", "handwritten", () -> hw);
         awaitTrue("both groups subscribed", () -> s.feed.targets() >= 2, 5_000);
+        if (capture) {
+            String started = s.command("audit.start", "pricing/pricer").body();
+            if (!started.contains("RECORDING pricing/pricer")) throw new AssertionError("capture not started: " + started);
+        }
         s.feed.publish("tick1");
         s.feed.publish(Fixtures.BOOM);
         s.feed.publish("tick2");

@@ -17,56 +17,15 @@ import static org.junit.jupiter.api.Assertions.*;
  * missing or misleading. Tagged "proposed": excluded from {@code -Padmin-web-it}, run with
  * {@code -Dgroups=proposed}, and expected to FAIL until the referenced section lands. They are the acceptance
  * criteria, not a weakened copy of the current-behaviour pack ({@link AdminRestScenarioIT}).
+ *
+ * <p>Landed in milestone 1 and moved, as real assertions, into {@link AdminRestScenarioIT}: the quarantine issue
+ * and the quarantined processor kept on {@code /api/agents} (a), the DEAD group (b), the STOPPING state and
+ * StopResult on {@code /api/server} (c), queue drop count and health (e). svc-admin-rest answering every reply
+ * line was released in plugins 1.0.46 (a). What is left needs a Mongoose change.
  */
 @Tag("proposed")
 @Timeout(value = 90, unit = TimeUnit.SECONDS)
 class AdminProposedIT {
-
-    /** Proposal §3 and §4.1: an issues endpoint names the quarantined processor, its impact and evidence. */
-    @Test
-    void quarantinedProcessorIsAnIssue() throws Exception {
-        try (ScenarioServer s = new ScenarioServer(1_500)) {
-            Scenarios.quarantine(s);
-            String issues = s.get("/api/issues").body();
-            assertTrue(issues.contains("\"kind\":\"PROCESSOR_QUARANTINED\""), issues);
-            assertTrue(issues.contains("\"subject\":\"pricing/pricer\""), issues);
-            assertTrue(issues.contains("\"severity\":\"CRITICAL\""), issues);
-            assertFalse(issues.contains("\"action\":\"acknowledge-and-clear\""), "no action may manufacture success");
-        }
-    }
-
-    /** Proposal §4.1: the agents view keeps a quarantined processor, marked, instead of dropping it. */
-    @Test
-    void quarantinedProcessorStaysListedWithItsState() throws Exception {
-        try (ScenarioServer s = new ScenarioServer(1_500)) {
-            Scenarios.quarantine(s);
-            String agents = s.get("/api/agents").body();
-            assertTrue(agents.contains("\"name\":\"pricer\""), agents);
-            assertTrue(agents.contains("\"state\":\"QUARANTINED\""), agents);
-        }
-    }
-
-    /** Proposal §4.2: a dead group says DEAD in the agents view, not a normal member list. */
-    @Test
-    void deadGroupIsMarkedDead() throws Exception {
-        try (ScenarioServer s = new ScenarioServer(1_500)) {
-            Scenarios.deadGroup(s);
-            String agents = s.get("/api/agents").body();
-            assertTrue(agents.contains("\"controlState\":\"DEAD\""), agents);
-        }
-    }
-
-    /** Proposal §4.3: the last StopResult and the STOPPING state are on the surface while the web admin survives. */
-    @Test
-    void incompleteStopIsReported() throws Exception {
-        try (ScenarioServer s = new ScenarioServer(1_500)) {
-            var blocker = Scenarios.blockingStop(s);
-            String server = s.get("/api/server").body();
-            assertTrue(server.contains("\"lifecycle\":\"STOPPING\""), server);
-            assertTrue(server.contains("\"complete\":false") && server.contains("\"groupsRunning\":[\"slowstop\"]"), server);
-            blocker.release.countDown();
-        }
-    }
 
     /** Proposal §4.4: a capture whose physical close failed is flagged, not listed as an ordinary finished file. */
     @Test
@@ -81,15 +40,16 @@ class AdminProposedIT {
         }
     }
 
-    /** Proposal §4.5: per-queue drop count, DEGRADED health and first-loss evidence on the queue view. */
+    /**
+     * Proposal §4.5: first-loss evidence on the queue view. The drop count and DEGRADED health landed in M1
+     * ({@link AdminRestScenarioIT#e_queueOverloadDrops}); the first QueueDrop record needs Mongoose A3 / #77.
+     */
     @Test
-    void queueDropsAreVisible() throws Exception {
+    void queueFirstLossIsVisible() throws Exception {
         try (ScenarioServer s = new ScenarioServer(1_500)) {
             Scenarios.overload(s);
             String queues = s.get("/api/queues").body();
-            assertTrue(queues.contains("\"dropped\":"), queues);
-            assertTrue(queues.contains("\"health\":\"DEGRADED\""), queues);
-            assertTrue(queues.contains("\"firstLoss\":"), queues);
+            assertTrue(queues.contains("\"firstLoss\":{"), queues);
         }
     }
 
@@ -99,16 +59,6 @@ class AdminProposedIT {
         try (ScenarioServer s = new ScenarioServer(1_500)) {
             String out = s.command("server.processors.stop", "nosuch/x").body();
             assertTrue(out.contains("stop REFUSED"), out);
-        }
-    }
-
-    /** Proposal §4.6: svc-admin-rest answers every reply line, not only the last (fixed on fix/admin-rest-json-and-bad-requests). */
-    @Test
-    void restAdminKeepsEveryReplyLine() throws Exception {
-        try (ScenarioServer s = new ScenarioServer(1_500)) {
-            Scenarios.quarantine(s);
-            String out = s.postRest("/admin", "{\"command\":\"server.processors.stop\",\"arguments\":[\"pricing/pricer\"]}").body();
-            assertTrue(out.contains("stopping processor:pricing/pricer") && out.contains("stop FAILED"), out);
         }
     }
 

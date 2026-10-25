@@ -2537,3 +2537,51 @@ html.ui-text-lg { font-size: 16.5px; }
     flex: 1 1 auto;
     flex-wrap: wrap;
 }
+
+/* ─── Failure issues (docs/failure-ux-proposal.md §3-§4) ─────────────── */
+.pill-btn { cursor: pointer; font: inherit; }
+.banner-err { background: var(--err-bg); color: var(--err); border: 1px solid color-mix(in srgb, var(--err) 35%, transparent); }
+.banner-err .ico { color: var(--err); }
+.tag.info { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
+.issues-strip {
+    display: flex; flex-wrap: wrap; align-items: center; gap: .6rem;
+    padding: .4rem .8rem; margin-bottom: .8rem;
+    border: 1px solid var(--border); border-radius: 8px; background: var(--surface);
+}
+.issues-strip-critical { border-color: color-mix(in srgb, var(--err) 45%, transparent); background: var(--err-bg); }
+.issues-strip-degraded { border-color: color-mix(in srgb, var(--warn) 45%, transparent); background: var(--warn-bg); }
+.issues-strip .btn { margin-left: auto; }
+.issues-panel {
+    border: 1px solid var(--border); border-radius: 10px; background: var(--surface);
+    padding: .8rem 1rem; margin-bottom: 1rem;
+}
+.issues-panel-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: .8rem; }
+.issues-panel-head h2 { margin: 0; font-size: 1rem; }
+.issues-filters { margin-left: auto; display: flex; gap: .4rem; }
+.issues-section { margin-top: .8rem; }
+.issues-section-label { font-weight: 600; letter-spacing: .04em; color: var(--fg-muted, inherit); margin-bottom: .3rem; }
+.issue-card {
+    border: 1px solid var(--border); border-left-width: 4px; border-radius: 8px;
+    padding: .6rem .8rem; margin-bottom: .6rem; background: var(--surface-2);
+}
+.issue-card.issue-err  { border-left-color: var(--err); }
+.issue-card.issue-warn { border-left-color: var(--warn); }
+.issue-card.issue-info { border-left-color: var(--accent); }
+.issue-card[data-acknowledged="true"] { opacity: .8; }
+.issue-head { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin-bottom: .4rem; }
+.issue-since { margin-left: auto; }
+.issue-row { display: grid; grid-template-columns: 6rem 1fr; gap: .6rem; padding: .15rem 0; }
+.issue-k { font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; opacity: .7; }
+.issue-v { min-width: 0; overflow-wrap: anywhere; }
+.issue-evidence-item { margin: .1rem 0; }
+.issue-link { margin-left: .5rem; }
+.issue-actions { display: flex; flex-direction: column; gap: .3rem; }
+.issue-action-item { display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem; }
+.btn-disabled { opacity: .55; cursor: not-allowed; }
+.issue-export input { min-width: 22rem; }
+.issues-gaps { margin-top: .6rem; }
+.issues-gap-list { margin: .4rem 0 0 1rem; }
+@media (max-width: 720px) {
+    .issue-row { grid-template-columns: 1fr; }
+    .issue-export input { min-width: 0; width: 100%; }
+}

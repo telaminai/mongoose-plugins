@@ -22,6 +22,15 @@ document.addEventListener('alpine:init', () => {
         // ── shell ──
         activeView: 'overview',
 
+        // ── failure issues (docs/failure-ux-proposal.md §3-§4) ──
+        // GET /api/issues: every failure fact Mongoose exposes, as an issue with evidence, impact and
+        // actions. Polled; "acknowledged" only moves an issue to its own section - it never closes it.
+        issuesData: { loaded: false, worst: null, counts: {}, unacknowledged: 0, issues: [], notAvailable: [], mongooseVersion: '' },
+        issuesFilter: { group: '', kind: '' },
+        issuesShowGaps: false,
+        issueExport: {},      // issue id -> { dir, running, output, err, statusOutput }
+        _issuesTimer: null,
+
         // Overview homepage — single landing surface that summarises the
         // running server. Aggregates /api/services + /api/agents + the
         // audit-files list into one view-model. Loaded lazily on first
@@ -483,6 +492,7 @@ document.addEventListener('alpine:init', () => {
             if (this.activeView === 'overview') {
                 this.fetchOverview();
             }
+            this.startIssuesPolling();
             // Server-side boot replay (loader plugins replaying persisted
             // configs, processors finishing their start() hooks, feeds
             // settling) often completes a beat after the SPA finishes
@@ -602,6 +612,138 @@ document.addEventListener('alpine:init', () => {
             'com.telamin.mongoose.internal.AgronaLatencyService'
         ]),
 
+        // ── failure issues ────────────────────────────────────────────────
+
+        async fetchIssues() {
+            try {
+                const opts = { credentials: 'same-origin' };
+                const [ir, sr] = await Promise.all([fetch('/api/issues', opts), fetch('/api/server', opts)]);
+                if (ir.ok) this.issuesData = Object.assign({ loaded: true }, await ir.json());
+                if (sr.ok) this.server = await sr.json();
+            } catch (_) { /* transient: the next poll retries */ }
+        },
+
+        startIssuesPolling() {
+            this.fetchIssues();
+            if (this._issuesTimer) clearInterval(this._issuesTimer);
+            this._issuesTimer = setInterval(() => this.fetchIssues(), 3000);
+        },
+
+        issueSeverityClass(sev) {
+            return sev === 'CRITICAL' ? 'err' : (sev === 'DEGRADED' ? 'warn' : 'info');
+        },
+
+        /** Topbar pill: the worst open issue, acknowledged or not. Never green: no issue is not "healthy". */
+        issuesPill() {
+            const d = this.issuesData;
+            if (!d.loaded) return { cls: 'pill-muted', label: 'Issues …' };
+            const total = (d.issues || []).length;
+            if (!total) return { cls: 'pill-muted', label: 'No known issues' };
+            const cls = d.worst === 'CRITICAL' ? 'pill-err' : (d.worst === 'DEGRADED' ? 'pill-warn' : 'pill-muted');
+            return { cls, label: d.worst + ' · ' + total + ' issue' + (total === 1 ? '' : 's') };
+        },
+
+        issueGroups() {
+            return [...new Set((this.issuesData.issues || []).map(i => i.group).filter(Boolean))].sort();
+        },
+        issueKinds() {
+            return [...new Set((this.issuesData.issues || []).map(i => i.kind))].sort();
+        },
+        filteredIssues() {
+            const f = this.issuesFilter;
+            return (this.issuesData.issues || []).filter(i =>
+                (!f.group || i.group === f.group) && (!f.kind || i.kind === f.kind));
+        },
+        issueSections() {
+            const list = this.filteredIssues();
+            const sections = [];
+            for (const sev of ['CRITICAL', 'DEGRADED', 'INFO']) {
+                const items = list.filter(i => i.severity === sev && !i.acknowledged);
+                if (items.length) sections.push({ key: sev, label: sev, items });
+            }
+            const acked = list.filter(i => i.acknowledged);
+            if (acked.length) sections.push({ key: 'ACK', label: 'ACKNOWLEDGED (still open)', items: acked });
+            return sections;
+        },
+
+        showIssues() {
+            if (this.activeView !== 'overview') this.go('overview');
+            requestAnimationFrame(() => {
+                const el = document.querySelector('[data-testid=issues-panel]');
+                if (el) el.scrollIntoView({ block: 'start' });
+            });
+        },
+
+        formatSince(ms) {
+            if (!ms) return '';
+            const d = new Date(ms);
+            return d.toLocaleTimeString();
+        },
+
+        async ackIssue(issue) {
+            try {
+                const r = await fetch('/api/issues/ack', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': this.csrfToken || '' },
+                    body: JSON.stringify({ id: issue.id })
+                });
+                if (!r.ok) {
+                    const body = await r.json().catch(() => ({}));
+                    this.toast(body.err || ('acknowledge failed: HTTP ' + r.status), 'error');
+                }
+            } catch (e) {
+                this.toast('acknowledge failed: ' + e.message, 'error');
+            }
+            await this.fetchIssues();
+        },
+
+        issueAction(issue, action) {
+            if (!action.enabled) return;
+            if (action.action === 'acknowledge') {
+                this.ackIssue(issue);
+            } else if (action.action === 'export-evidence') {
+                const cur = this.issueExport[issue.id];
+                if (cur) { delete this.issueExport[issue.id]; this.issueExport = { ...this.issueExport }; return; }
+                const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..*/, '').replace('T', '-');
+                const group = (action.args || [])[0] || 'group';
+                this.issueExport = { ...this.issueExport,
+                    [issue.id]: { dir: 'control-audit-' + group + '-' + stamp, running: false, output: [], err: [], statusOutput: [], action } };
+            } else if (action.action === 'open-captures') {
+                this.go('replay');
+            }
+        },
+
+        async runIssueExport(issue) {
+            const st = this.issueExport[issue.id];
+            if (!st || !st.dir.trim()) return;
+            st.running = true;
+            const res = await this.invokeRaw(st.action.command, [...(st.action.args || []), st.dir.trim()]);
+            st.output = res.output || [];
+            st.err = res.err || [];
+            st.running = false;
+            if (!st.err.length) setTimeout(() => this.checkIssueExport(issue), 500);
+        },
+
+        async checkIssueExport(issue) {
+            const st = this.issueExport[issue.id];
+            if (!st) return;
+            const res = await this.invokeRaw(st.action.statusCommand, []);
+            st.statusOutput = [...(res.output || []), ...(res.err || [])];
+        },
+
+        stopBanner() {
+            const s = this.server;
+            if (!s || !s.lastStopResult || s.lastStopResult.complete) return null;
+            const r = s.lastStopResult;
+            if (r.handedOff) return 'Shutdown continuing on the stop thread.';
+            const parts = ['Server ' + (s.lifecycle || 'STOPPING') + ': the last shutdown is incomplete'];
+            parts.push('groups still running: ' + ((r.groupsRunning || []).join(', ') || 'none'));
+            parts.push('services left running: ' + ((r.servicesLeftRunning || []).join(', ') || 'none'));
+            if (r.blockedStartup) parts.push('blocked startup: ' + r.blockedStartup);
+            return parts.join(' — ');
+        },
+
         async fetchOverview() {
             this.overviewData.loading = true;
             this.overviewData.loadError = null;
@@ -679,6 +821,9 @@ document.addEventListener('alpine:init', () => {
                             name: p.name,
                             group: groupName,
                             classFqn: p.className || p.class || '',
+                            // control-plane state (QUARANTINED, NOT_RUNNING_GROUP_DEAD, ...); absent on servers
+                            // without a typed group status
+                            state: p.state || null,
                             auditing: recording.has(p.name) || recording.has(groupName + '/' + p.name)
                         });
                     }
@@ -1143,6 +1288,9 @@ document.addEventListener('alpine:init', () => {
                                     group: s.q.agentGroup,
                                     callback: s.q.callback,
                                     path: s.q.path,
+                                    dropped: s.q.dropped ?? null,
+                                    health: s.q.health || null,
+                                    healthReason: s.q.healthReason || '',
                                 });
                             }
                         }
@@ -5336,6 +5484,8 @@ document.addEventListener('alpine:init', () => {
                 this.toast('Command failed: ' + e.message, 'error');
             } finally {
                 this.running = false;
+                // a refused or failed request becomes an INFO issue; show it without waiting for the poll
+                this.fetchIssues();
             }
         },
 

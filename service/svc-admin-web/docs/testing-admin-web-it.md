@@ -25,9 +25,16 @@ physical close throws (reflection onto the group's `captureResources`, since `Mo
 groups) with the resource limit set to 1; a parked consumer flooded past its 1024 queue; a parked group whose
 4096-slot control mailbox is filled.
 
-Where the current behaviour is wrong, the current-behaviour test pins it with a comment
-("CURRENT (misleading)", "CURRENT (missing)") and the desired assertion lives in a `proposed` test. Do not
-change a current-behaviour assertion to make it pass; change it when the behaviour changes on purpose.
+Where the current behaviour is wrong, the current-behaviour test pins it with a comment and the desired
+assertion lives in a `proposed` test. Do not change a current-behaviour assertion to make it pass; change it
+when the behaviour changes on purpose. Milestone 1 (the issues panel) moved the quarantine, dead-group,
+incomplete-stop and queue-loss assertions out of the `proposed` tests into the scenario packs (marked
+"M1"); what remains `proposed` needs a Mongoose change (first loss, capture ledger, refusing unknown stops,
+replay status).
+
+The harness registers its test feed after boot, so on Mongoose 1.0.33 that feed's built-in `up` health check
+stays DOWN ("service not started") although it publishes. Every scenario therefore also shows a
+`HEALTH_DOWN feed/up` issue; it is a real Mongoose fact, not hidden.
 
 **Browser.** Playwright for Java 1.49.0, headless Chromium. `scripts/` only fetches vendor JS, so there was
 no existing driver to reuse. Playwright gives JUnit-native control, auto-waiting assertions, console and
@@ -39,5 +46,5 @@ where). Allowed 4xx: `/api/files` (404 without a loader directory) and the 401 a
 **Artifacts** under `target/admin-web-it/`: `ui/<test>/NN-step.png` screenshots for every step (evidence,
 not a pixel-diff criterion), `ui/<test>/trace.zip` on failure (open with
 `npx playwright show-trace`), `ui/<test>/http-errors.txt`, and `rest/<scenario>.actual.json`.
-CI: `.github/workflows/admin-web-it.yml` (manual dispatch; installs Mongoose from source until the RC is
-published; uploads the artifacts).
+CI: `.github/workflows/admin-web-it.yml` (manual dispatch; resolves the released Mongoose 1.0.33; uploads
+the artifacts).

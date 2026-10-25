@@ -40,17 +40,38 @@ class AdminRestScenarioIT {
             // handwritten failure: nothing is contained and nothing is reported on any admin surface
             assertTrue(body(g.record("control.group.status hand", s.command("control.group.status", "hand")))
                     .contains("quarantinedProcessors={}"));
-            // CURRENT (misleading): the quarantined processor silently disappears from both listings
+            // Mongoose's own listing still drops the quarantined processor (proposal A11)
             String list = body(g.record("server.processors.list", s.command("server.processors.list")));
             assertFalse(list.contains("pricing/pricer"), list);
             assertTrue(list.contains("pricing/peer"), list);
+            // M1 (proposal §4.1): the web view keeps it, marked QUARANTINED with its reason
             String agents = body(g.record("GET /api/agents", s.get("/api/agents")));
-            assertFalse(agents.contains("\"name\":\"pricer\""), agents);
+            assertTrue(agents.contains("{\"name\":\"pricer\",\"kind\":\"processor\",\"className\":\"\",\"subscriptions\":[],\"state\":\"QUARANTINED\""), agents);
+            assertTrue(agents.contains("\"controlState\":\"RUNNING\""), agents);
+            // M1 (proposal §3, §4.1): a CRITICAL issue with impact and evidence; no action manufactures success
+            String issues = body(g.record("GET /api/issues", s.get("/api/issues")));
+            assertTrue(issues.contains("\"id\":\"PROCESSOR_QUARANTINED:pricing/pricer\",\"kind\":\"PROCESSOR_QUARANTINED\",\"severity\":\"CRITICAL\",\"subject\":\"pricing/pricer\""), issues);
+            assertTrue(issues.contains("\"impact\":\"no output from pricing/pricer until the process is replaced"), issues);
+            assertTrue(issues.contains("Other processors in group pricing keep running (peer)"), issues);
+            assertTrue(issues.contains("\"action\":\"export-evidence\",\"label\":\"Export evidence\",\"enabled\":true"), issues);
+            assertTrue(issues.contains("\"action\":\"replace\",\"label\":\"Replace / re-add\",\"enabled\":false"), issues);
+            assertTrue(issues.contains("\"worst\":\"CRITICAL\""), issues);
+            assertFalse(issues.contains("hand/handwritten"), "Mongoose 1.0.33 reports no handwritten failure: " + issues);
+            assertTrue(issues.contains("\"fact\":\"Handwritten handler failures\""), "the gap is listed, not hidden: " + issues);
             String stop = body(g.record("server.processors.stop pricing/pricer", s.command("server.processors.stop", "pricing/pricer")));
             assertTrue(stop.contains("stop FAILED: processor quarantined; lifecycle cleanup requires operator resolution"), stop);
-            // svc-admin-rest: /admin keeps only the LAST reply line; /api/{action} cannot pass arguments
-            g.record("REST POST /admin stop", s.postRest("/admin",
-                    "{\"command\":\"server.processors.stop\",\"arguments\":[\"pricing/pricer\"]}"));
+            // acknowledging moves the issue; it stays open and keeps the worst severity
+            assertEquals(200, g.record("POST /api/issues/ack", s.postWeb("/api/issues/ack",
+                    "{\"id\":\"PROCESSOR_QUARANTINED:pricing/pricer\"}")).statusCode());
+            String acked = body(g.record("GET /api/issues (acknowledged, stop recorded)", s.get("/api/issues")));
+            assertTrue(acked.contains("\"subject\":\"pricing/pricer\",\"failureKind\":null,\"group\":\"pricing\""), acked);
+            assertTrue(acked.contains("\"acknowledged\":true") && acked.contains("\"worst\":\"CRITICAL\""), acked);
+            assertTrue(acked.contains("\"kind\":\"REQUEST_FAILED\"") && acked.contains("\"outcome\":\"FAILED\""), acked);
+            assertEquals(404, g.record("POST /api/issues/ack (unknown)", s.postWeb("/api/issues/ack", "{\"id\":\"nope\"}")).statusCode());
+            // svc-admin-rest 1.0.46 (#42) answers every reply line; /api/{action} still cannot pass arguments
+            String restStop = body(g.record("REST POST /admin stop", s.postRest("/admin",
+                    "{\"command\":\"server.processors.stop\",\"arguments\":[\"pricing/pricer\"]}")));
+            assertTrue(restStop.contains("stopping processor:pricing/pricer") && restStop.contains("stop FAILED"), restStop);
             assertTrue(body(g.record("REST POST /api/control.group.status", s.postRest("/api/control.group.status", "")))
                     .contains("usage: control.group.status <group>"));
             g.verify();
@@ -69,11 +90,18 @@ class AdminRestScenarioIT {
             Golden g = new Golden("b-dead-group", s);
 
             assertTrue(body(g.record("control.group.status doomed", s.command("control.group.status", "doomed"))).contains("state=DEAD"));
-            // CURRENT (misleading): the dead group's processor is still listed as if it ran
+            // Mongoose's listing still shows the dead group's processor as if it ran
             assertTrue(body(g.record("server.processors.list", s.command("server.processors.list"))).contains("doomed/ok"));
+            // M1 (proposal §4.2): the web view marks the group DEAD and its processor not running
             String agents = body(g.record("GET /api/agents", s.get("/api/agents")));
             assertTrue(agents.contains("\"name\":\"ok\""), agents);
             assertTrue(agents.contains("\"threadState\":\"TERMINATED\""), agents);
+            assertTrue(agents.contains("\"controlState\":\"DEAD\""), agents);
+            assertTrue(agents.contains("\"state\":\"NOT_RUNNING_GROUP_DEAD\""), agents);
+            String issues = body(g.record("GET /api/issues", s.get("/api/issues")));
+            assertTrue(issues.contains("\"id\":\"GROUP_DEAD:doomed\",\"kind\":\"GROUP_DEAD\",\"severity\":\"CRITICAL\""), issues);
+            assertTrue(issues.contains("No processor in doomed runs: ok are listed but not running."), issues);
+            assertTrue(issues.contains("\"action\":\"restart-process\""), issues);
             assertTrue(body(g.record("server.processors.stop doomed/ok", s.command("server.processors.stop", "doomed/ok")))
                     .contains("stop NOT_RUNNING: group doomed is DEAD"));
             g.verify();
@@ -96,9 +124,14 @@ class AdminRestScenarioIT {
             assertTrue(agents.contains("\"members\":[]") && agents.contains("\"threadState\":\"NEW\""), agents);
             String status = body(g.record("control.group.status slowstop", s.command("control.group.status", "slowstop")));
             assertTrue(status.contains("state=CLOSING") && status.contains("outstandingRequests=1"), status);
-            // CURRENT (missing): no surface returns the StopResult or the server's STOPPING state
+            // M1 (proposal §4.3): the server's STOPPING state and the last StopResult
             String server = body(g.record("GET /api/server", s.get("/api/server")));
-            assertFalse(server.contains("STOPPING") || server.contains("complete") || server.contains("groupsRunning"), server);
+            assertTrue(server.contains("\"lifecycle\":\"STOPPING\""), server);
+            assertTrue(server.contains("\"complete\":false") && server.contains("\"groupsRunning\":[\"slowstop\"]"), server);
+            String issues = body(g.record("GET /api/issues", s.get("/api/issues")));
+            assertTrue(issues.contains("\"kind\":\"SHUTDOWN_INCOMPLETE\",\"severity\":\"CRITICAL\""), issues);
+            assertTrue(issues.contains("\"label\":\"Group slowstop\",\"value\":\"state CLOSING, outstanding requests 1\""), issues);
+            assertTrue(issues.contains("\"action\":\"retry-stop\",\"label\":\"Retry stop\",\"enabled\":false"), issues);
             assertEquals(404, g.record("GET /api/shutdown", s.get("/api/shutdown")).statusCode());
 
             blocker.release.countDown();
@@ -129,10 +162,21 @@ class AdminRestScenarioIT {
             HttpResponse<String> rest = g.record("POST /api/audit/rec2/start (limit)", s.postWeb("/api/audit/rec2/start", "{}"));
             assertEquals(409, rest.statusCode(), rest.body());
             assertTrue(rest.body().contains("physical capture resource limit reached"), rest.body());
-            // CURRENT (misleading): the failed close is listed as an ordinary finished capture
+            // Mongoose still lists the failed close as an ordinary finished capture (proposal A2)
             String list = body(g.record("audit.list", s.command("audit.list")));
             assertTrue(list.contains("selector=cap/rec") && !list.contains("CLOSE_FAILED"), list);
             g.record("audit.status", s.command("audit.status"));
+            // M1 (proposal §4.4): the failed close is an issue by resource id; both refusals are recorded
+            String issues = body(g.record("GET /api/issues", s.get("/api/issues")));
+            assertTrue(issues.contains("\"id\":\"CAPTURE_CLOSE_FAILED:cap:1\",\"kind\":\"CAPTURE_CLOSE_FAILED\",\"severity\":\"DEGRADED\",\"subject\":\"cap resource 1\""), issues);
+            assertTrue(issues.contains("\"value\":\"java.lang.IllegalStateException: forced capture close failure\""), issues);
+            assertTrue(issues.contains("\"label\":\"Capture slots in use\",\"value\":\"1 (resources held 0)\""), issues);
+            assertTrue(issues.contains("\"label\":\"Cleanup failure\",\"value\":\"physical close: java.lang.IllegalStateException: forced capture close failure\""), issues);
+            assertFalse(issues.contains("CAPTURE_CLEANUP_FAILED"), "one issue for one failed close: " + issues);
+            assertTrue(issues.contains("\"action\":\"retry-close\",\"label\":\"Retry close\",\"enabled\":false"), issues);
+            // the command and the REST start of rec2 were both refused by the limit
+            assertEquals(2, count(issues, "\"kind\":\"REQUEST_REFUSED\""), issues);
+            assertTrue(issues.contains("A capture slot is held; see any capture close failure issue."), issues);
             g.verify();
 
             StopResult stop = s.server.shutdown();
@@ -148,13 +192,22 @@ class AdminRestScenarioIT {
             assertTrue(dropped > 0);
             Golden g = new Golden("e-overload", s);
 
+            // M1 (proposal §4.5): per-queue drop count and health verdict; the first loss is not live on 1.0.33
             String queues = body(g.record("GET /api/queues", s.get("/api/queues")));
-            // CURRENT (missing): the queue view has no drop count, health or first-loss evidence
-            assertFalse(queues.contains("drop"), queues);
+            assertTrue(queues.contains("\"dropped\":" + dropped + ","), queues);
+            assertTrue(queues.contains("\"health\":\"DEGRADED\""), queues);
+            assertTrue(queues.contains("\"healthReason\":\"" + dropped + " item(s) dropped by queue /feed/feed/group/slow/subscriber/"), queues);
+            assertFalse(queues.contains("firstLoss"), queues);
             g.record("control.group.status slow", s.command("control.group.status", "slow"));
             assertFalse(body(g.record("GET /api/commands", s.get("/api/commands"))).contains("health"),
                     "no admin command exposes the queue-drops DEGRADED health check");
-            assertEquals(404, g.record("GET /api/health", s.get("/api/health")).statusCode());
+            String health = body(g.record("GET /api/health", s.get("/api/health")));
+            assertTrue(health.contains("\"component\":\"feed\",\"check\":\"queue-drops:/feed/feed/group/slow/subscriber/"), health);
+            assertTrue(health.contains("\"verdict\":\"DEGRADED\""), health);
+            String issues = body(g.record("GET /api/issues", s.get("/api/issues")));
+            assertTrue(issues.contains("\"kind\":\"QUEUE_LOSS\",\"severity\":\"DEGRADED\",\"subject\":\"feed → slow\""), issues);
+            assertTrue(issues.contains("\"dropped\":" + dropped + ","), issues);
+            assertTrue(issues.contains("The first loss (sequence and time of the QueueDrop record) is only in the group's control-audit"), issues);
             g.verify();
         }
     }
@@ -166,12 +219,17 @@ class AdminRestScenarioIT {
             s.add("busy", "consumer", Fixtures.Healthy::new);
             awaitTrue("busy running", () -> s.server.controlGroupStatus("busy").state() == ControlDriver.GroupState.RUNNING, 5_000);
             s.server.stopProcessor("busy", "consumer", 2_000);
-            // CURRENT (misleading): stopping something that does not exist prints "stop pending (still applies)"
+            // Mongoose 1.0.33: stopping something that does not exist prints "stop pending (still applies)"
             assertTrue(body(g.record("server.processors.stop nosuch/x", s.command("server.processors.stop", "nosuch/x")))
                     .contains("stop pending (still applies): nosuch/x"));
-            // CURRENT (defect in Mongoose admin): a missing argument is an IndexOutOfBounds
+            // Mongoose 1.0.33 admin defect: a missing argument is an IndexOutOfBounds
             assertTrue(body(g.record("server.processors.stop (no args)", s.command("server.processors.stop")))
                     .contains("exception: Index 1 out of bounds for length 1"));
+            // M1 (proposal §4.6): the console says what it can: nothing holds that name; the request was invalid
+            String issues = body(g.record("GET /api/issues", s.get("/api/issues")));
+            assertTrue(issues.contains("\"kind\":\"REQUEST_UNCONFIRMED\",\"severity\":\"INFO\",\"subject\":\"nosuch/x\""), issues);
+            assertTrue(issues.contains("\"outcome\":\"UNKNOWN_TARGET\""), issues);
+            assertTrue(issues.contains("\"outcome\":\"INVALID\""), issues);
             g.verify();
         }
         try (ScenarioServer s = new ScenarioServer(1_500)) {
@@ -182,6 +240,9 @@ class AdminRestScenarioIT {
             // the admin path's reason is "processor-stop queue stayed full (4096) for <timeout> ms", while the handle
             // path (and the contract table) says "mailbox full": the same refusal has two wordings
             assertTrue(refused.contains("stop REFUSED: group busy: processor-stop queue stayed full (4096) for 100 ms"), refused);
+            String issues = body(g.record("GET /api/issues", s.get("/api/issues")));
+            assertTrue(issues.contains("\"kind\":\"REQUEST_REFUSED\",\"severity\":\"INFO\",\"subject\":\"busy/consumer\""), issues);
+            assertTrue(issues.contains("The group's thread is not draining its control mailbox"), issues);
             busy.parker().release.countDown();
             g.verify();
         }
@@ -226,5 +287,11 @@ class AdminRestScenarioIT {
 
     private static String body(HttpResponse<String> r) {
         return r.body();
+    }
+
+    private static int count(String text, String needle) {
+        int n = 0;
+        for (int i = text.indexOf(needle); i >= 0; i = text.indexOf(needle, i + 1)) n++;
+        return n;
     }
 }

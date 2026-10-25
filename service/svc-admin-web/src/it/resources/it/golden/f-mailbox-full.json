@@ -1,4 +1,107 @@
 {
+  "GET /api/issues" : {
+    "body" : {
+      "counts" : {
+        "CRITICAL" : 1,
+        "DEGRADED" : 0,
+        "INFO" : 1
+      },
+      "issues" : [ {
+        "acknowledged" : false,
+        "actions" : [ {
+          "action" : "acknowledge",
+          "consequence" : "Moves it to Acknowledged. The issue stays open and keeps counting toward the health pill until Mongoose stops reporting it; nothing on the server changes.",
+          "enabled" : true,
+          "label" : "Acknowledge",
+          "precondition" : "None."
+        } ],
+        "evidence" : [ {
+          "label" : "Health check",
+          "value" : "feed/up DOWN"
+        }, {
+          "label" : "Reason",
+          "value" : "service not started"
+        } ],
+        "failureKind" : null,
+        "id" : "HEALTH_DOWN:feed/up",
+        "impact" : "As described by the check's owner: service not started",
+        "kind" : "HEALTH_DOWN",
+        "severity" : "CRITICAL",
+        "since" : "<TS>",
+        "subject" : "feed/up",
+        "title" : "Health check DOWN",
+        "what" : "Health check up of feed reports DOWN: service not started"
+      }, {
+        "acknowledged" : false,
+        "actions" : [ {
+          "action" : "acknowledge",
+          "consequence" : "Moves it to Acknowledged. The issue stays open and keeps counting toward the health pill until Mongoose stops reporting it; nothing on the server changes.",
+          "enabled" : true,
+          "label" : "Acknowledge",
+          "precondition" : "None."
+        } ],
+        "command" : "server.processors.stop",
+        "evidence" : [ {
+          "label" : "Reply",
+          "value" : "REFUSED: group busy: processor-stop queue stayed full (4096) for 100 ms; is the group's thread running?"
+        }, {
+          "label" : "Sent by",
+          "value" : "this console"
+        } ],
+        "failureKind" : null,
+        "id" : "REQUEST_REFUSED:1",
+        "impact" : "Nothing changed. The group's thread is not draining its control mailbox: check its thread state on Agents before retrying.",
+        "kind" : "REQUEST_REFUSED",
+        "outcome" : "REFUSED",
+        "severity" : "INFO",
+        "since" : "<TS>",
+        "subject" : "busy/consumer",
+        "title" : "Request refused",
+        "what" : "server.processors.stop busy/consumer was not applied (REFUSED): group busy: processor-stop queue stayed full (4096) for 100 ms; is the group's thread running?"
+      } ],
+      "mongooseVersion" : "1.0.33",
+      "notAvailable" : [ {
+        "detail" : "Mongoose 1.0.33 logs a WARNING and retries the handler; no admin surface reports it. See Logs.",
+        "fact" : "Handwritten handler failures",
+        "needs" : "Mongoose #77"
+      }, {
+        "detail" : "Sequence numbers of ProcessorQuarantined, Dead and QueueDrop records are only in a control-audit export.",
+        "fact" : "Control record evidence",
+        "needs" : "proposal A3"
+      }, {
+        "detail" : "Only the drop count and health verdict are live; the first QueueDrop record is in the control-audit export.",
+        "fact" : "First loss per queue",
+        "needs" : "proposal A3"
+      }, {
+        "detail" : "A failed physical close is reported by resource id; the capture it belongs to is not.",
+        "fact" : "Failed close to capture",
+        "needs" : "proposal A2"
+      }, {
+        "detail" : "The configured limit cannot be read.",
+        "fact" : "Capture resource limit",
+        "needs" : "proposal A5"
+      }, {
+        "detail" : "Replies carry an outcome and reason text, no typed failure kind.",
+        "fact" : "Failure kind",
+        "needs" : "Mongoose #77"
+      }, {
+        "detail" : "No admin command resumes shutdown().",
+        "fact" : "Retry an incomplete shutdown",
+        "needs" : "proposal A4"
+      }, {
+        "detail" : "Queues drop after the spin bound; no policy, latch or clear.",
+        "fact" : "Overload policy and latch",
+        "needs" : "Mongoose #79"
+      }, {
+        "detail" : "No admin command or endpoint.",
+        "fact" : "Replay status",
+        "needs" : "proposal A9"
+      } ],
+      "unacknowledged" : 2,
+      "worst" : "CRITICAL"
+    },
+    "status" : 200
+  },
   "server.processors.stop busy/consumer (mailbox full)" : {
     "body" : {
       "command" : "server.processors.stop",

@@ -85,6 +85,11 @@ final class Golden {
         text = replace(text, "  [0-9]+ bytes", "  <N> bytes");
         text = replace(text, "\"(pid|runtime)\" : \"[^\"]*\"", "\"$1\" : \"<$1>\"");
         text = replace(text, "\"(startTime|uptimeMs)\" : [0-9]+", "\"$1\" : \"<N>\"");
+        text = replace(text, "\"(since|asOfEpochMs)\" : [0-9]+", "\"$1\" : \"<TS>\"");
+        // drop counts depend on how far the consumer got before it parked; tests assert them explicitly
+        text = replace(text, "\"dropped\" : [0-9]+", "\"dropped\" : \"<N>\"");
+        text = replace(text, "[0-9]+ item\\(s\\)", "<N> item(s)");
+        text = replace(text, "(\"label\" : \"Dropped\",\\s*\"value\" : )\"[0-9]+\"", "$1\"<N>\"");
         return text + "\n";
     }
 

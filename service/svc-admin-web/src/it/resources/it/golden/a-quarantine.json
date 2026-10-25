@@ -2,6 +2,7 @@
   "GET /api/agents" : {
     "body" : {
       "agents" : [ {
+        "controlState" : "RUNNING",
         "daemon" : false,
         "feeds" : [ {
           "callback" : "onEventCallBack",
@@ -15,16 +16,25 @@
           "className" : "com.telamin.mongoose.plugin.svc.adminweb.it.Fixtures$Healthy",
           "kind" : "processor",
           "name" : "peer",
+          "state" : "RUNNING",
           "subscriptions" : [ {
             "callback" : "CallBackType$OnEventCallBack@<HASH>]",
             "feed" : "EventSubscriptionKey[eventSourceKey=EventSourceKey[sourceName=feed], callBackType=com.telamin.mongoose.service.CallBackType$OnEventCallBack@<HASH>]"
           } ]
+        }, {
+          "className" : "",
+          "kind" : "processor",
+          "name" : "pricer",
+          "state" : "QUARANTINED",
+          "stateReason" : "com.telamin.mongoose.dutycycle.ProcessorDispatchException: generated processor execution failed during event dispatch; processor=com.telamin.mongoose.plugin.svc.adminweb.it.Fixtures$ThrowingGenerated; processor requires isolation; no retry or automatic recovery",
+          "subscriptions" : [ ]
         } ],
         "priority" : 5,
         "thread" : "pricing",
         "threadState" : "<LIVE>",
         "type" : "processor"
       }, {
+        "controlState" : "RUNNING",
         "daemon" : false,
         "feeds" : [ {
           "callback" : "onEventCallBack",
@@ -38,6 +48,7 @@
           "className" : "com.telamin.mongoose.plugin.svc.adminweb.it.Fixtures$ThrowingHandwritten",
           "kind" : "processor",
           "name" : "handwritten",
+          "state" : "RUNNING",
           "subscriptions" : [ {
             "callback" : "CallBackType$OnEventCallBack@<HASH>]",
             "feed" : "EventSubscriptionKey[eventSourceKey=EventSourceKey[sourceName=feed], callBackType=com.telamin.mongoose.service.CallBackType$OnEventCallBack@<HASH>]"
@@ -50,6 +61,300 @@
       } ]
     },
     "status" : 200
+  },
+  "GET /api/issues" : {
+    "body" : {
+      "counts" : {
+        "CRITICAL" : 2,
+        "DEGRADED" : 0,
+        "INFO" : 0
+      },
+      "issues" : [ {
+        "acknowledged" : false,
+        "actions" : [ {
+          "action" : "acknowledge",
+          "consequence" : "Moves it to Acknowledged. The issue stays open and keeps counting toward the health pill until Mongoose stops reporting it; nothing on the server changes.",
+          "enabled" : true,
+          "label" : "Acknowledge",
+          "precondition" : "None."
+        }, {
+          "action" : "export-evidence",
+          "args" : [ "pricing" ],
+          "command" : "control.audit.export",
+          "consequence" : "Writes group pricing's control-audit records for offline analysis and reports completeness. Changes no server state.",
+          "enabled" : true,
+          "label" : "Export evidence",
+          "precondition" : "Names a directory that does not exist yet, on the server host (relative paths resolve against the server's working directory). One export runs at a time.",
+          "statusCommand" : "control.audit.export.status"
+        }, {
+          "action" : "stop",
+          "consequence" : null,
+          "disabledReason" : "Known outcome on Mongoose 1.0.33: stop FAILED: processor quarantined. The name stays reserved until shutdown.",
+          "enabled" : false,
+          "label" : "Stop",
+          "precondition" : "Known outcome on Mongoose 1.0.33: stop FAILED: processor quarantined. The name stays reserved until shutdown."
+        }, {
+          "action" : "replace",
+          "consequence" : null,
+          "disabledReason" : "Not offered: Mongoose keeps the quarantined name and instance reserved and has no audited release (proposal A6). Replace the process instead.",
+          "enabled" : false,
+          "label" : "Replace / re-add",
+          "precondition" : "Not offered: Mongoose keeps the quarantined name and instance reserved and has no audited release (proposal A6). Replace the process instead."
+        } ],
+        "evidence" : [ {
+          "label" : "Group status",
+          "value" : "control.group.status pricing: quarantinedProcessors has pricer"
+        }, {
+          "label" : "Reason",
+          "value" : "com.telamin.mongoose.dutycycle.ProcessorDispatchException: generated processor execution failed during event dispatch; processor=com.telamin.mongoose.plugin.svc.adminweb.it.Fixtures$ThrowingGenerated; processor requires isolation; no retry or automatic recovery"
+        } ],
+        "evidenceUnavailable" : [ "The ProcessorQuarantined control record (sequence, time) is only in a control-audit export on Mongoose 1.0.33: run Export evidence." ],
+        "failureKind" : null,
+        "group" : "pricing",
+        "id" : "PROCESSOR_QUARANTINED:pricing/pricer",
+        "impact" : "no output from pricing/pricer until the process is replaced: it receives no events and no timers. Other processors in group pricing keep running (peer). Shutdown will report pricing incomplete and keep the services it uses.",
+        "kind" : "PROCESSOR_QUARANTINED",
+        "processor" : "pricer",
+        "severity" : "CRITICAL",
+        "since" : "<TS>",
+        "subject" : "pricing/pricer",
+        "title" : "Processor quarantined",
+        "what" : "The generated processor threw while handling an event. Mongoose fenced it from its feeds and timers and will not call it again. Reason: com.telamin.mongoose.dutycycle.ProcessorDispatchException: generated processor execution failed during event dispatch; processor=com.telamin.mongoose.plugin.svc.adminweb.it.Fixtures$ThrowingGenerated; processor requires isolation; no retry or automatic recovery"
+      }, {
+        "acknowledged" : false,
+        "actions" : [ {
+          "action" : "acknowledge",
+          "consequence" : "Moves it to Acknowledged. The issue stays open and keeps counting toward the health pill until Mongoose stops reporting it; nothing on the server changes.",
+          "enabled" : true,
+          "label" : "Acknowledge",
+          "precondition" : "None."
+        } ],
+        "evidence" : [ {
+          "label" : "Health check",
+          "value" : "feed/up DOWN"
+        }, {
+          "label" : "Reason",
+          "value" : "service not started"
+        } ],
+        "failureKind" : null,
+        "id" : "HEALTH_DOWN:feed/up",
+        "impact" : "As described by the check's owner: service not started",
+        "kind" : "HEALTH_DOWN",
+        "severity" : "CRITICAL",
+        "since" : "<TS>",
+        "subject" : "feed/up",
+        "title" : "Health check DOWN",
+        "what" : "Health check up of feed reports DOWN: service not started"
+      } ],
+      "mongooseVersion" : "1.0.33",
+      "notAvailable" : [ {
+        "detail" : "Mongoose 1.0.33 logs a WARNING and retries the handler; no admin surface reports it. See Logs.",
+        "fact" : "Handwritten handler failures",
+        "needs" : "Mongoose #77"
+      }, {
+        "detail" : "Sequence numbers of ProcessorQuarantined, Dead and QueueDrop records are only in a control-audit export.",
+        "fact" : "Control record evidence",
+        "needs" : "proposal A3"
+      }, {
+        "detail" : "Only the drop count and health verdict are live; the first QueueDrop record is in the control-audit export.",
+        "fact" : "First loss per queue",
+        "needs" : "proposal A3"
+      }, {
+        "detail" : "A failed physical close is reported by resource id; the capture it belongs to is not.",
+        "fact" : "Failed close to capture",
+        "needs" : "proposal A2"
+      }, {
+        "detail" : "The configured limit cannot be read.",
+        "fact" : "Capture resource limit",
+        "needs" : "proposal A5"
+      }, {
+        "detail" : "Replies carry an outcome and reason text, no typed failure kind.",
+        "fact" : "Failure kind",
+        "needs" : "Mongoose #77"
+      }, {
+        "detail" : "No admin command resumes shutdown().",
+        "fact" : "Retry an incomplete shutdown",
+        "needs" : "proposal A4"
+      }, {
+        "detail" : "Queues drop after the spin bound; no policy, latch or clear.",
+        "fact" : "Overload policy and latch",
+        "needs" : "Mongoose #79"
+      }, {
+        "detail" : "No admin command or endpoint.",
+        "fact" : "Replay status",
+        "needs" : "proposal A9"
+      } ],
+      "unacknowledged" : 2,
+      "worst" : "CRITICAL"
+    },
+    "status" : 200
+  },
+  "GET /api/issues (acknowledged, stop recorded)" : {
+    "body" : {
+      "counts" : {
+        "CRITICAL" : 2,
+        "DEGRADED" : 0,
+        "INFO" : 1
+      },
+      "issues" : [ {
+        "acknowledged" : true,
+        "actions" : [ {
+          "action" : "acknowledge",
+          "consequence" : "Moves it to Acknowledged. The issue stays open and keeps counting toward the health pill until Mongoose stops reporting it; nothing on the server changes.",
+          "enabled" : true,
+          "label" : "Acknowledge",
+          "precondition" : "None."
+        }, {
+          "action" : "export-evidence",
+          "args" : [ "pricing" ],
+          "command" : "control.audit.export",
+          "consequence" : "Writes group pricing's control-audit records for offline analysis and reports completeness. Changes no server state.",
+          "enabled" : true,
+          "label" : "Export evidence",
+          "precondition" : "Names a directory that does not exist yet, on the server host (relative paths resolve against the server's working directory). One export runs at a time.",
+          "statusCommand" : "control.audit.export.status"
+        }, {
+          "action" : "stop",
+          "consequence" : null,
+          "disabledReason" : "Known outcome on Mongoose 1.0.33: stop FAILED: processor quarantined. The name stays reserved until shutdown.",
+          "enabled" : false,
+          "label" : "Stop",
+          "precondition" : "Known outcome on Mongoose 1.0.33: stop FAILED: processor quarantined. The name stays reserved until shutdown."
+        }, {
+          "action" : "replace",
+          "consequence" : null,
+          "disabledReason" : "Not offered: Mongoose keeps the quarantined name and instance reserved and has no audited release (proposal A6). Replace the process instead.",
+          "enabled" : false,
+          "label" : "Replace / re-add",
+          "precondition" : "Not offered: Mongoose keeps the quarantined name and instance reserved and has no audited release (proposal A6). Replace the process instead."
+        } ],
+        "evidence" : [ {
+          "label" : "Group status",
+          "value" : "control.group.status pricing: quarantinedProcessors has pricer"
+        }, {
+          "label" : "Reason",
+          "value" : "com.telamin.mongoose.dutycycle.ProcessorDispatchException: generated processor execution failed during event dispatch; processor=com.telamin.mongoose.plugin.svc.adminweb.it.Fixtures$ThrowingGenerated; processor requires isolation; no retry or automatic recovery"
+        } ],
+        "evidenceUnavailable" : [ "The ProcessorQuarantined control record (sequence, time) is only in a control-audit export on Mongoose 1.0.33: run Export evidence." ],
+        "failureKind" : null,
+        "group" : "pricing",
+        "id" : "PROCESSOR_QUARANTINED:pricing/pricer",
+        "impact" : "no output from pricing/pricer until the process is replaced: it receives no events and no timers. Other processors in group pricing keep running (peer). Shutdown will report pricing incomplete and keep the services it uses.",
+        "kind" : "PROCESSOR_QUARANTINED",
+        "processor" : "pricer",
+        "severity" : "CRITICAL",
+        "since" : "<TS>",
+        "subject" : "pricing/pricer",
+        "title" : "Processor quarantined",
+        "what" : "The generated processor threw while handling an event. Mongoose fenced it from its feeds and timers and will not call it again. Reason: com.telamin.mongoose.dutycycle.ProcessorDispatchException: generated processor execution failed during event dispatch; processor=com.telamin.mongoose.plugin.svc.adminweb.it.Fixtures$ThrowingGenerated; processor requires isolation; no retry or automatic recovery"
+      }, {
+        "acknowledged" : false,
+        "actions" : [ {
+          "action" : "acknowledge",
+          "consequence" : "Moves it to Acknowledged. The issue stays open and keeps counting toward the health pill until Mongoose stops reporting it; nothing on the server changes.",
+          "enabled" : true,
+          "label" : "Acknowledge",
+          "precondition" : "None."
+        } ],
+        "evidence" : [ {
+          "label" : "Health check",
+          "value" : "feed/up DOWN"
+        }, {
+          "label" : "Reason",
+          "value" : "service not started"
+        } ],
+        "failureKind" : null,
+        "id" : "HEALTH_DOWN:feed/up",
+        "impact" : "As described by the check's owner: service not started",
+        "kind" : "HEALTH_DOWN",
+        "severity" : "CRITICAL",
+        "since" : "<TS>",
+        "subject" : "feed/up",
+        "title" : "Health check DOWN",
+        "what" : "Health check up of feed reports DOWN: service not started"
+      }, {
+        "acknowledged" : false,
+        "actions" : [ {
+          "action" : "acknowledge",
+          "consequence" : "Moves it to Acknowledged. The issue stays open and keeps counting toward the health pill until Mongoose stops reporting it; nothing on the server changes.",
+          "enabled" : true,
+          "label" : "Acknowledge",
+          "precondition" : "None."
+        } ],
+        "command" : "server.processors.stop",
+        "evidence" : [ {
+          "label" : "Reply",
+          "value" : "FAILED: processor quarantined; lifecycle cleanup requires operator resolution"
+        }, {
+          "label" : "Sent by",
+          "value" : "this console"
+        } ],
+        "failureKind" : null,
+        "id" : "REQUEST_FAILED:1",
+        "impact" : "Expected for a quarantined processor; see its quarantine issue.",
+        "kind" : "REQUEST_FAILED",
+        "outcome" : "FAILED",
+        "severity" : "INFO",
+        "since" : "<TS>",
+        "subject" : "pricing/pricer",
+        "title" : "Request failed",
+        "what" : "server.processors.stop pricing/pricer was not applied (FAILED): processor quarantined; lifecycle cleanup requires operator resolution"
+      } ],
+      "mongooseVersion" : "1.0.33",
+      "notAvailable" : [ {
+        "detail" : "Mongoose 1.0.33 logs a WARNING and retries the handler; no admin surface reports it. See Logs.",
+        "fact" : "Handwritten handler failures",
+        "needs" : "Mongoose #77"
+      }, {
+        "detail" : "Sequence numbers of ProcessorQuarantined, Dead and QueueDrop records are only in a control-audit export.",
+        "fact" : "Control record evidence",
+        "needs" : "proposal A3"
+      }, {
+        "detail" : "Only the drop count and health verdict are live; the first QueueDrop record is in the control-audit export.",
+        "fact" : "First loss per queue",
+        "needs" : "proposal A3"
+      }, {
+        "detail" : "A failed physical close is reported by resource id; the capture it belongs to is not.",
+        "fact" : "Failed close to capture",
+        "needs" : "proposal A2"
+      }, {
+        "detail" : "The configured limit cannot be read.",
+        "fact" : "Capture resource limit",
+        "needs" : "proposal A5"
+      }, {
+        "detail" : "Replies carry an outcome and reason text, no typed failure kind.",
+        "fact" : "Failure kind",
+        "needs" : "Mongoose #77"
+      }, {
+        "detail" : "No admin command resumes shutdown().",
+        "fact" : "Retry an incomplete shutdown",
+        "needs" : "proposal A4"
+      }, {
+        "detail" : "Queues drop after the spin bound; no policy, latch or clear.",
+        "fact" : "Overload policy and latch",
+        "needs" : "Mongoose #79"
+      }, {
+        "detail" : "No admin command or endpoint.",
+        "fact" : "Replay status",
+        "needs" : "proposal A9"
+      } ],
+      "unacknowledged" : 2,
+      "worst" : "CRITICAL"
+    },
+    "status" : 200
+  },
+  "POST /api/issues/ack" : {
+    "body" : {
+      "acknowledged" : true,
+      "id" : "PROCESSOR_QUARANTINED:pricing/pricer"
+    },
+    "status" : 200
+  },
+  "POST /api/issues/ack (unknown)" : {
+    "body" : {
+      "err" : "no open issue nope (refresh the issue list)"
+    },
+    "status" : 404
   },
   "REST POST /admin stop" : {
     "body" : {

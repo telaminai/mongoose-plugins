@@ -1,7 +1,8 @@
 # Failure UX for svc-admin-web: issues and remediation
 
-Status: proposal. Validated against Mongoose **1.0.33-rc1** (`feature/control-plane` dfbfdd9, PR #76) on
-2026-10-25. Issue #77 (FailureKind) and #79 (overload policy) are design-only; §6 covers what they add.
+Status: proposal, **milestone 1 implemented** against released Mongoose **1.0.33** (§8). Originally validated
+against 1.0.33-rc1 (`feature/control-plane` dfbfdd9, PR #76) on 2026-10-25. Issue #77 (FailureKind) and #79
+(overload policy) are not released; §6 covers what they add.
 
 Every claim in §1 is pinned by a test in `src/it/java/.../it/`: the current behaviour in
 `AdminRestScenarioIT` / `AdminWebUiScenarioIT`, the behaviour proposed here in `AdminProposedIT` /
@@ -190,3 +191,33 @@ stepper" to avoid the name clash [plugin].
 - **A10** (#79) reset command for a latched DEGRADED feed, audited.
 - **A11** List groups including DEAD/CLOSING ones (`registeredProcessors()` drops quarantined processors and
   shows CLOSING groups as empty).
+
+## 8. Milestone 1 (released Mongoose 1.0.33)
+
+Implemented in the plugin, from typed Mongoose state only (`controlGroupStatus`, `lastStopResult`,
+`MongooseHealthService.forEachStatus`, the `queue.<path>.dropped` counters), never from a `toString()`:
+
+- `GET /api/issues` → `{worst, counts, unacknowledged, issues[], notAvailable[], mongooseVersion}`. Each issue:
+  `id, kind, severity, subject, failureKind (null until #77), title, what, evidence[{label, value, href?}],
+  evidenceUnavailable[], impact, actions[{action, label, enabled, precondition, consequence, disabledReason?,
+  command?, args?}], since (first seen by this console), acknowledged`.
+- Kinds: `PROCESSOR_QUARANTINED`, `GROUP_DEAD`, `SHUTDOWN_INCOMPLETE` / `SHUTDOWN_HANDED_OFF`,
+  `CAPTURE_CLOSE_FAILED` (a cleanup failure of the same resource is folded in) / `CAPTURE_CLEANUP_FAILED`,
+  `QUEUE_LOSS`, `HEALTH_DOWN` / `HEALTH_DEGRADED` (any other check; #77's `group:<g>/control` and
+  `group:<g>/control-audit` checks land here without a plugin change), and the requests this console sent
+  that were not applied: `REQUEST_REFUSED` / `REQUEST_FAILED` / `REQUEST_UNCONFIRMED` with `outcome`
+  (`REFUSED`, `NOT_RUNNING`, `INVALID`, `FAILED`, `PENDING`, `UNKNOWN_TARGET`) and a hint.
+- `POST /api/issues/ack {"id"}`: plugin-local, per server process. It moves the issue to "Acknowledged (still
+  open)"; the issue keeps counting toward the worst severity until Mongoose stops reporting it.
+- `GET /api/health`; `/api/server` adds `lifecycle` and `lastStopResult`; `/api/agents` adds `controlState`,
+  a member `state`, and the quarantined processors (state `QUARANTINED`, `stateReason`); `/api/queues` adds
+  `dropped`, `health`, `healthReason`, `dropPath`.
+- UI: header pill (worst issue, never green), issues strip on every view, stop-result banner, issues panel on
+  the Overview (filters by group and kind; sections by severity, then acknowledged), per-issue cards, the
+  "Not observable on Mongoose 1.0.33" list, state badges on Overview rows, agent cards and members, drop count
+  and health on queue rows. Export evidence runs `control.audit.export <group> <dir>` then
+  `control.audit.export.status`. A quarantined processor with a capture links its YAML export for the analyser.
+
+Not offered on 1.0.33: replace a quarantined processor (A6), retry a close, retry stop (A4), clear a DEGRADED
+queue (#79). Each is shown disabled with the reason. Still `proposed`: `closeFailed` on the capture list and the
+"close failed" pill (A2), first loss (A3), `stop REFUSED` for unknown names (A8), replay status (A9).
