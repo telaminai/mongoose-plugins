@@ -776,14 +776,31 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         String processor = ctx.pathParam("processor");
         try {
             auditCapture.start(processor);
-        } catch (IllegalArgumentException e) {
-            ctx.status(HttpStatus.NOT_FOUND);
-            ctx.json(Map.of("err", e.getMessage()));
+        } catch (RuntimeException e) {
+            auditRefused(ctx, e);
             return;
         }
         ctx.json(Map.of(
                 "processor", processor,
                 "recording", auditCapture.isRecording(processor)));
+    }
+
+    /**
+     * Mongoose 1.0.33 refuses capture changes with a reason: an unknown or ambiguous name
+     * ({@code IllegalArgumentException}, 404, the message names the qualified selectors to use) or a
+     * start/stop that was not applied - open/resource limit, open failed or timed out, group closed,
+     * request cancelled before the group took it ({@code IllegalStateException}, 409). Either way the
+     * UI reads {@code err}; anything else is still a 500.
+     */
+    private static void auditRefused(Context ctx, RuntimeException e) {
+        if (e instanceof IllegalArgumentException) {
+            ctx.status(HttpStatus.NOT_FOUND);
+        } else if (e instanceof IllegalStateException) {
+            ctx.status(HttpStatus.CONFLICT);
+        } else {
+            throw e;
+        }
+        ctx.json(Map.of("err", String.valueOf(e.getMessage())));
     }
 
     private void handleAuditStop(Context ctx) {
@@ -793,7 +810,12 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
             return;
         }
         String processor = ctx.pathParam("processor");
-        auditCapture.stop(processor);
+        try {
+            auditCapture.stop(processor);
+        } catch (RuntimeException e) {
+            auditRefused(ctx, e);
+            return;
+        }
         ctx.json(Map.of(
                 "processor", processor,
                 "recording", auditCapture.isRecording(processor)));
