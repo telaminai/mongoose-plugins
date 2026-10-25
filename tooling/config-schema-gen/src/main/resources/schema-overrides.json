@@ -4,7 +4,7 @@
     "mongoose-file:source": {
       "filename":      { "required": true, "format": "path", "doc": "Path to the file to tail." },
       "readStrategy":  { "doc": "How much of the file to replay on start." },
-      "cacheEventLog": { "doc": "Retain published lines in memory for replay." }
+      "cacheEventLog": { "doc": "Cache startup lines in memory for replay; live lines are not retained after startComplete." }
     },
     "mongoose-file:sink": {
       "filename": { "required": true, "format": "path", "doc": "Path of the output file." }
@@ -17,7 +17,7 @@
     "connector-file:source": {
       "filename":      { "required": true,  "format": "path", "doc": "Path to the file to tail." },
       "readStrategy":  { "doc": "How much of the file to replay on start." },
-      "cacheEventLog": { "doc": "Retain published lines in memory for replay." }
+      "cacheEventLog": { "doc": "Cache startup lines in memory for replay; live lines are not retained after startComplete." }
     },
     "connector-file:sink": {
       "filename":               { "required": true, "format": "path", "doc": "Path of the output file." },

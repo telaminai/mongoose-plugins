@@ -1,6 +1,6 @@
 {
   "schemaVersion" : 1,
-  "pluginsVersion" : "1.0.46-SNAPSHOT",
+  "pluginsVersion" : "1.0.46-rc1",
   "plugins" : [ {
     "artifactId" : "mongoose",
     "kind" : "source",
@@ -14,7 +14,7 @@
       "type" : "boolean",
       "required" : false,
       "default" : false,
-      "doc" : "Retain published lines in memory for replay."
+      "doc" : "Cache startup lines in memory for replay; live lines are not retained after startComplete."
     }, {
       "name" : "filename",
       "type" : "string",
@@ -87,7 +87,7 @@
       "type" : "boolean",
       "required" : false,
       "default" : false,
-      "doc" : "Retain published lines in memory for replay."
+      "doc" : "Cache startup lines in memory for replay; live lines are not retained after startComplete."
     }, {
       "name" : "filename",
       "type" : "string",

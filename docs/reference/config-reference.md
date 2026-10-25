@@ -6,7 +6,7 @@
     machine-readable, is at [`schema.json`](../schema/schema.json)
     (consumed by the Fluxtion project starter).
 
-Plugins release **`1.0.46-SNAPSHOT`**. Feeds bind under `eventFeeds:` / sinks under `eventSinks:` (key `instance:`); services under `services:` (key `service:`).
+Plugins release **`1.0.46-rc1`**. Feeds bind under `eventFeeds:` / sinks under `eventSinks:` (key `instance:`); services under `services:` (key `service:`).
 
 ## Connectors
 
@@ -20,7 +20,7 @@ Built-in (mongoose-core): tail a file as an event source.
 
 | Field | Type | Required | Default | Allowed / notes |
 |---|---|:--:|---|---|
-| `cacheEventLog` | boolean |  | `false` | Retain published lines in memory for replay. |
+| `cacheEventLog` | boolean |  | `false` | Cache startup lines in memory for replay; live lines are not retained after startComplete. |
 | `filename` | string | ✔ |  | _format: path_<br>Path to the file to tail. |
 | `readStrategy` | enum |  | `COMMITED` | `COMMITED` \| `EARLIEST` \| `LATEST` \| `ONCE_EARLIEST` \| `ONCE_LATEST`<br>How much of the file to replay on start. |
 
@@ -68,7 +68,7 @@ Tail a file as an event source.
 
 | Field | Type | Required | Default | Allowed / notes |
 |---|---|:--:|---|---|
-| `cacheEventLog` | boolean |  | `false` | Retain published lines in memory for replay. |
+| `cacheEventLog` | boolean |  | `false` | Cache startup lines in memory for replay; live lines are not retained after startComplete. |
 | `filename` | string | ✔ |  | _format: path_<br>Path to the file to tail. |
 | `readStrategy` | enum |  | `COMMITED` | `COMMITED` \| `EARLIEST` \| `LATEST` \| `ONCE_EARLIEST` \| `ONCE_LATEST`<br>How much of the file to replay on start. |
 
