@@ -29,6 +29,7 @@ public class MulticastEventSourceTest {
     private static final int PORT = 4446;
 
     private MulticastEventSource source;
+    private EventToQueuePublisher<String> publisher;
 
     @BeforeEach
     void setUp() {
@@ -38,7 +39,8 @@ public class MulticastEventSourceTest {
         source.setMulticastPort(PORT);
         source.setCacheEventLog(true);
         // Inject an EventToQueuePublisher so onStart() can use it
-        source.setOutput(new EventToQueuePublisher<>("multicast-event-source"));
+        publisher = new EventToQueuePublisher<>("multicast-event-source");
+        source.setOutput(publisher);
         source.onStart();
     }
 
@@ -80,6 +82,8 @@ public class MulticastEventSourceTest {
 
         // Now switch to publish mode
         source.startComplete();
+        var liveQueue = new org.agrona.concurrent.OneToOneConcurrentArrayQueue<Object>(32);
+        publisher.addTargetQueue(liveQueue, "live-test");
 
         // Send two more messages
         sendUdp("post1");
@@ -92,13 +96,15 @@ public class MulticastEventSourceTest {
             Thread.sleep(5);
         }
 
-        // Event log should grow with post-start messages (as they are published, and cached)
+        // Only startup events remain cached; live events must still reach the subscriber
         List<String> cachedAfter = Arrays.stream(source.eventLog())
                 .map(NamedFeedEvent::data)
                 .map(Object::toString)
                 .collect(Collectors.toList());
-        Assertions.assertTrue(cachedAfter.contains("post1") && cachedAfter.contains("post2"),
-                "Post-start messages should not be cached in eventLog");
+        Assertions.assertEquals(cached, cachedAfter, "live traffic must not grow the startup log");
+        Assertions.assertEquals("post1", liveQueue.poll());
+        Assertions.assertEquals("post2", liveQueue.poll());
+        Assertions.assertNull(liveQueue.poll());
     }
 
     @Test
@@ -114,7 +120,8 @@ public class MulticastEventSourceTest {
         source.setMulticastPort(PORT);
         source.setCacheEventLog(true);
         source.setUseLoopbackInterface(true);
-        source.setOutput(new EventToQueuePublisher<>("multicast-event-source"));
+        publisher = new EventToQueuePublisher<>("multicast-event-source");
+        source.setOutput(publisher);
         source.onStart();
 
         // Verify the private netIf is the loopback interface
@@ -138,7 +145,8 @@ public class MulticastEventSourceTest {
         source.setMulticastPort(PORT);
         source.setCacheEventLog(true);
         source.setUseLoopbackInterface(false);
-        source.setOutput(new EventToQueuePublisher<>("multicast-event-source"));
+        publisher = new EventToQueuePublisher<>("multicast-event-source");
+        source.setOutput(publisher);
         source.onStart();
 
         // With flag=false and no explicit interface name, the source should not set netIf
