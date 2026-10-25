@@ -63,7 +63,20 @@ curl -u "$ADMIN_USER:$ADMIN_PASSWORD" -X POST http://localhost:8080/admin \
 
 ## Bind host
 
-`host` defaults to `0.0.0.0` (all interfaces). For ops endpoints, bind to `127.0.0.1` and front with a reverse proxy that handles TLS + IP allow-listing.
+`host` defaults to `127.0.0.1` (loopback), so a fresh install does not expose the admin API to the network.
+
+**Off-box access** is one setting: set `host` to `0.0.0.0` (all interfaces) or to a specific interface address, and choose an `authMode`:
+
+```yaml
+      host: 0.0.0.0
+      listenPort: 8080
+      authMode: BEARER
+      bearerToken: ${ADMIN_TOKEN}
+```
+
+If the endpoint is reachable off-box with `authMode: NONE`, `init()` logs a warning naming the host and port. Front an off-box endpoint with TLS (a reverse proxy) and IP allow-listing.
+
+> **Upgrading:** before this release `host` defaulted to `0.0.0.0`. A deployment that relied on that default for off-box access must now set `host` explicitly.
 
 ## Notes
 

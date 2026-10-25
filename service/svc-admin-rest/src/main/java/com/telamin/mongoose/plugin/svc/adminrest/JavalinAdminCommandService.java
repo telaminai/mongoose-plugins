@@ -39,7 +39,7 @@ public class JavalinAdminCommandService implements EventFlowService<Object>, Lif
     private int listenPort = 8080;
     @Getter
     @Setter
-    private String host = "0.0.0.0";
+    private String host = "127.0.0.1";
     @Getter
     @Setter
     private String staticDir;
@@ -96,6 +96,10 @@ public class JavalinAdminCommandService implements EventFlowService<Object>, Lif
         }
         if (authMode == AuthMode.BEARER && (resolvedBearerToken() == null || resolvedBearerToken().isEmpty())) {
             throw new IllegalStateException("BEARER auth selected but bearerToken not configured");
+        }
+        if (exposedWithoutAuth(host, authMode)) {
+            log.warn("admin REST is reachable off-box on {}:{} with no authentication; set authMode BASIC or BEARER"
+                    + " (and front it with TLS), or bind host 127.0.0.1", host, listenPort);
         }
 
         javalin = Javalin.create(config -> {
@@ -246,5 +250,20 @@ public class JavalinAdminCommandService implements EventFlowService<Object>, Lif
     public static class AdminCommand {
         private String command;
         private String[] args = new String[0];
+    }
+
+    /**
+     * Whether the admin endpoint would be reachable from another host with no authentication: bound to anything other
+     * than a loopback address while {@code authMode} is {@code NONE}. A host that cannot be resolved counts as exposed.
+     */
+    static boolean exposedWithoutAuth(String host, AuthMode authMode) {
+        if (authMode != AuthMode.NONE) {
+            return false;
+        }
+        try {
+            return !java.net.InetAddress.getByName(host).isLoopbackAddress();
+        } catch (java.net.UnknownHostException e) {
+            return true;
+        }
     }
 }
