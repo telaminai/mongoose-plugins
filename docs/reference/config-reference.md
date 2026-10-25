@@ -6,7 +6,7 @@
     machine-readable, is at [`schema.json`](../schema/schema.json)
     (consumed by the Fluxtion project starter).
 
-Plugins release **`1.0.31-SNAPSHOT`**. Feeds bind under `eventFeeds:` / sinks under `eventSinks:` (key `instance:`); services under `services:` (key `service:`).
+Plugins release **`1.0.46-rc1`**. Feeds bind under `eventFeeds:` / sinks under `eventSinks:` (key `instance:`); services under `services:` (key `service:`).
 
 ## Connectors
 
@@ -16,11 +16,11 @@ Built-in (mongoose-core): tail a file as an event source.
 
 - **Class**: `com.telamin.mongoose.connector.file.FileEventSource`
 - **YAML**: `eventFeeds:` → `instance:`
-- **From**: mongoose-core `1.0.20`
+- **From**: mongoose-core `1.0.33-rc1`
 
 | Field | Type | Required | Default | Allowed / notes |
 |---|---|:--:|---|---|
-| `cacheEventLog` | boolean |  | `false` | Retain published lines in memory for replay. |
+| `cacheEventLog` | boolean |  | `false` | Cache startup lines in memory for replay; live lines are not retained after startComplete. |
 | `filename` | string | ✔ |  | _format: path_<br>Path to the file to tail. |
 | `readStrategy` | enum |  | `COMMITED` | `COMMITED` \| `EARLIEST` \| `LATEST` \| `ONCE_EARLIEST` \| `ONCE_LATEST`<br>How much of the file to replay on start. |
 
@@ -30,7 +30,7 @@ Built-in (mongoose-core): append messages to a file.
 
 - **Class**: `com.telamin.mongoose.connector.file.FileMessageSink`
 - **YAML**: `eventSinks:` → `instance:`
-- **From**: mongoose-core `1.0.20`
+- **From**: mongoose-core `1.0.33-rc1`
 
 | Field | Type | Required | Default | Allowed / notes |
 |---|---|:--:|---|---|
@@ -42,11 +42,12 @@ Built-in (mongoose-core): in-memory event source (tests / in-process).
 
 - **Class**: `com.telamin.mongoose.connector.memory.InMemoryEventSource`
 - **YAML**: `eventFeeds:` → `instance:`
-- **From**: mongoose-core `1.0.20`
+- **From**: mongoose-core `1.0.33-rc1`
 
 | Field | Type | Required | Default | Allowed / notes |
 |---|---|:--:|---|---|
-| `cacheEventLog` | boolean |  | `false` | Retain published events in memory for replay. |
+| `cacheEventLog` | boolean |  | `false` | Cache events before startup and replay them when the source starts. |
+| `retainEventLogAfterStart` | boolean |  | `false` | Continue retaining events after startup; the in-memory log grows for the lifetime of the source. Off by default. |
 
 ### InMemoryMessageSink  <small>`mongoose` · sink</small>
 
@@ -54,7 +55,7 @@ Built-in (mongoose-core): in-memory message sink.
 
 - **Class**: `com.telamin.mongoose.connector.memory.InMemoryMessageSink`
 - **YAML**: `eventSinks:` → `instance:`
-- **From**: mongoose-core `1.0.20`
+- **From**: mongoose-core `1.0.33-rc1`
 
 _No configurable fields._
 
@@ -67,7 +68,7 @@ Tail a file as an event source.
 
 | Field | Type | Required | Default | Allowed / notes |
 |---|---|:--:|---|---|
-| `cacheEventLog` | boolean |  | `false` | Retain published lines in memory for replay. |
+| `cacheEventLog` | boolean |  | `false` | Cache startup lines in memory for replay; live lines are not retained after startComplete. |
 | `filename` | string | ✔ |  | _format: path_<br>Path to the file to tail. |
 | `readStrategy` | enum |  | `COMMITED` | `COMMITED` \| `EARLIEST` \| `LATEST` \| `ONCE_EARLIEST` \| `ONCE_LATEST`<br>How much of the file to replay on start. |
 
@@ -301,6 +302,7 @@ Browser admin & monitoring console (REST + WebSocket + SPA).
 | `authMode` | enum |  | `NONE` | `NONE` \| `BASIC` \| `BEARER`<br>NONE \| BASIC \| BEARER. |
 | `basePath` | string |  |  |  |
 | `bearerToken` | string |  |  | BEARER credential ($ENV. resolvable). |
+| `environment` | string |  | `dev` |  |
 | `graphmlRoots` | list&lt;string&gt; |  | `[]` | Dirs the processor-graph panel reads .graphml from. |
 | `host` | string |  | `127.0.0.1` | _format: host_<br>Bind address; loopback by default — front with TLS for multi-host. |
 | `listenPort` | int |  | `8181` | _format: port_ |
@@ -308,7 +310,10 @@ Browser admin & monitoring console (REST + WebSocket + SPA).
 | `logTailBuffer` | int |  | `500` | Max retained log records for the log tail. |
 | `metricsIntervalMs` | int |  | `1000` | _format: millis_<br>JVM/throughput sampler period. |
 | `password` | string |  |  | BASIC credential ($ENV. resolvable). |
+| `publishRegistry` | boolean |  | `true` |  |
 | `realm` | string |  | `mongoose-admin` |  |
+| `registryDir` | string |  |  |  |
+| `serverName` | string |  |  |  |
 | `sessionMinutes` | int |  | `60` | Session cookie lifetime. |
 | `sessionSecret` | string |  |  | HMAC key for session cookies ($ENV. resolvable); pin to survive restarts. |
 | `sourceRoots` | list&lt;string&gt; |  | `[]` | Dirs the node-source viewer reads .java from. |

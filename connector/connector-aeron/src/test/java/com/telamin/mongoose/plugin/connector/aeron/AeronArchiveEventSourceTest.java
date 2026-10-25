@@ -20,7 +20,7 @@ import java.util.stream.Collectors;
 /**
  * Live-mode round-trip: {@link AeronMessageSink} → embedded media driver →
  * {@link AeronArchiveEventSource}. Asserts pre-{@code startComplete} events are
- * cached, and post-{@code startComplete} events also land in the event log.
+ * cached, and post-{@code startComplete} events are delivered without growing the startup log.
  */
 class AeronArchiveEventSourceTest {
 
@@ -119,7 +119,8 @@ class AeronArchiveEventSourceTest {
         source.setAeronDirectoryName(mediaDriver.aeronDirectoryName());
         source.setLaunchEmbeddedDriver(false);
         source.setCacheEventLog(true);
-        source.setOutput(new EventToQueuePublisher<>("aeron-live"));
+        var publisher = new EventToQueuePublisher<String>("aeron-live");
+        source.setOutput(publisher);
         source.onStart();
 
         AeronMessageSink sink = new AeronMessageSink();
@@ -153,6 +154,8 @@ class AeronArchiveEventSourceTest {
                 "expected pre-startComplete events cached, got: " + cached);
 
         source.startComplete();
+        var liveQueue = new org.agrona.concurrent.OneToOneConcurrentArrayQueue<Object>(32);
+        publisher.addTargetQueue(liveQueue, "live-test");
         invokeSend(sink, "post1");
         invokeSend(sink, "post2");
 
@@ -166,8 +169,10 @@ class AeronArchiveEventSourceTest {
                 .map(NamedFeedEvent::data)
                 .map(Object::toString)
                 .collect(Collectors.toList());
-        Assertions.assertTrue(cachedAfter.contains("post1") && cachedAfter.contains("post2"),
-                "expected post-startComplete events in log, got: " + cachedAfter);
+        Assertions.assertEquals(cached, cachedAfter, "live traffic must not grow the startup log");
+        Assertions.assertEquals("post1", liveQueue.poll());
+        Assertions.assertEquals("post2", liveQueue.poll());
+        Assertions.assertNull(liveQueue.poll());
 
         sink.tearDown();
         source.tearDown();

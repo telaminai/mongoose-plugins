@@ -10,7 +10,7 @@
     <groupId>com.telamin</groupId>
 
     <artifactId>mongoose-plugins</artifactId>
-    <version>1.0.46-SNAPSHOT</version>
+    <version>1.0.46-rc1</version>
     <name>telamin :: mongoose-plugins</name>
     <packaging>pom</packaging>
 
@@ -23,8 +23,9 @@
     <properties>
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
-        <fluxtion.bom.version>1.0.67</fluxtion.bom.version>
-        <mongoose.version>1.0.29</mongoose.version>
+        <fluxtion.bom.version>1.0.80</fluxtion.bom.version>
+        <fluxtion.runtime.version>1.1.3</fluxtion.runtime.version>
+        <mongoose.version>1.0.33-rc1</mongoose.version>
         <log4j2.version>2.24.3</log4j2.version>
         <lombok.version>1.18.42</lombok.version>
         <jackson.version>2.18.2</jackson.version>
@@ -81,6 +82,13 @@
 
     <dependencyManagement>
         <dependencies>
+            <!-- Keep the host and plugin graphs explicitly aligned with the
+                 runtime qualified for the Mongoose candidate. -->
+            <dependency>
+                <groupId>com.telamin.fluxtion</groupId>
+                <artifactId>fluxtion-runtime</artifactId>
+                <version>${fluxtion.runtime.version}</version>
+            </dependency>
             <dependency>
                 <groupId>com.telamin.fluxtion</groupId>
                 <artifactId>fluxtion-bom</artifactId>

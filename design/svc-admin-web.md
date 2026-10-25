@@ -159,7 +159,7 @@ Same `$ENV.NAME` resolution pattern as `svc-admin-rest` (env var first, system p
 |---|---|---|---|
 | `GET`  | `/` (and SPA assets) | per `authMode` | Serve UI (classpath resources, see §6) |
 | `GET`  | `/api/commands` | yes | `commandList()` — JSON array |
-| `POST` | `/api/commands/{name}` | yes | Invoke command; body `{ "args": [...] }`; response `{ "output": ..., "err": ... }` |
+| `POST` | `/api/commands/{name}` | yes | Invoke command; body `{ "arguments": [...] }` (`"args"` accepted for compatibility); response `{ "output": ..., "err": ... }` |
 | `GET`  | `/api/server` | yes | Server identity + uptime + version |
 | `GET`  | `/api/jvm` | yes | One-shot JVM snapshot |
 | `GET`  | `/api/services` | yes | Service inventory — parsed from `server.service.list`; `404` when that command is absent |
