@@ -18,7 +18,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * REST regression pack: one test per failure scenario (a-h of docs/failure-ux-proposal.md), driven against a
- * real Mongoose 1.0.33-rc1 server with svc-admin-web and svc-admin-rest on 127.0.0.1. Each test pins the exact
+ * real Mongoose 1.0.33 server with svc-admin-web and svc-admin-rest on 127.0.0.1. Each test pins the exact
  * current JSON contract (golden file, volatile values normalised) and asserts the failure facts explicitly.
  *
  * <p>These tests describe CURRENT behaviour, including behaviour the proposal classifies as misleading or

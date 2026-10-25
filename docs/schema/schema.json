@@ -1,20 +1,20 @@
 {
   "schemaVersion" : 1,
-  "pluginsVersion" : "1.0.31-SNAPSHOT",
+  "pluginsVersion" : "1.0.46",
   "plugins" : [ {
     "artifactId" : "mongoose",
     "kind" : "source",
     "yamlKey" : "eventFeeds",
     "yamlBindKey" : "instance",
     "instanceFqn" : "com.telamin.mongoose.connector.file.FileEventSource",
-    "sourceVersion" : "1.0.20",
+    "sourceVersion" : "1.0.33",
     "doc" : "Built-in (mongoose-core): tail a file as an event source.",
     "fields" : [ {
       "name" : "cacheEventLog",
       "type" : "boolean",
       "required" : false,
       "default" : false,
-      "doc" : "Retain published lines in memory for replay."
+      "doc" : "Cache startup lines in memory for replay; live lines are not retained after startComplete."
     }, {
       "name" : "filename",
       "type" : "string",
@@ -36,7 +36,7 @@
     "yamlKey" : "eventSinks",
     "yamlBindKey" : "instance",
     "instanceFqn" : "com.telamin.mongoose.connector.file.FileMessageSink",
-    "sourceVersion" : "1.0.20",
+    "sourceVersion" : "1.0.33",
     "doc" : "Built-in (mongoose-core): append messages to a file.",
     "fields" : [ {
       "name" : "filename",
@@ -51,14 +51,20 @@
     "yamlKey" : "eventFeeds",
     "yamlBindKey" : "instance",
     "instanceFqn" : "com.telamin.mongoose.connector.memory.InMemoryEventSource",
-    "sourceVersion" : "1.0.20",
+    "sourceVersion" : "1.0.33",
     "doc" : "Built-in (mongoose-core): in-memory event source (tests / in-process).",
     "fields" : [ {
       "name" : "cacheEventLog",
       "type" : "boolean",
       "required" : false,
       "default" : false,
-      "doc" : "Retain published events in memory for replay."
+      "doc" : "Cache events before startup and replay them when the source starts."
+    }, {
+      "name" : "retainEventLogAfterStart",
+      "type" : "boolean",
+      "required" : false,
+      "default" : false,
+      "doc" : "Continue retaining events after startup; the in-memory log grows for the lifetime of the source. Off by default."
     } ]
   }, {
     "artifactId" : "mongoose",
@@ -66,7 +72,7 @@
     "yamlKey" : "eventSinks",
     "yamlBindKey" : "instance",
     "instanceFqn" : "com.telamin.mongoose.connector.memory.InMemoryMessageSink",
-    "sourceVersion" : "1.0.20",
+    "sourceVersion" : "1.0.33",
     "doc" : "Built-in (mongoose-core): in-memory message sink.",
     "fields" : [ ]
   }, {
@@ -81,7 +87,7 @@
       "type" : "boolean",
       "required" : false,
       "default" : false,
-      "doc" : "Retain published lines in memory for replay."
+      "doc" : "Cache startup lines in memory for replay; live lines are not retained after startComplete."
     }, {
       "name" : "filename",
       "type" : "string",
@@ -637,6 +643,11 @@
       "required" : false,
       "doc" : "BEARER credential ($ENV. resolvable)."
     }, {
+      "name" : "environment",
+      "type" : "string",
+      "required" : false,
+      "default" : "dev"
+    }, {
       "name" : "graphmlRoots",
       "type" : "list",
       "required" : false,
@@ -681,10 +692,23 @@
       "required" : false,
       "doc" : "BASIC credential ($ENV. resolvable)."
     }, {
+      "name" : "publishRegistry",
+      "type" : "boolean",
+      "required" : false,
+      "default" : true
+    }, {
       "name" : "realm",
       "type" : "string",
       "required" : false,
       "default" : "mongoose-admin"
+    }, {
+      "name" : "registryDir",
+      "type" : "string",
+      "required" : false
+    }, {
+      "name" : "serverName",
+      "type" : "string",
+      "required" : false
     }, {
       "name" : "sessionMinutes",
       "type" : "int",

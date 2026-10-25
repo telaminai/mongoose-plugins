@@ -4,7 +4,7 @@
     <parent>
         <groupId>com.telamin</groupId>
         <artifactId>mongoose-plugins</artifactId>
-        <version>1.0.46-SNAPSHOT</version>
+        <version>1.0.46</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
@@ -27,9 +27,8 @@
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
-            <version>2.18.3</version>
+            <version>${jackson.version}</version>
         </dependency>
-
     </dependencies>
 
     <build>
@@ -63,19 +62,7 @@
                 <it.groups>rest-it,ui-it</it.groups>
                 <it.excludedGroups>proposed</it.excludedGroups>
                 <playwright.version>1.49.0</playwright.version>
-                <!-- the packs exercise the 1.0.33 control plane; the default build keeps the reactor's Mongoose -->
-                <mongoose.version>1.0.33-rc1</mongoose.version>
             </properties>
-            <dependencyManagement>
-                <dependencies>
-                    <!-- the Mongoose candidate runs on Fluxtion runtime 1.1.2; the reactor's BOM pins an older one -->
-                    <dependency>
-                        <groupId>com.telamin.fluxtion</groupId>
-                        <artifactId>fluxtion-runtime</artifactId>
-                        <version>1.1.2</version>
-                    </dependency>
-                </dependencies>
-            </dependencyManagement>
             <dependencies>
                 <!-- the REST plugin is driven beside the web plugin; Playwright drives the bundled UI -->
                 <dependency>
@@ -93,7 +80,7 @@
             </dependencies>
             <build>
                 <plugins>
-                    <!-- the pack sources need the rc1 API, so they compile only in this profile -->
+                    <!-- the pack sources (and Playwright) compile only in this profile -->
                     <plugin>
                         <groupId>org.codehaus.mojo</groupId>
                         <artifactId>build-helper-maven-plugin</artifactId>

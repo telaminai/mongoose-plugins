@@ -1,15 +1,11 @@
 name: admin-web failure-scenario packs
 
 # REST + UI regression packs for svc-admin-web against the Mongoose control plane
-# (service/svc-admin-web/docs/testing-admin-web-it.md). Manual only for now: it needs
-# a Mongoose 1.0.33-rc1 build, which is installed from source until the RC is published.
+# (service/svc-admin-web/docs/testing-admin-web-it.md). Manual only for now. It runs against the
+# reactor's released Mongoose (1.0.33), resolved from the public repository.
 on:
   workflow_dispatch:
     inputs:
-      mongoose_ref:
-        description: telaminai/mongoose ref providing 1.0.33-rc1 (skip with an empty value once it is published)
-        required: false
-        default: feature/control-plane
       run_proposed:
         description: also run the "proposed" tests (expected to fail until the proposal lands; never gates)
         type: boolean
@@ -32,12 +28,6 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
-
-      - name: Install Mongoose from source
-        if: ${{ inputs.mongoose_ref != '' }}
-        run: |
-          git clone --depth 1 --branch "${{ inputs.mongoose_ref }}" https://github.com/telaminai/mongoose.git "$RUNNER_TEMP/mongoose"
-          mvn -B -q -f "$RUNNER_TEMP/mongoose/pom.xml" install -DskipTests
 
       - name: Cache Playwright browsers
         uses: actions/cache@v4

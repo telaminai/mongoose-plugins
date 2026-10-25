@@ -4,7 +4,7 @@
     <parent>
         <groupId>com.telamin</groupId>
         <artifactId>mongoose-plugins</artifactId>
-        <version>1.0.46-SNAPSHOT</version>
+        <version>1.0.46</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
@@ -24,6 +24,14 @@
             <groupId>io.javalin</groupId>
             <artifactId>javalin</artifactId>
             <version>6.3.0</version>
+        </dependency>
+        <!-- Javalin 6 unbundled its JSON mapper: ctx.json(...) and ctx.bodyAsClass(...) throw (HTTP 500, "you don't
+             have an object mapper configured") unless jackson-databind is on the classpath. The admin endpoint reads
+             and writes JSON, so it needs it directly rather than relying on a consumer to supply it. -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>${jackson.version}</version>
         </dependency>
     </dependencies>
 

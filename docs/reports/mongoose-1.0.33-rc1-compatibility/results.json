@@ -1,0 +1,417 @@
+{
+  "baseCommit": "44190abfb1e7f8246d03e498fa4838c9db7f658b",
+  "qualifiedRelease": false,
+  "description": "Local compatibility preview of work in progress, not published RC",
+  "trackedPatchSha256": "54a7e2cc060c8a9bb7d6cc54c1fe19fd6e1d4c3e4b1570e55e0cec29f035f866",
+  "sourceManifestSha256": "13a80147527ea8d5d2b856e58976a04fa5d47a8d8acdb84d3f599daee957ea15",
+  "jarSha256": "a1c90b919d1975d799bf6c82a149aadf4f647d09fc76e502c17b6ea948f349c8",
+  "pluginBaseCommit": "ee3fc12d95f8f9ec2dbbee4346fd4971a124a956",
+  "tests": {
+    "tests": 299,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "suites": [
+    {
+      "module": "connector/connector-aeron",
+      "class": "com.telamin.mongoose.plugin.connector.aeron.AeronArchiveEventSourceTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "connector/connector-aeron",
+      "class": "com.telamin.mongoose.plugin.connector.aeron.AeronMessageSinkTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "connector/connector-chronicle",
+      "class": "com.telamin.mongoose.plugin.connector.chronicle.ChronicleMessageSinkTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "connector/connector-chronicle",
+      "class": "com.telamin.mongoose.plugin.connector.chronicle.ChronicleRoundTripIntegrationTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "connector/connector-file",
+      "class": "com.telamin.mongoose.plugin.connector.file.FileEventSourceTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "connector/connector-file",
+      "class": "com.telamin.mongoose.plugin.connector.file.FileMessageSinkTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "connector/connector-file",
+      "class": "com.telamin.mongoose.plugin.connector.file.FileRoundTripIntegrationTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "connector/connector-kafka",
+      "class": "com.telamin.mongoose.plugin.connector.kafka.KafkaMessageConsumerTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "connector/connector-kafka",
+      "class": "com.telamin.mongoose.plugin.connector.kafka.KafkaMessagePublisherTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "connector/connector-kafka",
+      "class": "com.telamin.mongoose.plugin.connector.kafka.KafkaRoundTripIntegrationTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "connector/connector-multicast",
+      "class": "com.telamin.mongoose.plugin.connector.multicast.MulticastEventSourceTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "connector/connector-multicast",
+      "class": "com.telamin.mongoose.plugin.connector.multicast.MulticastMessageSinkTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "library/lib-fanout",
+      "class": "com.telamin.mongoose.plugin.lib.fanout.FanOutSinkTest",
+      "tests": 9,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "library/lib-jsonserialiser",
+      "class": "com.telamin.mongoose.plugin.lib.json.JsonlTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "service/svc-admin-rest",
+      "class": "com.telamin.mongoose.plugin.svc.adminrest.JavalinAdminCommandServiceTest",
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "service/svc-admin-telnet",
+      "class": "com.telamin.mongoose.plugin.svc.admintelnet.TelnetAdminCommandProcessorTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "service/svc-admin-web",
+      "class": "com.telamin.mongoose.plugin.svc.adminweb.AuditRunningServerAcceptanceTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "service/svc-admin-web",
+      "class": "com.telamin.mongoose.plugin.svc.adminweb.AuditTailConnectWindowMeasurementTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "service/svc-admin-web",
+      "class": "com.telamin.mongoose.plugin.svc.adminweb.AuditTailConnectWindowProbeTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "service/svc-admin-web",
+      "class": "com.telamin.mongoose.plugin.svc.adminweb.AuditTailDeliveryAcceptanceTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "service/svc-admin-web",
+      "class": "com.telamin.mongoose.plugin.svc.adminweb.AuditTailLifecycleTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "service/svc-admin-web",
+      "class": "com.telamin.mongoose.plugin.svc.adminweb.AuditTailThreadingTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "service/svc-admin-web",
+      "class": "com.telamin.mongoose.plugin.svc.adminweb.AuditTailTickTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "service/svc-admin-web",
+      "class": "com.telamin.mongoose.plugin.svc.adminweb.ChronicleIndexSemanticsTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "service/svc-admin-web",
+      "class": "com.telamin.mongoose.plugin.svc.adminweb.ExportFramingInjectionTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "service/svc-admin-web",
+      "class": "com.telamin.mongoose.plugin.svc.adminweb.LogFanOutCallSiteTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "service/svc-admin-web",
+      "class": "com.telamin.mongoose.plugin.svc.adminweb.LogTailTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "service/svc-admin-web",
+      "class": "com.telamin.mongoose.plugin.svc.adminweb.MonitoringSamplerThroughputTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "service/svc-admin-web",
+      "class": "com.telamin.mongoose.plugin.svc.adminweb.ServerRegistryFileTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "service/svc-admin-web",
+      "class": "com.telamin.mongoose.plugin.svc.adminweb.SessionTokenTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "service/svc-admin-web",
+      "class": "com.telamin.mongoose.plugin.svc.adminweb.WebAdminServiceReadFromRootsTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "service/svc-admin-web",
+      "class": "com.telamin.mongoose.plugin.svc.adminweb.WebAdminServiceTest",
+      "tests": 70,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "service/svc-admin-web",
+      "class": "com.telamin.mongoose.plugin.svc.adminweb.YamlContainerWriterTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "service/svc-cache",
+      "class": "com.telamin.mongoose.plugin.svc.cache.InMemoryCacheTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "service/svc-cache",
+      "class": "com.telamin.mongoose.plugin.svc.cache.JsonFileCacheSurvivalIntegrationTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "service/svc-cache",
+      "class": "com.telamin.mongoose.plugin.svc.cache.JsonFileCacheTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "service/svc-jdbc",
+      "class": "com.telamin.mongoose.plugin.svc.jdbc.impl.JdbcConnectionLoaderServiceTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "service/svc-loader-feed",
+      "class": "com.telamin.mongoose.plugin.loader.feed.FeedLoaderYamlParseTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "service/svc-loader-feed",
+      "class": "com.telamin.mongoose.plugin.loader.feed.PersistedConfigStoreTest",
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "service/svc-loader-sink",
+      "class": "com.telamin.mongoose.plugin.loader.sink.PersistedConfigStoreTest",
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "service/svc-loader-sink",
+      "class": "com.telamin.mongoose.plugin.loader.sink.SinkLoaderYamlParseTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "service/svc-loader-spring",
+      "class": "com.telamin.mongoose.plugin.loader.spring.PersistedConfigStoreTest",
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "service/svc-loader-spring",
+      "class": "com.telamin.mongoose.plugin.loader.spring.SpringEventHandlerLoaderDeriveClassNameTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "service/svc-loader-yaml",
+      "class": "com.telamin.mongoose.plugin.loader.yaml.EventHandlerLoaderDeriveClassNameTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "service/svc-loader-yaml",
+      "class": "com.telamin.mongoose.plugin.loader.yaml.PersistedConfigStoreTest",
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "service/svc-micrometer",
+      "class": "com.telamin.mongoose.plugin.svc.micrometer.MicrometerBridgeTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "test-support/mongoose-test-support",
+      "class": "com.telamin.mongoose.plugin.testsupport.DynamicProcessorRegistrationTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "test-support/mongoose-test-support",
+      "class": "com.telamin.mongoose.plugin.testsupport.MongooseTestHarnessTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "tooling/config-schema-gen",
+      "class": "com.telamin.mongoose.tooling.schemagen.CoreSourceVersionGateTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "tooling/config-schema-gen",
+      "class": "com.telamin.mongoose.tooling.schemagen.SchemaGeneratorTest",
+      "tests": 9,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ]
+}

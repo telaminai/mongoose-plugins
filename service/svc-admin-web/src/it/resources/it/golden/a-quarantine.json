@@ -53,7 +53,7 @@
   },
   "REST POST /admin stop" : {
     "body" : {
-      "message" : "stop FAILED: processor quarantined; lifecycle cleanup requires operator resolution"
+      "message" : "stopping processor:pricing/pricer\nstop FAILED: processor quarantined; lifecycle cleanup requires operator resolution"
     },
     "status" : 200
   },

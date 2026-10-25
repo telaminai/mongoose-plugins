@@ -1,8 +1,8 @@
 # admin-web failure-scenario packs
 
 Two regression packs drive the failure scenarios of `failure-ux-proposal.md` (a–h) against a real
-Mongoose 1.0.33-rc1 server, in-process, with svc-admin-web and svc-admin-rest bound to 127.0.0.1 on free
-ports. They live in `src/it/java/com/telamin/mongoose/plugin/svc/adminweb/it/` (compiled only by the profile, against rc1) and run only under the
+Mongoose 1.0.33 server, in-process, with svc-admin-web and svc-admin-rest bound to 127.0.0.1 on free
+ports. They live in `src/it/java/com/telamin/mongoose/plugin/svc/adminweb/it/` (compiled only by the profile) and run only under the
 `admin-web-it` profile, so the normal build stays fast.
 
 ```sh

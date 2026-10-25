@@ -32,7 +32,7 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 
 /**
- * Harness: a real Mongoose 1.0.33-rc1 server with audit capture and performance monitoring on, the
+ * Harness: a real Mongoose 1.0.33 server with audit capture and performance monitoring on, the
  * shipped {@link WebAdminService} and {@link JavalinAdminCommandService} bound to 127.0.0.1 on free
  * ports, and the admin command surface. Scenario fixtures add processors after boot.
  *

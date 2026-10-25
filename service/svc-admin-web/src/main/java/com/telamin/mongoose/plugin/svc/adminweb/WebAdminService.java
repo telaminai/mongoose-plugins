@@ -20,6 +20,10 @@ import com.telamin.mongoose.service.admin.AdminCommandRequest;
 import com.telamin.mongoose.service.introspection.MongooseIntrospectionService;
 import com.telamin.mongoose.service.servercontrol.MongooseServerController;
 import io.javalin.Javalin;
+import com.fasterxml.jackson.core.JsonLocation;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.javalin.http.Context;
 import io.javalin.http.Cookie;
 import io.javalin.http.HandlerType;
@@ -597,7 +601,11 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         try {
             body = ctx.bodyAsClass(LoginRequest.class);
         } catch (Exception e) {
-            throw new UnauthorizedResponse("invalid login body", Map.of());
+            // a body that does not parse is a malformed request (400), not a failed credential check (401)
+            ctx.status(HttpStatus.BAD_REQUEST);
+            ctx.json(Map.of("err", "invalid login body; expected {\"username\":\"...\",\"password\":\"...\"} "
+                    + "(BASIC) or {\"token\":\"...\"} (BEARER)"));
+            return;
         }
 
         boolean ok = false;
@@ -671,18 +679,22 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         }
 
         String name = ctx.pathParam("name");
-        InvokeRequest body;
+        List<String> arguments;
         try {
-            body = ctx.bodyAsClass(InvokeRequest.class);
-        } catch (Exception e) {
-            body = null;
+            arguments = parseInvokeArguments(ctx.body());
+        } catch (IllegalArgumentException e) {
+            // a body that does not parse must not run the command with no arguments
+            ctx.status(HttpStatus.BAD_REQUEST);
+            ctx.json(Map.of(
+                    "command", name,
+                    "output", List.of(),
+                    "err", List.of(e.getMessage())));
+            return;
         }
 
         AdminCommandRequest req = new AdminCommandRequest();
         req.setCommand(name);
-        if (body != null && body.args != null) {
-            req.setArguments(new ArrayList<>(body.args));
-        }
+        req.setArguments(arguments);
 
         // output / errOutput may be called multiple times — buffer all into
         // lists. v1: cancellation and streaming are deferred (§10.1).
@@ -3327,8 +3339,12 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         public String token;
     }
 
-    /** POST /api/commands/{name} body. */
+    /**
+     * POST /api/commands/{name} body: {@code {"arguments":[...]}}, the field svc-admin-rest uses. {@code args} is
+     * still accepted for compatibility.
+     */
     public static class InvokeRequest {
+        public List<String> arguments;
         public List<String> args;
     }
 
@@ -3345,5 +3361,64 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         } catch (java.net.UnknownHostException e) {
             return true;
         }
+    }
+
+    private static final ObjectMapper INVOKE_JSON = new ObjectMapper();
+    private static final String INVOKE_SHAPE = "expected {\"arguments\":[\"...\"]}";
+
+    /**
+     * Reads the argument list of a POST /api/commands/{name} body. An empty body means no arguments. The list is
+     * read from {@code arguments} or, for compatibility, {@code args}; both present and different is an error.
+     *
+     * @throws IllegalArgumentException with a message safe to show the caller, for a body that is not valid
+     */
+    static List<String> parseInvokeArguments(String body) {
+        if (body == null || body.isBlank()) {
+            return new ArrayList<>();
+        }
+        JsonNode root;
+        try {
+            root = INVOKE_JSON.readTree(body);
+        } catch (JsonProcessingException e) {
+            JsonLocation at = e.getLocation();
+            throw new IllegalArgumentException("request body is not valid JSON"
+                    + (at == null ? "" : " (line " + at.getLineNr() + ", column " + at.getColumnNr() + ")")
+                    + "; " + INVOKE_SHAPE);
+        }
+        if (root == null || !root.isObject()) {
+            throw new IllegalArgumentException("request body must be a JSON object; " + INVOKE_SHAPE);
+        }
+        root.fieldNames().forEachRemaining(field -> {
+            if (!field.equals("arguments") && !field.equals("args")) {
+                throw new IllegalArgumentException("unexpected field '" + field + "'; " + INVOKE_SHAPE);
+            }
+        });
+        List<String> arguments = stringList(root, "arguments");
+        List<String> args = stringList(root, "args");
+        if (arguments != null && args != null && !arguments.equals(args)) {
+            throw new IllegalArgumentException(
+                    "'arguments' and 'args' are both present and differ; send 'arguments' only");
+        }
+        List<String> chosen = arguments != null ? arguments : args;
+        return chosen != null ? chosen : new ArrayList<>();
+    }
+
+    private static List<String> stringList(JsonNode root, String field) {
+        JsonNode node = root.get(field);
+        if (node == null || node.isNull()) {
+            return null;
+        }
+        if (!node.isArray()) {
+            throw new IllegalArgumentException("'" + field + "' must be an array of strings; " + INVOKE_SHAPE);
+        }
+        List<String> values = new ArrayList<>();
+        for (int i = 0; i < node.size(); i++) {
+            JsonNode value = node.get(i);
+            if (!value.isValueNode() || value.isNull()) {
+                throw new IllegalArgumentException("'" + field + "[" + i + "]' must be a string; " + INVOKE_SHAPE);
+            }
+            values.add(value.asText());
+        }
+        return values;
     }
 }
