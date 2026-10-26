@@ -130,6 +130,7 @@ CSRF on WebSocket upgrades is carried as `?csrf=...` query param (browsers canno
 | `realm`             | `mongoose-admin`   | `WWW-Authenticate` realm                                       |
 | `sessionSecret`     | _random per-JVM_   | HMAC key (`$ENV.` resolvable). Pin to survive restarts.        |
 | `sessionMinutes`    | `60`               | Cookie lifetime                                                |
+| `allowedHosts`      | _empty_            | Extra `Host` names accepted (proxy or DNS name). Empty + loopback bind = only `localhost`, `127.x.x.x`, `::1` |
 | `metricsIntervalMs` | `1000`             | Sampler period (clamped ≥ 250 ms)                              |
 | `logTailBuffer`     | `500`              | Max retained log records                                       |
 | `loaderBaseDir`     | _unset_            | Root for the file picker. Unset → `/api/files` returns `404` and the "browse…" button hides. |
@@ -155,7 +156,18 @@ services:
 ## Security model
 
 - **Auth** — covered above.
-- **CSRF** — every state-changing request (`POST`/`PUT`/`PATCH`/`DELETE`) must carry `X-CSRF-Token` matching the token in the session cookie. WS upgrades carry it as `?csrf=...`.
+- **CSRF** — every state-changing request (`POST`/`PUT`/`PATCH`/`DELETE`) must carry `X-CSRF-Token` matching the token in the session cookie, **in every auth mode, including `NONE`**. WS upgrades carry it as `?csrf=...`. Only BASIC/BEARER clients that authenticate with an `Authorization` header and send no cookie are exempt.
+- **Same origin** — a state-changing request whose `Origin` header does not equal its `Host` (or is `null`) is refused with 403. Non-browser clients send no `Origin` and are not affected.
+- **Host check (DNS rebinding)** — with a loopback bind, any request whose `Host` is not `localhost`, `127.x.x.x` or `::1` (or a name in `allowedHosts`) is refused with 403, so a foreign page rebound onto 127.0.0.1 cannot reach the API. The name is never resolved.
+- **Scripts with `authMode: NONE`** — first `POST /api/session/login` with body `{}`, keep the `mongoose_admin_session` cookie, and send it with `X-CSRF-Token: <csrfToken from the login reply>` on every POST:
+
+  ```sh
+  curl -s -c jar -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:8181/api/session/login   # -> {"csrfToken":"..."}
+  curl -s -b jar -H 'Content-Type: application/json' -H "X-CSRF-Token: $TOKEN" \
+       -d '{"arguments":["group/processor"]}' http://127.0.0.1:8181/api/commands/server.processors.stop
+  ```
+
+  Before this change `NONE` skipped the token, so any web page open in the operator's browser could POST commands.
 - **Origin allow-list** — WS upgrades reject `Origin` headers that don't match the configured bind host:port. Use a reverse proxy if you need a different external origin.
 - **Path traversal** — `/api/files` rejects absolute paths and `..` segments at the front gate; after `resolve` it re-checks with `toRealPath()` + `startsWith(base)` to catch symlink escapes.
 
