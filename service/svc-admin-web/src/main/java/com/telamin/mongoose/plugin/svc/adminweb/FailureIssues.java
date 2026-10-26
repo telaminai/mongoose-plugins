@@ -391,7 +391,7 @@ final class FailureIssues {
         issue.put("what", "The last shutdown returned incomplete. The server stays STOPPING with unconfirmed cleanup or"
                 + " held names. A listed group or service is not necessarily still executing.");
         List<Map<String, Object>> evidence = new ArrayList<>();
-        evidence.add(evidence("Groups still running", String.join(", ", stop.groupsRunning())));
+        evidence.add(evidence("Groups with incomplete cleanup", String.join(", ", stop.groupsRunning())));
         evidence.add(evidence("Services left running", String.join(", ", stop.servicesLeftRunning())));
         for (var held : stop.heldNames()) evidence.add(evidence("Held name", held.group() + "/" + held.name()
                 + " generation " + held.generation() + ": " + held.reason()));
@@ -407,9 +407,11 @@ final class FailureIssues {
         }
         issue.put("evidence", evidence);
         issue.put("evidenceUnavailable", List.of(
-                "Which callback is blocked: Mongoose 1.1.0 reports the group, not the processor or callback."));
-        issue.put("impact", "Groups " + String.join(", ", stop.groupsRunning()) + " have not stopped; services they"
-                + " may use are kept running (this console is one of them). Their resources stay held.");
+                "StopResult does not identify a blocked callback or prove a listed group is still executing. Inspect its control status, held names and logs."));
+        issue.put("impact", "Cleanup completion is unconfirmed for the listed groups or tasks. "
+                + (stop.servicesLeftRunning().isEmpty() ? "StopResult lists no services left running."
+                    : "StopResult lists these services left running: " + String.join(", ", stop.servicesLeftRunning()) + ".")
+                + " Resolve held names and cleanup failures before treating shutdown as complete.");
         List<Map<String, Object>> actions = new ArrayList<>();
         actions.add(ack());
         actions.add(disabled("retry-stop", "Retry stop",

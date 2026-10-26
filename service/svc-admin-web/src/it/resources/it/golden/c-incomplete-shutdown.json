@@ -69,7 +69,7 @@
           "precondition" : "No admin command on Mongoose 1.1.0 (proposal A4). The application can call shutdown() again once the blocker can progress: it resumes without repeating callbacks, and failed closes are not retried."
         } ],
         "evidence" : [ {
-          "label" : "Groups still running",
+          "label" : "Groups with incomplete cleanup",
           "value" : "slowstop"
         }, {
           "label" : "Services left running",
@@ -79,11 +79,11 @@
           "value" : "state CLOSING, outstanding requests 1"
         } ],
         "evidenceStatus" : null,
-        "evidenceUnavailable" : [ "Which callback is blocked: Mongoose 1.1.0 reports the group, not the processor or callback." ],
+        "evidenceUnavailable" : [ "StopResult does not identify a blocked callback or prove a listed group is still executing. Inspect its control status, held names and logs." ],
         "failureKind" : "FAILED_SHUTDOWN",
         "heldNames" : [ ],
         "id" : "SHUTDOWN_INCOMPLETE",
-        "impact" : "Groups slowstop have not stopped; services they may use are kept running (this console is one of them). Their resources stay held.",
+        "impact" : "Cleanup completion is unconfirmed for the listed groups or tasks. StopResult lists these services left running: com.telamin.mongoose.service.health.MongooseHealthService, com.telamin.mongoose.pool.ObjectPoolsRegistry, com.telamin.mongoose.service.audit.MongooseAuditIntrospectionService, adminWebService, com.telamin.mongoose.service.introspection.MongooseIntrospectionService, adminRestService, com.telamin.mongoose.service.counters.MongooseCountersService, feed, com.telamin.mongoose.service.audit.MongooseAuditCaptureService, serverAdmin, com.telamin.mongoose.service.counters.MongooseLatencyService, com.telamin.mongoose.service.servercontrol.MongooseServerController. Resolve held names and cleanup failures before treating shutdown as complete.",
         "kind" : "SHUTDOWN_INCOMPLETE",
         "severity" : "CRITICAL",
         "since" : "<TS>",
