@@ -81,7 +81,15 @@
         </div>
 
         <div class="topbar-actions">
-            <span class="pill" :class="wsPill().cls" x-show="authed || authMode==='NONE'">
+            <!-- Worst open failure issue (acknowledged or not). "Live" beside it is only the
+                 monitor connection; it says nothing about the server's health. -->
+            <button type="button" class="pill pill-btn" data-testid="issues-pill" :data-worst="issuesData.worst || 'NONE'" :data-stale="issuesStaleSince ? 'true' : 'false'"
+                    :class="issuesPill().cls" x-show="authed || authMode==='NONE'" @click="showIssues()"
+                    title="Open issues">
+                <span class="pill-dot"></span><span x-text="issuesPill().label"></span>
+            </button>
+            <!-- connection only: neutral while connected so it never reads as "healthy" next to an open issue -->
+            <span class="pill" data-testid="ws-pill" :class="wsPill().cls === 'pill-ok' ? 'pill-muted' : wsPill().cls" x-show="authed || authMode==='NONE'" title="Monitor connection">
                 <span class="pill-dot"></span><span x-text="wsPill().label"></span>
             </span>
             <button class="icon-btn" @click="toggleTheme()"
@@ -111,7 +119,7 @@
             <!-- Overview — landing summary: processors / feeds / sinks /
                  key services / audit state. Default view on load. -->
             <div class="nav-group">
-                <button class="nav-item" :class="{active: activeView==='overview'}" @click="go('overview')">
+                <button class="nav-item" data-testid="nav-overview" :class="{active: activeView==='overview'}" @click="go('overview')">
                     <svg class="ico"><use href="#i-dashboard"/></svg><span>Overview</span>
                 </button>
             </div>
@@ -122,7 +130,7 @@
                  server summary into wiring details is one click, not
                  two. Was "Integration" in the previous nav. -->
             <div class="nav-group" x-show="servicesAvailable || agentsAvailable || queuesAvailable">
-                <button class="nav-item"
+                <button class="nav-item" data-testid="nav-managed"
                         :class="{active: ['agents','services','queues'].includes(activeView)}"
                         @click="go('agents')">
                     <svg class="ico"><use href="#i-services"/></svg><span>Managed services</span>
@@ -160,7 +168,7 @@
                     <button class="nav-item" :class="{active: activeView==='performance'}" @click="go('performance')" x-show="throughput">
                         <svg class="ico"><use href="#i-topology"/></svg><span>Server performance</span>
                     </button>
-                    <button class="nav-item" :class="{active: activeView==='app-counters'}" @click="go('app-counters')" x-show="throughput">
+                    <button class="nav-item" data-testid="nav-app-counters" :class="{active: activeView==='app-counters'}" @click="go('app-counters')" x-show="throughput">
                         <svg class="ico"><use href="#i-topology"/></svg><span>App counters</span>
                         <span class="nav-count" x-show="(throughput?.custom?.length ?? 0)" x-text="(throughput?.custom?.length ?? 0)"></span>
                     </button>
@@ -185,7 +193,7 @@
                     <button class="nav-item" :class="{active: activeView==='console'}" @click="go('console')">
                         <svg class="ico"><use href="#i-console"/></svg><span>Console</span>
                     </button>
-                    <button class="nav-item"
+                    <button class="nav-item" data-testid="nav-commands"
                             :class="{active: activeView==='commands', disabled: !adminAvailable}"
                             :disabled="!adminAvailable"
                             :title="!adminAvailable ? 'AdminCommandRegistry not registered — add the service to enable command dispatch.' : null"
@@ -281,6 +289,30 @@
                 <span>Server still settling — refreshing snapshot as persisted configs finish booting…</span>
             </div>
 
+            <!-- Incomplete shutdown (Mongoose lastStopResult): the console outlives a stuck group. -->
+            <div class="banner banner-err" data-testid="stop-result-banner" x-show="stopBanner()" x-cloak>
+                <svg class="ico"><use href="#i-warn"/></svg>
+                <span x-text="stopBanner()"></span>
+            </div>
+
+            <!-- Issues strip: on every view. Severity counts of open issues; never a green "healthy". -->
+            <div class="issues-strip" data-testid="issues-strip" x-show="issuesData.loaded" x-cloak
+                 :class="'issues-strip-' + (issuesData.worst || 'NONE').toLowerCase()">
+                <span class="tag warn" data-testid="issues-stale" x-show="issuesStaleSince"
+                      x-text="'unavailable since ' + formatSince(issuesStaleSince) + ': showing the last list'"></span>
+                <span class="tag" data-testid="issues-strip-worst" :class="issueSeverityClass(issuesData.worst)"
+                      x-text="issuesData.worst || 'NO KNOWN ISSUES'"></span>
+                <span class="mono small" data-testid="issues-strip-counts"
+                      x-text="(issuesData.counts.CRITICAL || 0) + ' critical · ' + (issuesData.counts.DEGRADED || 0) + ' degraded · ' + (issuesData.counts.INFO || 0) + ' info'"></span>
+                <span class="muted small" x-show="(issuesData.issues || []).length"
+                      x-text="'acknowledged: ' + ((issuesData.issues || []).length - issuesData.unacknowledged)"></span>
+                <span class="tag warn" data-testid="issues-strip-live-gaps" x-show="issuesData.liveGaps"
+                      x-text="issuesData.liveGaps + ' blind spot' + (issuesData.liveGaps === 1 ? '' : 's') + ' on this server'"></span>
+                <span class="muted small" data-testid="issues-strip-gaps"
+                      x-text="(issuesData.notAvailable || []).length + ' failure facts not observable here (Mongoose ' + (issuesData.mongooseVersion || 'this version') + ')'"></span>
+                <button type="button" class="btn btn-ghost btn-sm" data-testid="issues-open" @click="showIssues()">Issues ▸</button>
+            </div>
+
             <!-- Integration tab strip — shared across the 5 detail views
                  (Agents / Services / Feeds / Sinks / Queues). Lets the user
                  switch facets without rebounding to the sidebar. Hidden on
@@ -359,6 +391,109 @@
                      just that card's slice for paste-into-ticket
                      workflows. Table cells truncate with ellipsis on
                      overflow so long FQNs don't break the row layout. -->
+                <!-- Issues panel (docs/failure-ux-proposal.md §3-§4). One card per failure fact: what
+                     happened, evidence, impact, actions with precondition and consequence. -->
+                <section class="issues-panel" data-testid="issues-panel" x-show="issuesData.loaded">
+                    <header class="issues-panel-head">
+                        <h2>Issues</h2>
+                        <span class="muted small" x-show="!(issuesData.issues || []).length" data-testid="issues-empty">
+                            No issue is reported. That is not a clean bill of health: the facts listed under
+                            “Not observable” cannot be seen<span x-show="issuesData.liveGaps"> — including blind
+                            spots of this server's configuration (marked)</span>.
+                        </span>
+                        <span class="issues-filters" x-show="(issuesData.issues || []).length">
+                            <select data-testid="issues-filter-group" x-model="issuesFilter.group" aria-label="filter by group">
+                                <option value="">all groups</option>
+                                <template x-for="g in issueGroups()" :key="g"><option :value="g" x-text="g"></option></template>
+                            </select>
+                            <select data-testid="issues-filter-kind" x-model="issuesFilter.kind" aria-label="filter by kind">
+                                <option value="">all kinds</option>
+                                <template x-for="k in issueKinds()" :key="k"><option :value="k" x-text="k"></option></template>
+                            </select>
+                        </span>
+                    </header>
+                    <template x-for="sec in issueSections()" :key="sec.key">
+                        <div class="issues-section" data-testid="issues-section" :data-section="sec.key">
+                            <div class="issues-section-label small" x-text="sec.label"></div>
+                            <template x-for="i in sec.items" :key="i.id">
+                                <article class="issue-card" data-testid="issue-card" :data-kind="i.kind" :data-subject="i.subject"
+                                         :data-severity="i.severity" :data-id="i.id" :data-acknowledged="i.acknowledged ? 'true' : 'false'"
+                                         :class="'issue-' + issueSeverityClass(i.severity)">
+                                    <header class="issue-head">
+                                        <span class="tag" data-testid="issue-severity" :class="issueSeverityClass(i.severity)" x-text="i.severity"></span>
+                                        <span class="mono small issue-kind" data-testid="issue-kind" x-text="i.kind"></span>
+                                        <strong class="mono" data-testid="issue-subject" x-text="i.subject"></strong>
+                                        <span class="tag" x-show="i.outcome" data-testid="issue-outcome" x-text="i.outcome"></span>
+                                        <span class="muted small issue-since" :title="'first seen by this console'"
+                                              x-text="'since ' + formatSince(i.since)"></span>
+                                    </header>
+                                    <div class="issue-row"><span class="issue-k">What</span>
+                                        <span class="issue-v" data-testid="issue-what" x-text="i.what"></span></div>
+                                    <div class="issue-row"><span class="issue-k">Evidence</span>
+                                        <div class="issue-v" data-testid="issue-evidence">
+                                            <template x-for="(e, ei) in (i.evidence || [])" :key="ei">
+                                                <div class="issue-evidence-item small">
+                                                    <span class="muted" x-text="e.label + ': '"></span><span class="mono" x-text="e.value"></span>
+                                                    <template x-if="e.href"><a :href="e.href" data-testid="issue-evidence-link" class="issue-link" x-text="e.hrefLabel || 'open'"></a></template>
+                                                </div>
+                                            </template>
+                                            <template x-for="(u, ui) in (i.evidenceUnavailable || [])" :key="'u' + ui">
+                                                <div class="issue-evidence-item small muted" data-testid="issue-evidence-unavailable">
+                                                    <span class="tag">not available in this Mongoose version</span> <span x-text="u"></span>
+                                                </div>
+                                            </template>
+                                        </div></div>
+                                    <div class="issue-row"><span class="issue-k">Impact</span>
+                                        <span class="issue-v" data-testid="issue-impact" x-text="i.impact"></span></div>
+                                    <div class="issue-row"><span class="issue-k">Actions</span>
+                                        <div class="issue-v issue-actions">
+                                            <template x-for="a in (i.actions || [])" :key="a.action">
+                                                <div class="issue-action-item">
+                                                    <button type="button" class="btn btn-sm" data-testid="issue-action" :data-action="a.action"
+                                                            :class="a.enabled ? 'btn-ghost' : 'btn-ghost btn-disabled'"
+                                                            :disabled="!a.enabled || (a.action === 'acknowledge' && i.acknowledged)"
+                                                            :title="a.enabled ? ('Precondition: ' + a.precondition + '\nConsequence: ' + a.consequence) : a.disabledReason"
+                                                            @click="issueAction(i, a)"
+                                                            x-text="a.action === 'acknowledge' && i.acknowledged ? 'Acknowledged' : a.label"></button>
+                                                    <span class="small muted" x-show="a.enabled && a.action !== 'acknowledge'"
+                                                          x-text="(a.command ? a.command + ' ' + (a.args || []).join(' ') + ' <dir> — ' : '') + a.consequence"></span>
+                                                    <span class="small muted" x-show="!a.enabled" data-testid="issue-action-disabled-reason" x-text="a.disabledReason"></span>
+                                                </div>
+                                            </template>
+                                            <div class="issue-export" data-testid="issue-export" x-show="issueExport[i.id]">
+                                                <template x-if="issueExport[i.id]">
+                                                    <div>
+                                                        <div class="small muted" x-text="issueExport[i.id].action.precondition"></div>
+                                                        <div class="form-row">
+                                                            <input type="text" class="mono" data-testid="issue-export-dir" x-model="issueExport[i.id].dir" aria-label="export directory">
+                                                            <button type="button" class="btn btn-primary btn-sm" data-testid="issue-export-run"
+                                                                    :disabled="issueExport[i.id].running" @click="runIssueExport(i)">Export</button>
+                                                            <button type="button" class="btn btn-ghost btn-sm" data-testid="issue-export-status"
+                                                                    @click="checkIssueExport(i)">Status</button>
+                                                        </div>
+                                                        <pre class="out small" data-testid="issue-export-output" x-show="issueExport[i.id].output.length || issueExport[i.id].statusOutput.length"
+                                                             x-text="[...issueExport[i.id].output, ...issueExport[i.id].statusOutput].join('\n')"></pre>
+                                                        <pre class="err small" x-show="issueExport[i.id].err.length" x-text="issueExport[i.id].err.join('\n')"></pre>
+                                                    </div>
+                                                </template>
+                                            </div>
+                                        </div></div>
+                                </article>
+                            </template>
+                        </div>
+                    </template>
+                    <div class="issues-gaps">
+                        <button type="button" class="btn-link small" data-testid="issues-gaps-toggle" @click="issuesShowGaps = !issuesShowGaps"
+                                x-text="(issuesShowGaps ? '▾ ' : '▸ ') + 'Not observable here (Mongoose ' + (issuesData.mongooseVersion || 'this version') + ') (' + (issuesData.notAvailable || []).length + ')'"></button>
+                        <ul class="issues-gap-list small" data-testid="issues-not-available" x-show="issuesShowGaps">
+                            <template x-for="g in (issuesData.notAvailable || [])" :key="g.fact">
+                                <li data-testid="issue-gap" :data-live="g.live ? 'true' : 'false'"><span class="tag warn" x-show="g.live">this server</span> <strong x-text="g.fact"></strong> — <span x-text="g.detail"></span>
+                                    <span class="muted" x-text="'(needs ' + g.needs + ')'"></span></li>
+                            </template>
+                        </ul>
+                    </div>
+                </section>
+
                 <div class="overview-stack">
 
                     <!-- Processors -->
@@ -389,11 +524,14 @@
                                 </tr></thead>
                                 <tbody>
                                     <template x-for="p in overviewData.processors" :key="p.group + ':' + p.name">
-                                        <tr class="overview-row-click" @click="overviewOpenProcessor(p)" :title="'Open processor graph for ' + p.name">
-                                            <td class="mono ellipsis" :title="p.name" x-text="p.name"></td>
+                                        <tr class="overview-row-click" data-testid="overview-processor-row" :data-processor="p.group + '/' + p.name" @click="overviewOpenProcessor(p)" :title="'Open processor graph for ' + p.name">
+                                            <td class="mono ellipsis" :title="p.name"><span x-text="p.name"></span>
+                                                <span class="tag" data-testid="overview-processor-state" x-show="p.state && p.state !== 'RUNNING'"
+                                                      :class="p.state === 'QUARANTINED' || (p.state || '').includes('DEAD') ? 'err' : 'warn'"
+                                                      x-text="p.state === 'QUARANTINED' ? 'QUARANTINED' : (p.state || '').replace('NOT_RUNNING_GROUP_', 'group ')"></span></td>
                                             <td class="muted small ellipsis" :title="p.group" x-text="p.group"></td>
                                             <td>
-                                                <span class="pill" :class="p.auditing ? 'pill-ok' : 'pill-muted'"
+                                                <span class="pill" data-testid="overview-processor-audit" :class="p.auditing ? 'pill-ok' : 'pill-muted'"
                                                       x-text="p.auditing ? 'recording' : 'off'"></span>
                                             </td>
                                             <td class="mono small muted ellipsis" :title="p.classFqn"
@@ -583,13 +721,13 @@
                             <div class="overview-audit">
                                 <div class="overview-audit-stat">
                                     <div class="muted small">Recording</div>
-                                    <div class="mono" x-text="overviewData.audit.recordingProcessors.length + ' processor(s)'"></div>
+                                    <div class="mono" data-testid="overview-audit-recording" x-text="overviewData.audit.recordingProcessors.length + ' processor(s)'"></div>
                                     <div class="mono small muted ellipsis" :title="overviewData.audit.recordingProcessors.join(', ') || ''"
                                          x-text="overviewData.audit.recordingProcessors.join(', ') || '—'"></div>
                                 </div>
                                 <div class="overview-audit-stat">
                                     <div class="muted small">Files on disk</div>
-                                    <div class="mono" x-text="overviewData.audit.fileCount"></div>
+                                    <div class="mono" data-testid="overview-audit-files" x-text="overviewData.audit.fileCount"></div>
                                 </div>
                                 <div class="overview-audit-stat">
                                     <div class="muted small">Actions</div>
@@ -822,7 +960,7 @@
                             </tr>
                         </thead>
                         <tbody>
-                            <template x-for="row in replayProcessorRows()" :key="row.name">
+                            <template x-for="row in replayProcessorRows()" :key="row.group + '/' + row.name">
                                 <tr class="clickable" @click="openProcessorForReplay(row.group, row.name)">
                                     <td class="mono strong" x-text="row.name"></td>
                                     <td class="mono muted" x-text="row.group"></td>
@@ -1017,10 +1155,10 @@
                         </thead>
                         <tbody>
                             <template x-for="c in appCountersFiltered()" :key="c.name">
-                                <tr>
+                                <tr data-testid="app-counter-row" :data-counter="c.name">
                                     <td class="mono strong" x-text="c.name"></td>
                                     <td class="num" :class="c.rate > 0 ? 'rate-live' : ''" x-text="formatRate(c.rate)"></td>
-                                    <td class="num muted" x-text="formatCount(c.total)"></td>
+                                    <td class="num muted" data-testid="app-counter-total" x-text="formatCount(c.total)"></td>
                                 </tr>
                             </template>
                         </tbody>
@@ -1053,12 +1191,12 @@
                     <div class="card cmd-list-card">
                         <div class="input-icon">
                             <svg class="ico"><use href="#i-search"/></svg>
-                            <input type="search" placeholder="Filter commands…" x-model="filter">
+                            <input type="search" data-testid="cmd-filter" placeholder="Filter commands…" x-model="filter">
                         </div>
                         <ul class="cmd-list">
                             <template x-for="cmd in filteredCommands()" :key="cmd">
                                 <li>
-                                    <button class="cmd" :class="{active: selected===cmd}" @click="select(cmd)" x-text="cmd"></button>
+                                    <button class="cmd" data-testid="cmd-item" :data-command="cmd" :class="{active: selected===cmd}" @click="select(cmd)" x-text="cmd"></button>
                                 </li>
                             </template>
                             <template x-if="commands.length===0">
@@ -1084,8 +1222,8 @@
                                 </div>
                                 <form @submit.prevent="invoke()">
                                     <label class="field-label">Arguments <span class="muted">— one per line</span></label>
-                                    <textarea x-model="argsText" rows="3" spellcheck="false" placeholder="(no arguments)"></textarea>
-                                    <button type="submit" class="btn btn-primary" :disabled="running">
+                                    <textarea data-testid="cmd-args" x-model="argsText" rows="3" spellcheck="false" placeholder="(no arguments)"></textarea>
+                                    <button type="submit" class="btn btn-primary" data-testid="cmd-run" :disabled="running">
                                         <svg class="ico" x-show="!running"><use href="#i-play"/></svg>
                                         <span x-text="running ? 'Running…' : 'Run command'"></span>
                                     </button>
@@ -1098,8 +1236,8 @@
                                             <svg class="ico"><use href="#i-copy"/></svg>Copy
                                         </button>
                                     </div>
-                                    <pre class="out" x-show="lastResult?.output?.length"><template x-for="(line, i) in (lastResult?.output ?? [])" :key="i"><span x-text="line + '\n'"></span></template></pre>
-                                    <pre class="err" x-show="lastResult?.err?.length"><template x-for="(line, i) in (lastResult?.err ?? [])" :key="i"><span x-text="line + '\n'"></span></template></pre>
+                                    <pre class="out" data-testid="cmd-output" x-show="lastResult?.output?.length"><template x-for="(line, i) in (lastResult?.output ?? [])" :key="i"><span x-text="line + '\n'"></span></template></pre>
+                                    <pre class="err" data-testid="cmd-error" x-show="lastResult?.err?.length"><template x-for="(line, i) in (lastResult?.err ?? [])" :key="i"><span x-text="line + '\n'"></span></template></pre>
                                     <p class="muted" x-show="lastResult && !lastResult?.output?.length && !lastResult?.err?.length">(no output)</p>
                                 </div>
 
@@ -1472,7 +1610,7 @@
                              Overview + Services pages. -->
                         <div class="overview-stack" x-show="agents.length">
                             <template x-for="a in agents" :key="a.group">
-                                <section class="overview-card" :class="{ collapsed: isAgentsCardCollapsed(a.group) }">
+                                <section class="overview-card" data-testid="agent-card" :data-group="a.group" :class="{ collapsed: isAgentsCardCollapsed(a.group) }">
                                     <header class="overview-card-head"
                                             @click="toggleAgentsCard(a.group)"
                                             role="button" tabindex="0"
@@ -1481,13 +1619,16 @@
                                         <span class="overview-card-caret" x-text="isAgentsCardCollapsed(a.group) ? '▸' : '▾'"></span>
                                         <h2 class="mono" x-text="a.group"></h2>
                                         <span class="tag" :class="threadTagClass(a.state)" x-show="a.state" x-text="a.state"></span>
-                                        <span class="overview-card-count" x-text="(a.members ?? []).length"></span>
+                                        <span class="tag" data-testid="agent-control-state" x-show="a.controlState"
+                                              :class="a.controlState === 'RUNNING' ? 'ok' : (a.controlState === 'DEAD' ? 'err' : 'warn')"
+                                              :title="'Mongoose control state of group ' + a.group" x-text="a.controlState"></span>
+                                        <span class="overview-card-count" data-testid="agent-card-count" x-text="(a.members ?? []).length"></span>
                                         <span class="overview-card-summary muted small" x-text="agentCardSummary(a)"></span>
                                         <button type="button" class="btn btn-ghost btn-sm overview-card-copy"
                                                 @click.stop="copyAgentJson(a)"
                                                 title="Copy as JSON">Copy</button>
                                         <button type="button" class="btn btn-ghost btn-sm"
-                                                @click.stop="openAgent(a.group)"
+                                                @click.stop="openAgent(a.group)" data-testid="agent-open"
                                                 title="Open detail page">Open</button>
                                     </header>
                                     <div class="overview-card-body" x-show="!isAgentsCardCollapsed(a.group)">
@@ -1504,7 +1645,10 @@
                                             <span class="field-label">Processors</span>
                                             <ul class="member-list">
                                                 <template x-for="m in (a.members ?? [])" :key="m.name">
-                                                    <li><span class="dot-mini" :class="m.kind"></span><span class="mono" x-text="m.name"></span><span class="muted" x-text="m.kind"></span></li>
+                                                    <li data-testid="agent-member" :data-name="m.name"><span class="dot-mini" :class="m.kind"></span><span class="mono" x-text="m.name"></span><span class="muted" x-text="m.kind"></span>
+                                                        <span class="tag" data-testid="agent-member-state" x-show="m.state && m.state !== 'RUNNING'"
+                                                              :class="m.state === 'QUARANTINED' || (m.state || '').includes('DEAD') ? 'err' : 'warn'"
+                                                              :title="m.stateReason || ''" x-text="m.state"></span></li>
                                                 </template>
                                                 <li x-show="!(a.members ?? []).length" class="muted">(no processors)</li>
                                             </ul>
@@ -1549,7 +1693,7 @@
                                 <div class="kv"><span class="kv-k">Type</span><span class="kv-v" x-text="(agentDetail.kind || agentDetail.type || 'agent') + ' group'"></span></div>
                                 <div class="kv"><span class="kv-k">Processors</span><span class="kv-v" x-text="(agentDetail.members ?? []).length"></span></div>
                                 <div class="kv" x-show="agentDetail.thread"><span class="kv-k">Thread</span><span class="kv-v mono" x-text="agentDetail.thread"></span></div>
-                                <div class="kv" x-show="agentDetail.threadState"><span class="kv-k">Thread state</span><span class="kv-v"><span class="tag" :class="threadTagClass(agentDetail.threadState)" x-text="agentDetail.threadState"></span></span></div>
+                                <div class="kv" x-show="agentDetail.threadState"><span class="kv-k">Thread state</span><span class="kv-v"><span class="tag" data-testid="agent-thread-state" :class="threadTagClass(agentDetail.threadState)" x-text="agentDetail.threadState"></span></span></div>
                                 <div class="kv" x-show="agentDetail.priority"><span class="kv-k">Priority</span><span class="kv-v" x-text="agentDetail.priority + (agentDetail.daemon ? ' (daemon)' : '')"></span></div>
                                 <div class="kv" x-show="agentDetail.idleStrategyClass"><span class="kv-k">Idle strategy</span><span class="kv-v mono" x-text="agentDetail.idleStrategyClass" :title="agentDetail.idleStrategyClass"></span></div>
                             </div>
@@ -2534,7 +2678,11 @@
                                     </td>
                                     <td><span class="tag" :class="{ok: row.type==='feed', warn: row.type==='subscriber'}" x-text="row.type"></span></td>
                                     <td class="num" x-text="row.hasChildren ? row.childCount : ''"></td>
-                                    <td class="mono muted small" x-text="row.type==='subscriber' ? row.path : (row.type==='group' ? row.group : '')" :title="row.path || row.fullPath"></td>
+                                    <td class="mono muted small" :title="row.path || row.fullPath"><span x-text="row.type==='subscriber' ? row.path : (row.type==='group' ? row.group : '')"></span>
+                                        <span class="tag" data-testid="queue-health" :data-path="row.path" x-show="row.type==='subscriber' && row.health"
+                                              :class="row.health === 'UP' ? 'ok' : (row.health === 'DOWN' ? 'err' : 'warn')" :title="row.healthReason" x-text="row.health"></span>
+                                        <span class="tag" data-testid="queue-dropped" :data-path="row.path" x-show="row.type==='subscriber' && row.dropped != null && row.dropped > 0"
+                                              :class="'warn'" x-text="row.dropped + ' dropped'"></span></td>
                                 </tr>
                             </template>
                             <template x-if="eventSources.length>0 && queueTreeRows().length===0">

@@ -1,0 +1,199 @@
+{
+  "GET /api/commands" : {
+    "body" : {
+      "adminAvailable" : true,
+      "commands" : [ "?", "audit.list", "audit.start", "audit.status", "audit.stop", "commands", "control.audit.export", "control.audit.export.status", "control.group.status", "eventSources", "help", "latency.disable", "latency.enable", "latency.reset", "latency.status", "latency.toggle", "server.processors.list", "server.processors.stop", "server.service.list" ]
+    },
+    "status" : 200
+  },
+  "GET /api/health" : {
+    "body" : {
+      "available" : true,
+      "checks" : [ {
+        "asOfEpochMs" : "<TS>",
+        "check" : "up",
+        "component" : "adminCommandRegistry",
+        "reason" : null,
+        "verdict" : "UP"
+      }, {
+        "asOfEpochMs" : "<TS>",
+        "check" : "up",
+        "component" : "adminRestService",
+        "reason" : null,
+        "verdict" : "UP"
+      }, {
+        "asOfEpochMs" : "<TS>",
+        "check" : "up",
+        "component" : "adminWebService",
+        "reason" : null,
+        "verdict" : "UP"
+      }, {
+        "asOfEpochMs" : "<TS>",
+        "check" : "up",
+        "component" : "com.telamin.mongoose.pool.ObjectPoolsRegistry",
+        "reason" : null,
+        "verdict" : "UP"
+      }, {
+        "asOfEpochMs" : "<TS>",
+        "check" : "up",
+        "component" : "com.telamin.mongoose.service.introspection.MongooseIntrospectionService",
+        "reason" : null,
+        "verdict" : "UP"
+      }, {
+        "asOfEpochMs" : "<TS>",
+        "check" : "up",
+        "component" : "com.telamin.mongoose.service.servercontrol.MongooseServerController",
+        "reason" : null,
+        "verdict" : "UP"
+      }, {
+        "asOfEpochMs" : "<TS>",
+        "check" : "queue-drops:/feed/feed/group/slow/subscriber/ComposingEventProcessorAgent#<HASH>",
+        "component" : "feed",
+        "reason" : "<N> item(s) dropped by queue /feed/feed/group/slow/subscriber/ComposingEventProcessorAgent#<HASH>",
+        "verdict" : "DEGRADED"
+      }, {
+        "asOfEpochMs" : "<TS>",
+        "check" : "up",
+        "component" : "feed",
+        "reason" : null,
+        "verdict" : "UP"
+      }, {
+        "asOfEpochMs" : "<TS>",
+        "check" : "up",
+        "component" : "serverAdmin",
+        "reason" : null,
+        "verdict" : "UP"
+      } ]
+    },
+    "status" : 200
+  },
+  "GET /api/issues" : {
+    "body" : {
+      "counts" : {
+        "CRITICAL" : 0,
+        "DEGRADED" : 1,
+        "INFO" : 0
+      },
+      "issues" : [ {
+        "acknowledged" : false,
+        "actions" : [ {
+          "action" : "acknowledge",
+          "consequence" : "Moves it to Acknowledged. The issue stays open and keeps counting toward the health pill until Mongoose stops reporting it; nothing on the server changes.",
+          "enabled" : true,
+          "label" : "Acknowledge",
+          "precondition" : "None."
+        }, {
+          "action" : "export-evidence",
+          "args" : [ "slow" ],
+          "command" : "control.audit.export",
+          "consequence" : "Writes group slow's control-audit records for offline analysis and reports completeness. Changes no server state.",
+          "enabled" : true,
+          "label" : "Export evidence",
+          "precondition" : "Names a directory that does not exist yet, on the server host (relative paths resolve against the server's working directory). One export runs at a time.",
+          "statusCommand" : "control.audit.export.status"
+        }, {
+          "action" : "clear",
+          "consequence" : null,
+          "disabledReason" : "No reset on Mongoose 1.0.33: the verdict stays DEGRADED while the drop count is non-zero. Clearing never restores lost items.",
+          "enabled" : false,
+          "label" : "Clear",
+          "precondition" : "No reset on Mongoose 1.0.33: the verdict stays DEGRADED while the drop count is non-zero. Clearing never restores lost items."
+        } ],
+        "dropped" : "<N>",
+        "evidence" : [ {
+          "label" : "Dropped",
+          "value" : "<N>"
+        }, {
+          "label" : "Health check",
+          "value" : "queue-drops:/feed/feed/group/slow/subscriber/ComposingEventProcessorAgent#<HASH> DEGRADED"
+        }, {
+          "label" : "Queue",
+          "value" : "/feed/feed/group/slow/subscriber/ComposingEventProcessorAgent#<HASH>"
+        } ],
+        "evidenceUnavailable" : [ "The first loss (sequence and time of the QueueDrop record) is only in the group's control-audit export on Mongoose 1.0.33: run Export evidence." ],
+        "failureKind" : null,
+        "feed" : "feed",
+        "group" : "slow",
+        "id" : "QUEUE_LOSS:/feed/feed/group/slow/subscriber/ComposingEventProcessorAgent#<HASH>",
+        "impact" : "<N> item(s) from feed feed were not delivered to group slow; its processors ran without them. Acceptable only for data where the next update supersedes the last.",
+        "kind" : "QUEUE_LOSS",
+        "queue" : "/feed/feed/group/slow/subscriber/ComposingEventProcessorAgent#<HASH>",
+        "severity" : "DEGRADED",
+        "since" : "<TS>",
+        "subject" : "feed → slow",
+        "title" : "Queue loss",
+        "what" : "A full queue dropped items after its spin bound. Health DEGRADED: <N> item(s) dropped by queue /feed/feed/group/slow/subscriber/ComposingEventProcessorAgent#<HASH>"
+      } ],
+      "liveGaps" : 0,
+      "mongooseVersion" : "1.0.33",
+      "notAvailable" : [ {
+        "detail" : "Mongoose 1.0.33 logs a WARNING and retries the handler; no admin surface reports it. See Logs.",
+        "fact" : "Handwritten handler failures",
+        "needs" : "Mongoose #77"
+      }, {
+        "detail" : "Sequence numbers of ProcessorQuarantined, Dead and QueueDrop records are only in a control-audit export.",
+        "fact" : "Control record evidence",
+        "needs" : "proposal A3"
+      }, {
+        "detail" : "Only the drop count and health verdict are live; the first QueueDrop record is in the control-audit export.",
+        "fact" : "First loss per queue",
+        "needs" : "proposal A3"
+      }, {
+        "detail" : "A failed physical close is reported by resource id; the capture it belongs to is not.",
+        "fact" : "Failed close to capture",
+        "needs" : "proposal A2"
+      }, {
+        "detail" : "The configured limit cannot be read.",
+        "fact" : "Capture resource limit",
+        "needs" : "proposal A5"
+      }, {
+        "detail" : "Replies carry an outcome and reason text, no typed failure kind.",
+        "fact" : "Failure kind",
+        "needs" : "Mongoose #77"
+      }, {
+        "detail" : "No admin command resumes shutdown().",
+        "fact" : "Retry an incomplete shutdown",
+        "needs" : "proposal A4"
+      }, {
+        "detail" : "Queues drop after the spin bound; no policy, latch or clear.",
+        "fact" : "Overload policy and latch",
+        "needs" : "Mongoose #79"
+      }, {
+        "detail" : "No admin command or endpoint.",
+        "fact" : "Replay status",
+        "needs" : "proposal A9"
+      } ],
+      "unacknowledged" : 1,
+      "worst" : "DEGRADED"
+    },
+    "status" : 200
+  },
+  "GET /api/queues" : {
+    "body" : {
+      "sources" : [ {
+        "queues" : [ {
+          "agentGroup" : "slow",
+          "callback" : "onEventCallBack",
+          "dropPath" : "/feed/feed/group/slow/subscriber/ComposingEventProcessorAgent#<HASH>",
+          "dropped" : "<N>",
+          "health" : "DEGRADED",
+          "healthReason" : "<N> item(s) dropped by queue /feed/feed/group/slow/subscriber/ComposingEventProcessorAgent#<HASH>",
+          "path" : "slow/feed/onEventCallBack"
+        } ],
+        "source" : "feed"
+      }, {
+        "queues" : [ ],
+        "source" : "adminCommandRegistry"
+      } ]
+    },
+    "status" : 200
+  },
+  "control.group.status slow" : {
+    "body" : {
+      "command" : "control.group.status",
+      "err" : [ ],
+      "output" : [ "ControlGroupStatus[group=slow, state=RUNNING, outstandingRequests=0, captureResourcesHeld=0, captureResourceSlotsInUse=0, captureCloseFailures={}, captureCleanupFailures={}, quarantinedProcessors={}]" ]
+    },
+    "status" : 200
+  }
+}

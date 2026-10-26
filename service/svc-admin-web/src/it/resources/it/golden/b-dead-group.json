@@ -1,0 +1,153 @@
+{
+  "GET /api/agents" : {
+    "body" : {
+      "agents" : [ {
+        "controlState" : "DEAD",
+        "daemon" : false,
+        "feeds" : [ {
+          "callback" : "onEventCallBack",
+          "feed" : "feed",
+          "path" : "doomed/feed/onEventCallBack"
+        } ],
+        "group" : "doomed",
+        "idleStrategyClass" : "org.agrona.concurrent.YieldingIdleStrategy",
+        "kind" : "processor",
+        "members" : [ {
+          "className" : "com.telamin.mongoose.plugin.svc.adminweb.it.Fixtures$Healthy",
+          "kind" : "processor",
+          "name" : "ok",
+          "state" : "NOT_RUNNING_GROUP_DEAD",
+          "subscriptions" : [ {
+            "callback" : "CallBackType$OnEventCallBack@<HASH>]",
+            "feed" : "EventSubscriptionKey[eventSourceKey=EventSourceKey[sourceName=feed], callBackType=com.telamin.mongoose.service.CallBackType$OnEventCallBack@<HASH>]"
+          } ]
+        } ],
+        "priority" : 5,
+        "thread" : "doomed",
+        "threadState" : "TERMINATED",
+        "type" : "processor"
+      } ]
+    },
+    "status" : 200
+  },
+  "GET /api/issues" : {
+    "body" : {
+      "counts" : {
+        "CRITICAL" : 1,
+        "DEGRADED" : 0,
+        "INFO" : 0
+      },
+      "issues" : [ {
+        "acknowledged" : false,
+        "actions" : [ {
+          "action" : "acknowledge",
+          "consequence" : "Moves it to Acknowledged. The issue stays open and keeps counting toward the health pill until Mongoose stops reporting it; nothing on the server changes.",
+          "enabled" : true,
+          "label" : "Acknowledge",
+          "precondition" : "None."
+        }, {
+          "action" : "export-evidence",
+          "args" : [ "doomed" ],
+          "command" : "control.audit.export",
+          "consequence" : "Writes group doomed's control-audit records for offline analysis and reports completeness. Changes no server state.",
+          "enabled" : true,
+          "label" : "Export evidence",
+          "precondition" : "Names a directory that does not exist yet, on the server host (relative paths resolve against the server's working directory). One export runs at a time.",
+          "statusCommand" : "control.audit.export.status"
+        }, {
+          "action" : "restart-process",
+          "consequence" : null,
+          "disabledReason" : "Mongoose 1.0.33 cannot restart a dead group. Replace the process under your incident policy.",
+          "enabled" : false,
+          "label" : "Restart",
+          "manual" : true,
+          "precondition" : "Mongoose 1.0.33 cannot restart a dead group. Replace the process under your incident policy."
+        } ],
+        "evidence" : [ {
+          "label" : "Group state",
+          "value" : "control.group.status doomed: state DEAD"
+        }, {
+          "label" : "Thread",
+          "value" : "doomed TERMINATED"
+        } ],
+        "evidenceUnavailable" : [ "The Dead control record and the error that ended the thread are only in a control-audit export and the server log on Mongoose 1.0.33.", "With Mongoose's default error handler a fatal group error exits the JVM: this console only sees a DEAD group when the application installs its own handler." ],
+        "failureKind" : null,
+        "group" : "doomed",
+        "id" : "GROUP_DEAD:doomed",
+        "impact" : "No processor in doomed runs: ok are listed but not running. Requests to the group are answered NOT_RUNNING. Other groups keep running.",
+        "kind" : "GROUP_DEAD",
+        "severity" : "CRITICAL",
+        "since" : "<TS>",
+        "subject" : "doomed",
+        "title" : "Processor group dead",
+        "what" : "The group's agent thread ended abnormally. Mongoose admits no more requests for it and runs none of its processors."
+      } ],
+      "liveGaps" : 0,
+      "mongooseVersion" : "1.0.33",
+      "notAvailable" : [ {
+        "detail" : "Mongoose 1.0.33 logs a WARNING and retries the handler; no admin surface reports it. See Logs.",
+        "fact" : "Handwritten handler failures",
+        "needs" : "Mongoose #77"
+      }, {
+        "detail" : "Sequence numbers of ProcessorQuarantined, Dead and QueueDrop records are only in a control-audit export.",
+        "fact" : "Control record evidence",
+        "needs" : "proposal A3"
+      }, {
+        "detail" : "Only the drop count and health verdict are live; the first QueueDrop record is in the control-audit export.",
+        "fact" : "First loss per queue",
+        "needs" : "proposal A3"
+      }, {
+        "detail" : "A failed physical close is reported by resource id; the capture it belongs to is not.",
+        "fact" : "Failed close to capture",
+        "needs" : "proposal A2"
+      }, {
+        "detail" : "The configured limit cannot be read.",
+        "fact" : "Capture resource limit",
+        "needs" : "proposal A5"
+      }, {
+        "detail" : "Replies carry an outcome and reason text, no typed failure kind.",
+        "fact" : "Failure kind",
+        "needs" : "Mongoose #77"
+      }, {
+        "detail" : "No admin command resumes shutdown().",
+        "fact" : "Retry an incomplete shutdown",
+        "needs" : "proposal A4"
+      }, {
+        "detail" : "Queues drop after the spin bound; no policy, latch or clear.",
+        "fact" : "Overload policy and latch",
+        "needs" : "Mongoose #79"
+      }, {
+        "detail" : "No admin command or endpoint.",
+        "fact" : "Replay status",
+        "needs" : "proposal A9"
+      } ],
+      "unacknowledged" : 1,
+      "worst" : "CRITICAL"
+    },
+    "status" : 200
+  },
+  "control.group.status doomed" : {
+    "body" : {
+      "command" : "control.group.status",
+      "err" : [ ],
+      "output" : [ "ControlGroupStatus[group=doomed, state=DEAD, outstandingRequests=0, captureResourcesHeld=0, captureResourceSlotsInUse=0, captureCloseFailures={}, captureCleanupFailures={}, quarantinedProcessors={}]" ]
+    },
+    "status" : 200
+  },
+  "server.processors.list" : {
+    "body" : {
+      "command" : "server.processors.list",
+      "err" : [ ],
+      "output" : [ "\ngroup:doomed\nprocessors:\n\tdoomed/ok -> com.telamin.mongoose.plugin.svc.adminweb.it.Fixtures$Healthy@<HASH>\n\n" ]
+    },
+    "status" : 200
+  },
+  "server.processors.stop doomed/ok" : {
+    "body" : {
+      "command" : "server.processors.stop",
+      "err" : [ ],
+      "output" : [ "stopping processor:doomed/ok", "stop NOT_RUNNING: group doomed is DEAD" ]
+    },
+    "status" : 200
+  }
+}

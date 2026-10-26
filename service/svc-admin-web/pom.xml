@@ -47,4 +47,92 @@
         </plugins>
     </build>
 
+    <profiles>
+        <!--
+            Failure-scenario regression packs (docs/failure-ux-proposal.md, docs/testing-admin-web-it.md).
+            mvn -Padmin-web-it verify                        REST + UI packs (and the unit suite)
+            -Dit.groups=rest-it  /  -Dit.groups=ui-it          one pack
+            -Dgolden.update=true                             rewrite golden JSON (review the diff)
+            Tests tagged "proposed" describe the behaviour the proposal asks for. They are excluded by
+            default; -Dit.groups=proposed -Dit.excludedGroups=none runs them, and they fail until it lands.
+        -->
+        <profile>
+            <id>admin-web-it</id>
+            <properties>
+                <it.groups>rest-it,ui-it</it.groups>
+                <it.excludedGroups>proposed</it.excludedGroups>
+                <playwright.version>1.49.0</playwright.version>
+            </properties>
+            <dependencies>
+                <!-- the REST plugin is driven beside the web plugin; Playwright drives the bundled UI -->
+                <dependency>
+                    <groupId>com.telamin</groupId>
+                    <artifactId>svc-admin-rest</artifactId>
+                    <version>${project.version}</version>
+                    <scope>test</scope>
+                </dependency>
+                <dependency>
+                    <groupId>com.microsoft.playwright</groupId>
+                    <artifactId>playwright</artifactId>
+                    <version>${playwright.version}</version>
+                    <scope>test</scope>
+                </dependency>
+            </dependencies>
+            <build>
+                <plugins>
+                    <!-- the pack sources (and Playwright) compile only in this profile -->
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>build-helper-maven-plugin</artifactId>
+                        <version>3.6.0</version>
+                        <executions>
+                            <execution>
+                                <id>add-it-sources</id>
+                                <phase>generate-test-sources</phase>
+                                <goals><goal>add-test-source</goal></goals>
+                                <configuration><sources><source>src/it/java</source></sources></configuration>
+                            </execution>
+                            <execution>
+                                <id>add-it-resources</id>
+                                <phase>generate-test-resources</phase>
+                                <goals><goal>add-test-resource</goal></goals>
+                                <configuration><resources><resource><directory>src/it/resources</directory></resource></resources></configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-failsafe-plugin</artifactId>
+                        <version>3.5.2</version>
+                        <configuration>
+                            <groups>${it.groups}</groups>
+                            <excludedGroups>${it.excludedGroups}</excludedGroups>
+                            <argLine>
+                                --add-opens java.base/java.lang.reflect=ALL-UNNAMED
+                                --add-opens java.base/sun.nio.ch=ALL-UNNAMED
+                                --add-opens java.base/java.lang=ALL-UNNAMED
+                                --add-opens java.base/jdk.internal.misc=ALL-UNNAMED
+                                --add-exports java.base/jdk.internal.ref=ALL-UNNAMED
+                                --add-exports jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED
+                            </argLine>
+                            <systemPropertyVariables>
+                                <mongoose.servers.dir>${project.build.directory}/servers</mongoose.servers.dir>
+                                <it.artifacts.dir>${project.build.directory}/admin-web-it</it.artifacts.dir>
+                                <it.golden.dir>${project.basedir}/src/it/resources/it/golden</it.golden.dir>
+                            </systemPropertyVariables>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <goals>
+                                    <goal>integration-test</goal>
+                                    <goal>verify</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+
 </project>

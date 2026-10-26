@@ -78,23 +78,27 @@ Then point a browser at `http://127.0.0.1:8181/`.
 | `GET`  | `/api/commands`                                   | yes         | Lists registered admin commands                 |
 | `POST` | `/api/commands/{name}`                            | yes + CSRF  | Invokes an admin command                        |
 
-`POST /api/commands/{name}` takes `{"arguments":["..."]}`, the same field as `svc-admin-rest`. An empty body runs the
-command with no arguments. `{"args":[...]}` is still accepted for compatibility. If both fields are present and
-differ, the request is refused. A body that is not valid JSON, is not an object, has another field, or whose list is
-not an array of strings gets a `400` with `{"command":..., "output":[], "err":["<what is wrong>"]}`, and the command
-is not run. A login body that does not parse gets a `400`, not a `401`.
-| `GET`  | `/api/server`                                     | yes         | Server identity (pid, runtime, startTime)       |
+| `GET`  | `/api/server`                                     | yes         | Server identity (pid, runtime, startTime, uptimeMs); with a `MongooseServer`, also `lifecycle` (`STARTED`, `STOPPING`, `STOPPED`, `UNKNOWN`) and `lastStopResult` (`complete`, `handedOff`, `blockedStartup`, `groupsRunning`, `servicesLeftRunning`) |
+| `GET`  | `/api/issues`                                     | yes         | Failure facts as issues: `{worst, counts, unacknowledged, issues[], notAvailable[], liveGaps, mongooseVersion}` (see `docs/failure-ux-proposal.md` §8) |
+| `POST` | `/api/issues/ack`                                 | yes + CSRF  | `{"id":"<issue id>"}`; moves an open issue to Acknowledged, never closes it. `400` bad body, `404` not open |
+| `GET`  | `/api/health`                                     | yes         | Every Mongoose health check: `{available, checks[{component, check, verdict, reason, asOfEpochMs}]}` |
 | `GET`  | `/api/jvm`                                        | yes         | One-shot JVM snapshot                           |
 | `GET`  | `/api/services`                                   | yes         | Service inventory; feeds carry `consumers`. `404` when no controller is wired. |
 | `GET`  | `/api/services/{name}/config`                     | yes         | Reflective public-getter view of a service, sensitive-named values masked |
-| `GET`  | `/api/agents`                                     | yes         | Agent groups + processors. Enriched with thread / idle strategy / per-processor subscriptions when introspection is wired. |
-| `GET`  | `/api/queues`                                     | yes         | Per-feed read-queue topology from `EventFlowManager` |
+| `GET`  | `/api/agents`                                     | yes         | Agent groups + processors. Enriched with thread / idle strategy / per-processor subscriptions when introspection is wired; with a `MongooseServer`, `controlState` per group, `state` per processor, and quarantined processors kept (`state: QUARANTINED`, `stateReason`). |
+| `GET`  | `/api/queues`                                     | yes         | Per-feed read-queue topology from `EventFlowManager`; per queue `dropped`, `health`, `healthReason` when counters and health are available |
 | `GET`  | `/api/processors/{group}/{name}/graphml`          | yes         | Compiled Fluxtion graphml for a registered event processor; structured `404` with `expectedResource` + `hint` when the resource isn't shipped |
 | `GET`  | `/api/files`                                      | yes         | File-picker entries under `loaderBaseDir`; `404` when feature unconfigured |
 | `POST` | `/api/session/login`                              | _per mode_  | Exchanges credentials for an HMAC-signed cookie + CSRF token |
 | `POST` | `/api/session/logout`                             | yes + CSRF  | Invalidates the session cookie                  |
 | `WS`   | `/ws/monitor`                                     | yes + CSRF  | Pushes JVM snapshots; client controls rate via `{"op":"rate","ms":<n>}` (0 = Off). Server-effective period = `min(client-rates)`, sampler stops when every client is Off. When the mongoose server's `MongooseCountersService` is operational, each frame also carries a `throughput` block: `{feeds, groups, processors, nodes, queues}` with per-counter `{name, rate, total}` (rate = delta / windowMs × 1000). `throughput` is `null` when performance monitoring is disabled. |
 | `WS`   | `/ws/logs`                                        | yes + CSRF  | Replays buffered log records on connect, then pushes per-record live |
+
+`POST /api/commands/{name}` takes `{"arguments":["..."]}`, the same field as `svc-admin-rest`. An empty body runs the
+command with no arguments. `{"args":[...]}` is still accepted for compatibility. If both fields are present and
+differ, the request is refused. A body that is not valid JSON, is not an object, has another field, or whose list is
+not an array of strings gets a `400` with `{"command":..., "output":[], "err":["<what is wrong>"]}`, and the command
+is not run. A login body that does not parse gets a `400`, not a `401`.
 
 CSRF on WebSocket upgrades is carried as `?csrf=...` query param (browsers cannot add headers to the WS handshake).
 
@@ -200,12 +204,15 @@ Pre-requisite: mongoose-core ≥ 1.0.13 (counters service introduced in that rel
 
 ## Tests
 
-79 tests across three suites:
+`mvn test` runs 165 unit tests in 22 classes, among them:
 
-- `WebAdminServiceTest` (63) — auth fail-fast + BASIC/BEARER, session + CSRF, command list / invoke, `/api/server`, `/api/jvm`, `/api/services` (controller-driven + introspection-driven), `/api/services/{name}/config` (reflection helper + endpoint), `/api/agents` (with introspection-stub thread/idle/subscription enrichment), `/api/queues`, `/api/processors/{group}/{name}/graphml` (hit on classpath, structured 404, unknown group, unknown processor, no controller), `/api/files` (404, list, traversal, absolute, unauth), WS auth gate, `MonitoringSampler` (dynamic interval, paused = zero allocations), log-tail lifecycle.
-- `MonitoringSamplerThroughputTest` (5) — no-op service leaves throughput null; label routing into feeds/groups/processors/nodes/queues; rate computes against previous tick delta; counters added mid-life appear on the next tick; legacy `(intervalMs)`-only constructor.
-- `LogTailTest` (5) — ring-buffer cap, subscriber fan-out, capacity validation, root-logger capture, package self-filter.
-- `SessionTokenTest` (6) — round-trip, tampered signature, wrong secret, expired, malformed, pipe-in-input.
+- `WebAdminServiceTest` (78) — auth fail-fast + BASIC/BEARER, session + CSRF, command list / invoke, `/api/server`, `/api/jvm`, `/api/services`, `/api/services/{name}/config`, `/api/agents`, `/api/queues`, graphml, `/api/files`, WS auth gate, `MonitoringSampler`, log-tail lifecycle.
+- `FailureIssuesTest` (11) — request issues from admin replies, acknowledgement never closes an issue, live blind spots (counters disabled, no health service), UNKNOWN checks as INFO, a failing health walk reported as `READ_FAILED`.
+- `CrossOriginRequestTest` (6) — `authMode: NONE`: cross-origin and token-less POSTs refused, same-origin with session + token accepted, `Origin: null` refused, DNS-rebinding `Host` refused, `allowedHosts`.
+- `AuditRefusalStatusTest`, `BindHostDefaultTest`, `SessionTokenTest`, `LogTailTest`, `MonitoringSamplerThroughputTest`, the audit-tail and capture suites.
+
+The failure-scenario packs (REST 9, UI 8, against a real Mongoose 1.0.33) run with `-Padmin-web-it`; see
+`docs/testing-admin-web-it.md`.
 
 ## Related
 

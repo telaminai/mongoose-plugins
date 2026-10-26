@@ -1,0 +1,145 @@
+{
+  "GET /api/agents" : {
+    "body" : {
+      "agents" : [ {
+        "controlState" : "CLOSING",
+        "daemon" : false,
+        "feeds" : [ {
+          "callback" : "onEventCallBack",
+          "feed" : "feed",
+          "path" : "slowstop/feed/onEventCallBack"
+        } ],
+        "group" : "slowstop",
+        "idleStrategyClass" : "org.agrona.concurrent.YieldingIdleStrategy",
+        "kind" : "processor",
+        "members" : [ ],
+        "priority" : 5,
+        "thread" : "Thread-<N>",
+        "threadState" : "NEW",
+        "type" : "processor"
+      } ]
+    },
+    "status" : 200
+  },
+  "GET /api/issues" : {
+    "body" : {
+      "counts" : {
+        "CRITICAL" : 1,
+        "DEGRADED" : 0,
+        "INFO" : 0
+      },
+      "issues" : [ {
+        "acknowledged" : false,
+        "actions" : [ {
+          "action" : "acknowledge",
+          "consequence" : "Moves it to Acknowledged. The issue stays open and keeps counting toward the health pill until Mongoose stops reporting it; nothing on the server changes.",
+          "enabled" : true,
+          "label" : "Acknowledge",
+          "precondition" : "None."
+        }, {
+          "action" : "retry-stop",
+          "consequence" : null,
+          "disabledReason" : "No admin command on Mongoose 1.0.33 (proposal A4). The application can call shutdown() again once the blocker can progress: it resumes without repeating callbacks, and failed closes are not retried.",
+          "enabled" : false,
+          "label" : "Retry stop",
+          "precondition" : "No admin command on Mongoose 1.0.33 (proposal A4). The application can call shutdown() again once the blocker can progress: it resumes without repeating callbacks, and failed closes are not retried."
+        } ],
+        "evidence" : [ {
+          "label" : "Groups still running",
+          "value" : "slowstop"
+        }, {
+          "label" : "Services left running",
+          "value" : "com.telamin.mongoose.service.health.MongooseHealthService, com.telamin.mongoose.pool.ObjectPoolsRegistry, com.telamin.mongoose.service.audit.MongooseAuditIntrospectionService, adminWebService, com.telamin.mongoose.service.introspection.MongooseIntrospectionService, adminRestService, com.telamin.mongoose.service.counters.MongooseCountersService, feed, com.telamin.mongoose.service.audit.MongooseAuditCaptureService, serverAdmin, com.telamin.mongoose.service.counters.MongooseLatencyService, com.telamin.mongoose.service.servercontrol.MongooseServerController"
+        }, {
+          "label" : "Group slowstop",
+          "value" : "state CLOSING, outstanding requests 1"
+        } ],
+        "evidenceUnavailable" : [ "Which callback is blocked: Mongoose 1.0.33 reports the group, not the processor or callback." ],
+        "failureKind" : null,
+        "id" : "SHUTDOWN_INCOMPLETE",
+        "impact" : "Groups slowstop have not stopped; services they may use are kept running (this console is one of them). Their resources stay held.",
+        "kind" : "SHUTDOWN_INCOMPLETE",
+        "severity" : "CRITICAL",
+        "since" : "<TS>",
+        "subject" : "server",
+        "title" : "Shutdown incomplete",
+        "what" : "The last shutdown returned incomplete. The server stays STOPPING with the groups and services below still running."
+      } ],
+      "liveGaps" : 0,
+      "mongooseVersion" : "1.0.33",
+      "notAvailable" : [ {
+        "detail" : "Mongoose 1.0.33 logs a WARNING and retries the handler; no admin surface reports it. See Logs.",
+        "fact" : "Handwritten handler failures",
+        "needs" : "Mongoose #77"
+      }, {
+        "detail" : "Sequence numbers of ProcessorQuarantined, Dead and QueueDrop records are only in a control-audit export.",
+        "fact" : "Control record evidence",
+        "needs" : "proposal A3"
+      }, {
+        "detail" : "Only the drop count and health verdict are live; the first QueueDrop record is in the control-audit export.",
+        "fact" : "First loss per queue",
+        "needs" : "proposal A3"
+      }, {
+        "detail" : "A failed physical close is reported by resource id; the capture it belongs to is not.",
+        "fact" : "Failed close to capture",
+        "needs" : "proposal A2"
+      }, {
+        "detail" : "The configured limit cannot be read.",
+        "fact" : "Capture resource limit",
+        "needs" : "proposal A5"
+      }, {
+        "detail" : "Replies carry an outcome and reason text, no typed failure kind.",
+        "fact" : "Failure kind",
+        "needs" : "Mongoose #77"
+      }, {
+        "detail" : "No admin command resumes shutdown().",
+        "fact" : "Retry an incomplete shutdown",
+        "needs" : "proposal A4"
+      }, {
+        "detail" : "Queues drop after the spin bound; no policy, latch or clear.",
+        "fact" : "Overload policy and latch",
+        "needs" : "Mongoose #79"
+      }, {
+        "detail" : "No admin command or endpoint.",
+        "fact" : "Replay status",
+        "needs" : "proposal A9"
+      } ],
+      "unacknowledged" : 1,
+      "worst" : "CRITICAL"
+    },
+    "status" : 200
+  },
+  "GET /api/server" : {
+    "body" : {
+      "lastStopResult" : {
+        "blockedStartup" : null,
+        "complete" : false,
+        "groupsRunning" : [ "slowstop" ],
+        "handedOff" : false,
+        "servicesLeftRunning" : [ "com.telamin.mongoose.service.health.MongooseHealthService", "com.telamin.mongoose.pool.ObjectPoolsRegistry", "com.telamin.mongoose.service.audit.MongooseAuditIntrospectionService", "adminWebService", "com.telamin.mongoose.service.introspection.MongooseIntrospectionService", "adminRestService", "com.telamin.mongoose.service.counters.MongooseCountersService", "feed", "com.telamin.mongoose.service.audit.MongooseAuditCaptureService", "serverAdmin", "com.telamin.mongoose.service.counters.MongooseLatencyService", "com.telamin.mongoose.service.servercontrol.MongooseServerController" ]
+      },
+      "lifecycle" : "STOPPING",
+      "pid" : "<pid>",
+      "runtime" : "<runtime>",
+      "startTime" : "<N>",
+      "uptimeMs" : "<N>"
+    },
+    "status" : 200
+  },
+  "GET /api/shutdown" : {
+    "body" : "Endpoint GET /api/shutdown not found",
+    "status" : 404
+  },
+  "GET /healthz" : {
+    "body" : "OK",
+    "status" : 200
+  },
+  "control.group.status slowstop" : {
+    "body" : {
+      "command" : "control.group.status",
+      "err" : [ ],
+      "output" : [ "ControlGroupStatus[group=slowstop, state=CLOSING, outstandingRequests=1, captureResourcesHeld=0, captureResourceSlotsInUse=0, captureCloseFailures={}, captureCleanupFailures={}, quarantinedProcessors={}]" ]
+    },
+    "status" : 200
+  }
+}

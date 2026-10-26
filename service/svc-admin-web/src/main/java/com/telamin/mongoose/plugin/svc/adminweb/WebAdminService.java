@@ -75,6 +75,29 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
     private com.telamin.mongoose.service.counters.MongooseLatencyService latencyService;
     private com.telamin.mongoose.service.audit.MongooseAuditCaptureService auditCapture;
     private com.telamin.mongoose.service.audit.MongooseAuditIntrospectionService auditIntrospection;
+    private com.telamin.mongoose.service.health.MongooseHealthService healthService;
+    /** Failure facts as operator issues (docs/failure-ux-proposal.md); reads the services above on demand. */
+    private final FailureIssues issues = new FailureIssues(new FailureIssues.Sources() {
+        @Override public com.telamin.mongoose.MongooseServer server() { return mongooseServer(); }
+        @Override public Map<String, com.telamin.mongoose.service.introspection.AgentGroupSnapshot> agentGroups() {
+            if (introspection == null) return Collections.emptyMap();
+            try {
+                return introspection.agentGroups();
+            } catch (RuntimeException e) {
+                return Collections.emptyMap();
+            }
+        }
+        @Override public com.telamin.mongoose.service.health.MongooseHealthService health() { return healthService; }
+        @Override public com.telamin.mongoose.service.counters.MongooseCountersService counters() { return countersService; }
+        @Override public List<com.telamin.mongoose.service.audit.AuditSinkHandle> captures() {
+            if (auditIntrospection == null) return List.of();
+            try {
+                return auditIntrospection.listAvailable();
+            } catch (RuntimeException e) {
+                return List.of();
+            }
+        }
+    });
     private byte[] resolvedSessionSecret;
     private final SecureRandom random = new SecureRandom();
     private MonitoringSampler monitoringSampler;
@@ -191,6 +214,29 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
     }
 
     @ServiceRegistered
+    public void healthService(com.telamin.mongoose.service.health.MongooseHealthService svc, String name) {
+        log.info("Health service: '{}' name: '{}'", svc, name);
+        this.healthService = svc;
+    }
+
+    private volatile String mongooseVersion;
+
+    private String mongooseVersion() {
+        String v = mongooseVersion;
+        if (v == null) {
+            v = resolveDependencyVersion("com.telamin", "mongoose");
+            if (v.equals("absent") || v.equals("unknown")) v = "";
+            mongooseVersion = v;
+        }
+        return v;
+    }
+
+    /** The typed control-plane view (group status, last StopResult); null when the controller is not a MongooseServer. */
+    private com.telamin.mongoose.MongooseServer mongooseServer() {
+        return serverController instanceof com.telamin.mongoose.MongooseServer server ? server : null;
+    }
+
+    @ServiceRegistered
     public void auditIntrospectionService(com.telamin.mongoose.service.audit.MongooseAuditIntrospectionService svc, String name) {
         log.info("Audit introspection service: '{}' name: '{}'", svc, name);
         this.auditIntrospection = svc;
@@ -283,6 +329,30 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
 
         // Dashboard endpoints.
         javalin.get("/api/server", this::handleServer);
+        // Failure facts as issues, and the health checks behind some of them (docs/failure-ux-proposal.md).
+        javalin.get("/api/issues", ctx -> {
+            Map<String, Object> report;
+            try {
+                report = issues.report();
+            } catch (RuntimeException e) {
+                // never a bare 500 for the whole list: say that the list could not be built
+                log.warn("building the issue list failed", e);
+                Map<String, Object> failed = FailureIssues.readFailed("console", "the issue list", e);
+                failed.put("since", System.currentTimeMillis());
+                failed.put("acknowledged", false);
+                report = new LinkedHashMap<>();
+                report.put("worst", "DEGRADED");
+                report.put("counts", Map.of("CRITICAL", 0, "DEGRADED", 1, "INFO", 0));
+                report.put("unacknowledged", 1);
+                report.put("issues", List.of(failed));
+                report.put("notAvailable", FailureIssues.notAvailable(mongooseServer() != null));
+                report.put("liveGaps", 0);
+            }
+            report.put("mongooseVersion", mongooseVersion());
+            ctx.json(report);
+        });
+        javalin.post("/api/issues/ack", this::handleIssueAck);
+        javalin.get("/api/health", this::handleHealth);
         javalin.get("/api/jvm", this::handleJvm);
         javalin.get("/api/config", this::handleConfig);
         // Versions of the deployed artefacts — read from each component's
@@ -799,10 +869,59 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
             errBuffer.add("exception: " + e.getMessage());
         }
 
+        try {
+            issues.recordCommand(name, arguments, new ArrayList<>(outBuffer), new ArrayList<>(errBuffer));
+        } catch (RuntimeException e) {
+            log.warn("could not record the outcome of admin command '{}'", name, e);
+        }
+
         ctx.json(Map.of(
                 "command", name,
                 "output", new ArrayList<>(outBuffer),
                 "err", new ArrayList<>(errBuffer)));
+    }
+
+    private void handleIssueAck(Context ctx) {
+        String id;
+        try {
+            JsonNode body = INVOKE_JSON.readTree(ctx.body());
+            id = body == null || body.get("id") == null || !body.get("id").isTextual() ? null : body.get("id").asText();
+        } catch (JsonProcessingException e) {
+            id = null;
+        }
+        if (id == null) {
+            ctx.status(HttpStatus.BAD_REQUEST);
+            ctx.json(Map.of("err", "expected {\"id\":\"<issue id>\"}"));
+            return;
+        }
+        if (!issues.acknowledge(id)) {
+            ctx.status(HttpStatus.NOT_FOUND);
+            ctx.json(Map.of("err", "no open issue " + id + " (refresh the issue list)"));
+            return;
+        }
+        ctx.json(Map.of("id", id, "acknowledged", true));
+    }
+
+    /** Every Mongoose health check with its verdict; empty when the health service is not bound. */
+    private void handleHealth(Context ctx) {
+        List<Map<String, Object>> checks = new ArrayList<>();
+        if (healthService != null) {
+            healthService.forEachStatus((component, check, status) -> {
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("component", component);
+                m.put("check", check);
+                m.put("verdict", status == null ? null : String.valueOf(status.verdict()));
+                m.put("reason", status == null ? null : status.reason());
+                m.put("asOfEpochMs", status == null ? null : status.asOfEpochMs());
+                checks.add(m);
+            });
+        }
+        checks.sort(java.util.Comparator.comparing((Map<String, Object> m) -> String.valueOf(m.get("component")))
+                .thenComparing(m -> String.valueOf(m.get("check"))));
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("available", healthService != null);
+        out.put("checks", checks);
+        ctx.json(out);
     }
 
     // -------- dashboard --------
@@ -812,7 +931,39 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         // service start (runtime loaders) fold into the discovery file without a timer.
         // ServerRegistryFile.publish is a no-op when nothing changed.
         refreshRegistry();
-        ctx.json(MonitoringSampler.serverInfo());
+        MonitoringSampler.ServerInfo info = MonitoringSampler.serverInfo();
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("pid", info.pid());
+        out.put("runtime", info.runtime());
+        out.put("startTime", info.startTime());
+        out.put("uptimeMs", info.uptimeMs());
+        com.telamin.mongoose.MongooseServer server = mongooseServer();
+        if (server != null) {
+            com.telamin.mongoose.StopResult stop = server.lastStopResult();
+            out.put("lifecycle", lifecycle(server.isStarted(), stop));
+            out.put("lastStopResult", stopResultJson(stop));
+        }
+        ctx.json(out);
+    }
+
+    /**
+     * The server lifecycle as far as Mongoose 1.0.33 exposes it ({@code isStarted}, {@code lastStopResult}): an
+     * incomplete stop leaves the server STOPPING; {@code UNKNOWN} covers starting and a stop in progress.
+     */
+    static String lifecycle(boolean started, com.telamin.mongoose.StopResult stop) {
+        if (stop != null) return stop.complete() ? "STOPPED" : "STOPPING";
+        return started ? "STARTED" : "UNKNOWN";
+    }
+
+    static Map<String, Object> stopResultJson(com.telamin.mongoose.StopResult stop) {
+        if (stop == null) return null;
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("complete", stop.complete());
+        m.put("handedOff", stop.handedOff());
+        m.put("blockedStartup", stop.blockedStartup());
+        m.put("groupsRunning", stop.groupsRunning());
+        m.put("servicesLeftRunning", stop.servicesLeftRunning());
+        return m;
     }
 
     private void handleJvm(Context ctx) {
@@ -881,14 +1032,32 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         String processor = ctx.pathParam("processor");
         try {
             auditCapture.start(processor);
-        } catch (IllegalArgumentException e) {
-            ctx.status(HttpStatus.NOT_FOUND);
-            ctx.json(Map.of("err", e.getMessage()));
+        } catch (RuntimeException e) {
+            auditRefused(ctx, e);
+            issues.recordCaptureRefusal("start", processor, e);
             return;
         }
         ctx.json(Map.of(
                 "processor", processor,
                 "recording", auditCapture.isRecording(processor)));
+    }
+
+    /**
+     * Mongoose 1.0.33 refuses capture changes with a reason: an unknown or ambiguous name
+     * ({@code IllegalArgumentException}, 404, the message names the qualified selectors to use) or a
+     * start/stop that was not applied - open/resource limit, open failed or timed out, group closed,
+     * request cancelled before the group took it ({@code IllegalStateException}, 409). Either way the
+     * UI reads {@code err}; anything else is still a 500.
+     */
+    private static void auditRefused(Context ctx, RuntimeException e) {
+        if (e instanceof IllegalArgumentException) {
+            ctx.status(HttpStatus.NOT_FOUND);
+        } else if (e instanceof IllegalStateException) {
+            ctx.status(HttpStatus.CONFLICT);
+        } else {
+            throw e;
+        }
+        ctx.json(Map.of("err", String.valueOf(e.getMessage())));
     }
 
     private void handleAuditStop(Context ctx) {
@@ -898,7 +1067,13 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
             return;
         }
         String processor = ctx.pathParam("processor");
-        auditCapture.stop(processor);
+        try {
+            auditCapture.stop(processor);
+        } catch (RuntimeException e) {
+            auditRefused(ctx, e);
+            issues.recordCaptureRefusal("stop", processor, e);
+            return;
+        }
         ctx.json(Map.of(
                 "processor", processor,
                 "recording", auditCapture.isRecording(processor)));
@@ -2038,8 +2213,55 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
                 log.warn("introspection.agentGroups() failed; reporting raw registry view", e);
             }
         }
+        applyControlState(agents);
 
         ctx.json(Map.of("agents", agents));
+    }
+
+    /**
+     * Adds the control-plane state Mongoose 1.0.33 keeps per processor group: {@code controlState} on the group,
+     * a {@code state} on each member, and the group's quarantined processors, which the registry no longer lists
+     * (they are fenced, not gone: Mongoose keeps their name and instance until shutdown).
+     */
+    private void applyControlState(List<Map<String, Object>> agents) {
+        com.telamin.mongoose.MongooseServer server = mongooseServer();
+        if (server == null) return;
+        for (Map<String, Object> g : agents) {
+            com.telamin.mongoose.MongooseServer.ControlGroupStatus st;
+            try {
+                st = server.controlGroupStatus(String.valueOf(g.get("group")));
+            } catch (RuntimeException notAProcessorGroup) {
+                continue;
+            }
+            applyControlState(g, st);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    static void applyControlState(Map<String, Object> group, com.telamin.mongoose.MongooseServer.ControlGroupStatus st) {
+        String state = String.valueOf(st.state());
+        group.put("controlState", state);
+        String memberState = switch (st.state()) {
+            case RUNNING -> "RUNNING";
+            case DEAD -> "NOT_RUNNING_GROUP_DEAD";
+            case CLOSING, CLOSED -> "NOT_RUNNING_GROUP_" + state;
+            default -> state;
+        };
+        List<Map<String, Object>> members = new ArrayList<>((List<Map<String, Object>>) group.getOrDefault("members", List.of()));
+        for (Map<String, Object> m : members) {
+            m.put("state", memberState);
+        }
+        st.quarantinedProcessors().forEach((name, reason) -> {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("name", name);
+            m.put("kind", "processor");
+            m.put("className", "");
+            m.put("subscriptions", List.of());
+            m.put("state", "QUARANTINED");
+            m.put("stateReason", reason);
+            members.add(m);
+        });
+        group.put("members", members);
     }
 
     /**
@@ -2860,7 +3082,40 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
             ctx.json(Map.of("err", "queue introspection failed: " + e.getMessage()));
             return;
         }
-        ctx.json(Map.of("sources", parseEventSources(sb.toString())));
+        List<Map<String, Object>> sources = parseEventSources(sb.toString());
+        applyQueueLoss(sources, issues.dropCounts(), issues.queueHealth());
+        ctx.json(Map.of("sources", sources));
+    }
+
+    /**
+     * Adds {@code dropped} and {@code health} to each queue from the per-queue drop counters and
+     * {@code queue-drops:<path>} health checks, matched on (feed, agent group): Mongoose 1.0.33 names a
+     * data-path queue {@code /feed/<feed>/group/<group>/subscriber/<ref>}. The first loss is not live on 1.0.33
+     * (it is a control-audit record), so it is not reported here.
+     */
+    @SuppressWarnings("unchecked")
+    static void applyQueueLoss(List<Map<String, Object>> sources, Map<String, Long> drops,
+                               Map<String, com.telamin.mongoose.service.health.HealthStatus> health) {
+        Map<String, String> pathByFeedGroup = new java.util.HashMap<>();
+        java.util.Set<String> paths = new java.util.HashSet<>(drops.keySet());
+        paths.addAll(health.keySet());
+        for (String path : paths) {
+            java.util.regex.Matcher m = FailureIssues.QUEUE_PATH.matcher(path);
+            if (m.matches()) pathByFeedGroup.put(m.group(1) + "\u0000" + m.group(2), path);
+        }
+        for (Map<String, Object> source : sources) {
+            for (Map<String, Object> q : (List<Map<String, Object>>) source.get("queues")) {
+                String path = pathByFeedGroup.get(source.get("source") + "\u0000" + q.get("agentGroup"));
+                if (path == null) continue;
+                q.put("dropPath", path);
+                if (drops.containsKey(path)) q.put("dropped", drops.get(path));
+                var h = health.get(path);
+                if (h != null) {
+                    q.put("health", String.valueOf(h.verdict()));
+                    q.put("healthReason", h.reason());
+                }
+            }
+        }
     }
 
     /**
@@ -3418,6 +3673,21 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         public List<String> args;
     }
 
+    /**
+     * Whether the admin endpoint would be reachable from another host with no authentication: bound to anything other
+     * than a loopback address while {@code authMode} is {@code NONE}. A host that cannot be resolved counts as exposed.
+     */
+    static boolean exposedWithoutAuth(String host, AuthMode authMode) {
+        if (authMode != AuthMode.NONE) {
+            return false;
+        }
+        try {
+            return !java.net.InetAddress.getByName(host).isLoopbackAddress();
+        } catch (java.net.UnknownHostException e) {
+            return true;
+        }
+    }
+
     private static final ObjectMapper INVOKE_JSON = new ObjectMapper();
     private static final String INVOKE_SHAPE = "expected {\"arguments\":[\"...\"]}";
 
@@ -3475,20 +3745,5 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
             values.add(value.asText());
         }
         return values;
-    }
-
-    /**
-     * Whether the admin endpoint would be reachable from another host with no authentication: bound to anything other
-     * than a loopback address while {@code authMode} is {@code NONE}. A host that cannot be resolved counts as exposed.
-     */
-    static boolean exposedWithoutAuth(String host, AuthMode authMode) {
-        if (authMode != AuthMode.NONE) {
-            return false;
-        }
-        try {
-            return !java.net.InetAddress.getByName(host).isLoopbackAddress();
-        } catch (java.net.UnknownHostException e) {
-            return true;
-        }
     }
 }
