@@ -93,6 +93,13 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
     @Getter @Setter private int    listenPort = 8181;
     @Getter @Setter private String host       = "127.0.0.1";
     @Getter @Setter private String basePath   = "/";
+    /**
+     * Host names (the Host header, without port) accepted besides loopback names. Empty (the default) with a
+     * loopback bind accepts only {@code localhost}, {@code 127.x.x.x} and {@code ::1}, which defeats DNS rebinding
+     * of a browser onto the console. Set it when the console is reached through another name (a proxy, an
+     * off-box bind). With an off-box bind and an empty list, the Host header is not checked.
+     */
+    @Getter @Setter private List<String> allowedHosts = new ArrayList<>();
 
     // auth config
     @Getter @Setter private AuthMode authMode = AuthMode.NONE;
@@ -511,6 +518,18 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         // to log out of it).
         boolean isLogin = "/api/session/login".equals(path);
 
+        // DNS rebinding: a page on another name resolved to this address is same-origin to the browser, so the
+        // Host header is the only thing that tells it apart. Checked on every request, including login.
+        if (!hostAllowed(ctx.header("Host"), host, allowedHosts)) {
+            throw new io.javalin.http.ForbiddenResponse("host not allowed: " + ctx.header("Host")
+                    + " (add it to allowedHosts)", Map.of());
+        }
+        // A browser names the page that sent a state-changing request; one from another origin is refused,
+        // whatever the auth mode (SameSite cookies do not protect the NONE mode, which has no credentials).
+        if (requiresCsrf(ctx) && !originMatchesHost(ctx.header("Origin"), ctx.header("Host"))) {
+            throw new io.javalin.http.ForbiddenResponse("cross-origin request refused: " + ctx.header("Origin"), Map.of());
+        }
+
         if (!isLogin && authMode != AuthMode.NONE) {
             boolean authed = hasValidSessionCookie(ctx) || hasValidAuthHeader(ctx);
             if (!authed) {
@@ -519,12 +538,18 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
             }
         }
 
-        // CSRF: every state-changing request needs the token. Login is exempt
+        // CSRF: every state-changing request needs the token, in every auth mode. Login is exempt
         // because it doesn't have a session yet. GET/HEAD requests don't need
         // CSRF protection per the standard cookie-based threat model.
-        if (!isLogin && requiresCsrf(ctx) && authMode != AuthMode.NONE) {
+        // With authMode NONE a client first POSTs /api/session/login (empty body) and then sends the
+        // session cookie and the returned csrfToken as X-CSRF-Token.
+        if (!isLogin && requiresCsrf(ctx)) {
             SessionToken session = currentSession(ctx);
             if (session == null) {
+                if (authMode == AuthMode.NONE) {
+                    throw new UnauthorizedResponse("missing session: POST /api/session/login first, then send its"
+                            + " cookie and csrfToken (X-CSRF-Token)", Map.of());
+                }
                 // Auth header alone (no cookie) is treated as a script client;
                 // CSRF doesn't apply because there's no ambient cookie auth to
                 // exploit. Skip the check in that case.
@@ -534,6 +559,52 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
             if (presented == null || !constantTimeEquals(presented, session.csrfToken)) {
                 throw new UnauthorizedResponse("missing or invalid CSRF token", Map.of());
             }
+        }
+    }
+
+    /**
+     * Whether the Host header names this console: any name in {@code allowed}, a loopback literal, or anything
+     * when the bind is off-box and no allow-list is set. Never resolves the name (that is what rebinding abuses).
+     */
+    static boolean hostAllowed(String hostHeader, String boundHost, List<String> allowed) {
+        String name = hostName(hostHeader);
+        if (name == null) return false;
+        if (isLoopbackName(name)) return true;
+        if (allowed != null && !allowed.isEmpty()) {
+            return allowed.stream().anyMatch(a -> a != null && a.equalsIgnoreCase(name));
+        }
+        return !isLoopbackName(boundHost == null ? "" : boundHost.trim().toLowerCase(java.util.Locale.ROOT));
+    }
+
+    /** The name part of a Host header ({@code name}, {@code name:port}, {@code [v6]:port}), lower case. */
+    static String hostName(String hostHeader) {
+        if (hostHeader == null || hostHeader.isBlank()) return null;
+        String h = hostHeader.trim().toLowerCase(java.util.Locale.ROOT);
+        if (h.startsWith("[")) {
+            int end = h.indexOf(']');
+            return end < 0 ? null : h.substring(1, end);
+        }
+        int colon = h.indexOf(':');
+        if (colon >= 0 && h.indexOf(':', colon + 1) < 0) h = h.substring(0, colon);
+        return h;
+    }
+
+    static boolean isLoopbackName(String name) {
+        return name.equals("localhost") || name.equals("::1") || name.equals("0:0:0:0:0:0:0:1")
+                || name.matches("127\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}");
+    }
+
+    /** No Origin (a non-browser client) passes; otherwise its host:port must equal the Host header. */
+    static boolean originMatchesHost(String origin, String hostHeader) {
+        if (origin == null) return true;
+        if (hostHeader == null) return false;
+        try {
+            java.net.URI uri = java.net.URI.create(origin.trim());
+            if (uri.getHost() == null) return false; // includes Origin: null
+            String authority = uri.getRawAuthority();
+            return authority != null && authority.equalsIgnoreCase(hostHeader.trim());
+        } catch (IllegalArgumentException e) {
+            return false;
         }
     }
 
@@ -3064,6 +3135,9 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         // Auth: same as /api/*. Origin allow-list: same-origin only by default
         // (browser cookies aren't sent on cross-origin WS upgrade anyway, but
         // belt+braces). CSRF on WS comes through ?csrf=... query param.
+        if (!hostAllowed(ctx.header("Host"), host, allowedHosts)) {
+            throw new io.javalin.http.ForbiddenResponse("host not allowed: " + ctx.header("Host"), Map.of());
+        }
         if (authMode != AuthMode.NONE) {
             boolean authed = hasValidSessionCookie(ctx) || hasValidAuthHeader(ctx);
             if (!authed) {
