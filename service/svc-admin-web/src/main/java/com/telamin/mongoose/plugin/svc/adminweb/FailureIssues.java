@@ -7,6 +7,8 @@ package com.telamin.mongoose.plugin.svc.adminweb;
 import com.telamin.mongoose.MongooseServer;
 import com.telamin.mongoose.StopResult;
 import com.telamin.mongoose.control.ControlDriver;
+import com.telamin.mongoose.control.event.FailureKind;
+import com.telamin.mongoose.control.event.EvidenceStatus;
 import com.telamin.mongoose.dutycycle.NamedEventProcessor;
 import com.telamin.mongoose.service.audit.AuditSinkHandle;
 import com.telamin.mongoose.service.counters.MongooseCountersService;
@@ -29,7 +31,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * The failure facts Mongoose 1.0.33 exposes, as operator issues (docs/failure-ux-proposal.md §3-§4).
+ * The failure facts Mongoose 1.1.0 exposes, as operator issues (docs/failure-ux-proposal.md §3-§4).
  *
  * <p>Every issue is derived on each call from typed Mongoose state ({@code controlGroupStatus},
  * {@code lastStopResult}, health checks, counters), never from a {@code toString()}. The only state kept here is
@@ -38,7 +40,7 @@ import java.util.regex.Pattern;
  * changes a fact, the issue stays listed and keeps counting toward the worst severity until Mongoose stops
  * reporting it (#77 "no manufactured success").
  *
- * <p>Facts 1.0.33 does not expose are listed in {@code notAvailable}, so an empty issue list is never read as
+ * <p>Facts this compatibility UI does not expose are listed in {@code notAvailable}, so an empty issue list is never read as
  * "healthy".
  */
 final class FailureIssues {
@@ -54,11 +56,11 @@ final class FailureIssues {
         List<AuditSinkHandle> captures();
     }
 
-    /** The data-path queue naming of Mongoose 1.0.33 ({@code EventFlowManager.queuePathFor}). */
+    /** The data-path queue naming of Mongoose 1.1.0 ({@code EventFlowManager.queuePathFor}). */
     static final Pattern QUEUE_PATH = Pattern.compile("^/feed/(.+)/group/(.+)/subscriber/(.+)$");
     static final String QUEUE_DROPS_CHECK = "queue-drops:";
-    /** {@code server.processors.stop} reply line on 1.0.33: {@code stop <ReplyOutcome>: <reason>}. */
-    static final Pattern STOP_REPLY = Pattern.compile("^stop (APPLIED|REFUSED|FAILED|NOT_RUNNING): (.*)$");
+    /** Recognizes the explicit 1.1.0 kind token and the older reply format. */
+    static final Pattern STOP_REPLY = Pattern.compile("^stop (APPLIED|REFUSED|FAILED|NOT_RUNNING)(?: \\(([A-Z_]+)\\))?: (.*)$");
     static final Pattern STOP_PENDING = Pattern.compile("^stop pending \\(still applies\\): (.*)$");
     static final int MAX_REQUESTS = 20;
 
@@ -113,6 +115,7 @@ final class FailureIssues {
                     quarantined(server, st, found);
                     dead(server, st, found);
                     captureFailures(st, stopping, found);
+                    structuredFailures(st, found);
                     issues.addAll(found);
                 } catch (RuntimeException e) {
                     issues.addAll(found);
@@ -205,6 +208,7 @@ final class FailureIssues {
                     Severity.CRITICAL, subject);
             issue.put("group", group);
             issue.put("processor", name);
+            issue.put("failureKind", FailureKind.QUARANTINED.name());
             issue.put("title", "Processor quarantined");
             issue.put("what", "The generated processor threw while handling an event. Mongoose fenced it from its"
                     + " feeds and timers and will not call it again. Reason: " + reason);
@@ -215,7 +219,7 @@ final class FailureIssues {
             issue.put("evidence", evidence);
             issue.put("evidenceUnavailable", List.of(
                     "The ProcessorQuarantined control record (sequence, time) is only in a control-audit export on"
-                            + " Mongoose 1.0.33: run Export evidence."));
+                            + " Mongoose 1.1.0: run Export evidence."));
             List<String> peers = peers(server, group, name);
             issue.put("impact", "no output from " + subject + " until the process is replaced: it receives no events"
                     + " and no timers. " + (peers.isEmpty() ? "It is the only processor in group " + group + "."
@@ -225,7 +229,7 @@ final class FailureIssues {
             actions.add(ack());
             actions.add(exportEvidence(group));
             actions.add(disabled("stop", "Stop",
-                    "Known outcome on Mongoose 1.0.33: stop FAILED: processor quarantined. The name stays reserved"
+                    "Known outcome on Mongoose 1.1.0: stop FAILED (QUARANTINED): processor quarantined. The name stays reserved"
                             + " until shutdown."));
             actions.add(disabled("replace", "Replace / re-add",
                     "Not offered: Mongoose keeps the quarantined name and instance reserved and has no audited"
@@ -240,8 +244,9 @@ final class FailureIssues {
         String group = st.group();
         Map<String, Object> issue = issue("GROUP_DEAD:" + group, "GROUP_DEAD", Severity.CRITICAL, group);
         issue.put("group", group);
+        issue.put("failureKind", FailureKind.FAILED_DEAD.name());
         issue.put("title", "Processor group dead");
-        issue.put("what", "The group's agent thread ended abnormally. Mongoose admits no more requests for it and"
+        issue.put("what", "The group's control plane is DEAD. Mongoose admits no more requests for it and"
                 + " runs none of its processors.");
         List<Map<String, Object>> evidence = new ArrayList<>();
         evidence.add(evidence("Group state", "control.group.status " + group + ": state DEAD"));
@@ -250,9 +255,8 @@ final class FailureIssues {
         issue.put("evidence", evidence);
         issue.put("evidenceUnavailable", List.of(
                 "The Dead control record and the error that ended the thread are only in a control-audit export and"
-                        + " the server log on Mongoose 1.0.33.",
-                "With Mongoose's default error handler a fatal group error exits the JVM: this console only sees a"
-                        + " DEAD group when the application installs its own handler."));
+                        + " the server log on Mongoose 1.1.0.",
+                "The default fatalErrorPolicy CONTAIN keeps the process alive; EXIT_PROCESS is an explicit opt-in."));
         List<String> members = memberNames(server, group);
         issue.put("impact", "No processor in " + group + " runs" + (members.isEmpty() ? "." : ": " + String.join(", ", members)
                 + " are listed but not running.") + " Requests to the group are answered NOT_RUNNING. Other groups keep"
@@ -261,9 +265,51 @@ final class FailureIssues {
         actions.add(ack());
         actions.add(exportEvidence(group));
         actions.add(manual("restart-process", "Restart",
-                "Mongoose 1.0.33 cannot restart a dead group. Replace the process under your incident policy."));
+                "Mongoose 1.1.0 cannot restart a dead group. Replace the process under your incident policy."));
         issue.put("actions", actions);
         issues.add(issue);
+    }
+
+    /** Structured 1.1.0 facts work even when performance counters are disabled. */
+    static void structuredFailures(MongooseServer.ControlGroupStatus st, List<Map<String, Object>> issues) {
+        if (st.controlAuditDegraded()) {
+            Map<String, Object> issue = issue("CONTROL_AUDIT_DEGRADED:" + st.group(), "CONTROL_AUDIT_DEGRADED", Severity.DEGRADED, st.group());
+            issue.put("group", st.group());
+            issue.put("failureKind", FailureKind.UNVERIFIED.name());
+            issue.put("evidenceStatus", EvidenceStatus.UNVERIFIED.name());
+            issue.put("title", "Control audit incomplete");
+            issue.put("what", "The control audit reported a write failure; requests continue with UNVERIFIED replies until acknowledgement/export.");
+            issue.put("evidence", List.of(evidence("Group status", "controlAuditDegraded=true")));
+            issue.put("impact", "Acknowledgement does not repair the gap or make the export complete.");
+            issue.put("actions", List.of(ack(), exportEvidence(st.group())));
+            issues.add(issue);
+        }
+        if (st.unacknowledgedCaptureFailures() != null) {
+            Map<String, Object> issue = issue("CAPTURE_EVIDENCE_GAP:" + st.group(), "CAPTURE_EVIDENCE_GAP", Severity.DEGRADED, st.group());
+            issue.put("group", st.group());
+            issue.put("title", "Unacknowledged capture failure");
+            issue.put("what", st.unacknowledgedCaptureFailures());
+            issue.put("evidence", List.of(evidence("Capture write failures", String.valueOf(st.captureWriteFailures())),
+                    evidence("Unobservable captures", String.valueOf(st.captureUnobservable()))));
+            issue.put("impact", "Capture may be incomplete. Local issue acknowledgement does not acknowledge engine capture failures; use control.capture.acknowledge <group> in Commands after investigation.");
+            issue.put("actions", List.of(ack(), exportEvidence(st.group())));
+            issues.add(issue);
+        }
+        st.overloadStates().forEach((feed, queues) -> queues.forEach((queue, state) -> {
+            if ("UP".equals(state)) return;
+            Map<String, Object> issue = issue("OVERLOAD_LOSS:" + st.group() + ":" + feed + ":" + queue, "OVERLOAD_LOSS",
+                    "DEGRADED".equals(state) ? Severity.DEGRADED : Severity.CRITICAL, feed + " → " + st.group());
+            issue.put("group", st.group()); issue.put("feed", feed); issue.put("queue", queue);
+            issue.put("failureKind", FailureKind.OVERLOAD_LOSS.name()); issue.put("overloadState", state);
+            if (st.controlAuditDegraded()) issue.put("evidenceStatus", EvidenceStatus.UNVERIFIED.name());
+            issue.put("title", "Overload " + state);
+            issue.put("what", "Subscriber queue reports " + state + ". REMOVED retains an unresolved latch after unsubscribe.");
+            issue.put("evidence", List.of(evidence("Feed", feed), evidence("Queue", queue), evidence("State", state)));
+            issue.put("impact", "Data was lost or refused. Reconcile the stream before using overload.clear; it re-arms detection and cannot restore lost data.");
+            issue.put("actions", List.of(ack(), exportEvidence(st.group()), disabled("clear", "Clear overload",
+                    "Guided clear is not implemented. Inspect overload.status and use overload.clear <feed> in Commands under the incident runbook.")));
+            issues.add(issue);
+        }));
     }
 
     private void captureFailures(MongooseServer.ControlGroupStatus st, boolean stopping, List<Map<String, Object>> issues) {
@@ -305,10 +351,10 @@ final class FailureIssues {
                 evidence("Capture slots in use", st.captureResourceSlotsInUse() + " (resources held "
                         + st.captureResourcesHeld() + ")")));
         issue.put("evidenceUnavailable", List.of(
-                "Which capture (processor and file) resource " + resource + " belongs to: Mongoose 1.0.33 has no"
+                "Which capture (processor and file) resource " + resource + " belongs to: Mongoose 1.1.0 has no"
                         + " resource ledger (proposal A2). audit.stop reported STOPPED and the file is listed as an"
                         + " ordinary finished capture.",
-                "The capture resource limit: Mongoose 1.0.33 has no getter (proposal A5)."));
+                "The capture resource limit: Mongoose 1.1.0 has no getter (proposal A5)."));
         issue.put("impact", "The slot stays held until the process is replaced: with a capture resource limit, later"
                 + " capture starts in " + group + " can be refused. The capture file may be incomplete. Shutdown will"
                 + " report " + group + " incomplete.");
@@ -328,6 +374,7 @@ final class FailureIssues {
         if (stop == null || stop.complete()) return;
         if (stop.handedOff()) {
             Map<String, Object> issue = issue("SHUTDOWN_HANDED_OFF", "SHUTDOWN_HANDED_OFF", Severity.INFO, "server");
+            issue.put("failureKind", stop.failureKind().name());
             issue.put("title", "Shutdown continuing on the stop thread");
             issue.put("what", "shutdown() was called from a thread that may not wait; Mongoose continues it on its"
                     + " stop thread.");
@@ -338,12 +385,16 @@ final class FailureIssues {
             return;
         }
         Map<String, Object> issue = issue("SHUTDOWN_INCOMPLETE", "SHUTDOWN_INCOMPLETE", Severity.CRITICAL, "server");
+        issue.put("failureKind", stop.failureKind().name());
+        issue.put("heldNames", stop.heldNames());
         issue.put("title", "Shutdown incomplete");
-        issue.put("what", "The last shutdown returned incomplete. The server stays STOPPING with the groups and"
-                + " services below still running.");
+        issue.put("what", "The last shutdown returned incomplete. The server stays STOPPING with unconfirmed cleanup or"
+                + " held names. A listed group or service is not necessarily still executing.");
         List<Map<String, Object>> evidence = new ArrayList<>();
         evidence.add(evidence("Groups still running", String.join(", ", stop.groupsRunning())));
         evidence.add(evidence("Services left running", String.join(", ", stop.servicesLeftRunning())));
+        for (var held : stop.heldNames()) evidence.add(evidence("Held name", held.group() + "/" + held.name()
+                + " generation " + held.generation() + ": " + held.reason()));
         if (stop.blockedStartup() != null) evidence.add(evidence("Blocked startup", stop.blockedStartup()));
         for (String group : stop.groupsRunning()) {
             try {
@@ -356,13 +407,13 @@ final class FailureIssues {
         }
         issue.put("evidence", evidence);
         issue.put("evidenceUnavailable", List.of(
-                "Which callback is blocked: Mongoose 1.0.33 reports the group, not the processor or callback."));
+                "Which callback is blocked: Mongoose 1.1.0 reports the group, not the processor or callback."));
         issue.put("impact", "Groups " + String.join(", ", stop.groupsRunning()) + " have not stopped; services they"
                 + " may use are kept running (this console is one of them). Their resources stay held.");
         List<Map<String, Object>> actions = new ArrayList<>();
         actions.add(ack());
         actions.add(disabled("retry-stop", "Retry stop",
-                "No admin command on Mongoose 1.0.33 (proposal A4). The application can call shutdown() again once"
+                "No admin command on Mongoose 1.1.0 (proposal A4). The application can call shutdown() again once"
                         + " the blocker can progress: it resumes without repeating callbacks, and failed closes are"
                         + " not retried."));
         issue.put("actions", actions);
@@ -388,9 +439,7 @@ final class FailureIssues {
             issues.add(readFailed("counters", "the counters service", e));
         }
         if (countersOff) {
-            liveGaps.add(liveGap("Performance counters disabled", "performanceMonitoring is off on this server, so"
-                    + " every queue-drops and up health check is UNKNOWN: queue loss and service up/down cannot be"
-                    + " observed.", "performanceMonitoring.enabled: true"));
+            liveGaps.add(liveGap("Performance counters disabled", "Counter totals and service up/down gauges cannot be observed; structured overload and control health remain available.", "performanceMonitoring.enabled: true"));
         }
         Map<String, Long> drops;
         try {
@@ -448,7 +497,7 @@ final class FailureIssues {
         Long dropped = drops.get(path);
         issue.put("dropped", dropped);
         issue.put("title", "Queue loss");
-        issue.put("what", "A full queue dropped items after its spin bound. Health " + status.verdict() + ": "
+        issue.put("what", "The queue reports lost items under its configured policy. Health " + status.verdict() + ": "
                 + status.reason());
         List<Map<String, Object>> evidence = new ArrayList<>();
         evidence.add(evidence("Dropped", dropped == null ? "count not available (counters disabled)" : String.valueOf(dropped)));
@@ -457,7 +506,7 @@ final class FailureIssues {
         issue.put("evidence", evidence);
         issue.put("evidenceUnavailable", List.of(
                 "The first loss (sequence and time of the QueueDrop record) is only in the group's control-audit"
-                        + " export on Mongoose 1.0.33: run Export evidence."));
+                        + " export on Mongoose 1.1.0: run Export evidence."));
         issue.put("impact", (dropped == null ? "Items" : dropped + " item(s)") + " from feed " + source
                 + (group == null ? "" : " were not delivered to group " + group + "; its processors ran without them")
                 + ". Acceptable only for data where the next update supersedes the last.");
@@ -465,8 +514,7 @@ final class FailureIssues {
         actions.add(ack());
         if (group != null) actions.add(exportEvidence(group));
         actions.add(disabled("clear", "Clear",
-                "No reset on Mongoose 1.0.33: the verdict stays DEGRADED while the drop count is non-zero."
-                        + " Clearing never restores lost items."));
+                "Use overload.status and overload.clear <feed> in Commands for configured policies. An unconfigured feed retains its cumulative DEGRADED verdict; clearing never restores lost items."));
         issue.put("actions", actions);
         return issue;
     }
@@ -525,7 +573,7 @@ final class FailureIssues {
 
     /**
      * Records a control request run through this console that Mongoose did not apply. {@code out}/{@code err}
-     * are the admin command's reply lines; only the documented 1.0.33 reply forms are read.
+     * are the admin command's reply lines. The 1.1.0 FailureKind token is preserved; legacy lines remain readable.
      */
     void recordCommand(String name, List<String> args, List<String> out, List<String> err) {
         String target = args == null || args.isEmpty() ? null : args.get(0);
@@ -537,13 +585,13 @@ final class FailureIssues {
                         return;
                     }
                 }
-                for (String line : out) {
+                for (String line : java.util.stream.Stream.concat(out.stream(), err.stream()).toList()) {
                     Matcher reply = STOP_REPLY.matcher(line);
                     if (reply.matches()) {
                         String outcome = reply.group(1);
                         if (!outcome.equals("APPLIED")) {
                             record(outcome.equals("FAILED") ? "REQUEST_FAILED" : "REQUEST_REFUSED", outcome, name,
-                                    target, reply.group(2));
+                                    target, reply.group(3), FailureKind.parse(reply.group(2)));
                         }
                         return;
                     }
@@ -555,7 +603,7 @@ final class FailureIssues {
                                     "the group did not answer within 1 s; the stop still applies");
                         } else {
                             record("REQUEST_UNCONFIRMED", "UNKNOWN_TARGET", name, selector,
-                                    "no processor group lists " + selector + "; Mongoose 1.0.33 still reports it as"
+                                    "no processor group lists " + selector + "; the legacy reply reports it as"
                                             + " pending");
                         }
                         return;
@@ -596,13 +644,19 @@ final class FailureIssues {
     }
 
     private void record(String kind, String outcome, String command, String target, String reason) {
+        record(kind, outcome, command, target, reason, null);
+    }
+
+    private void record(String kind, String outcome, String command, String target, String reason, FailureKind failureKind) {
         long seq = requestSeq.incrementAndGet();
         String subject = target == null ? command : target;
-        Map<String, Object> issue = issue(kind + ":" + seq, kind, Severity.INFO, subject);
+        Map<String, Object> issue = issue(kind + ":" + seq, kind,
+                failureKind != null && failureKind.engineSafetyNet() ? Severity.CRITICAL : Severity.INFO, subject);
+        issue.put("failureKind", failureKind == null ? null : failureKind.name());
         issue.put("since", System.currentTimeMillis());
         issue.put("outcome", outcome);
         issue.put("command", command);
-        issue.put("title", switch (outcome) {
+        issue.put("title", failureKind == FailureKind.REFUSED_INVALID ? "Request invalid" : switch (outcome) {
             case "PENDING" -> "Request not confirmed";
             case "UNKNOWN_TARGET" -> "Request for an unknown name";
             case "INVALID" -> "Request invalid";
@@ -610,11 +664,11 @@ final class FailureIssues {
             case "NOT_RUNNING" -> "Request not run: group not running";
             default -> "Request refused";
         });
-        issue.put("what", command + (target == null ? "" : " " + target) + " was not applied ("
+        issue.put("what", command + (target == null ? "" : " " + target) + " returned ("
                 + outcome + "): " + reason);
         issue.put("evidence", List.of(evidence("Reply", outcome + ": " + reason),
                 evidence("Sent by", "this console")));
-        issue.put("impact", hint(outcome, reason));
+        issue.put("impact", failureKind == null ? hint(outcome, reason) : typedHint(failureKind));
         issue.put("actions", List.of(ack()));
         firstSeen.put((String) issue.get("id"), (Long) issue.get("since"));
         synchronized (requests) {
@@ -625,11 +679,19 @@ final class FailureIssues {
         }
     }
 
+    private static String typedHint(FailureKind kind) {
+        if (kind.refusal()) return "No effect was applied. Refusal kind: " + kind + "; inspect the target and admission conditions before retrying.";
+        if (kind.engineSafetyNet()) return "The control engine's safety net answered. Preserve the evidence and investigate; do not assume the requested effects did not run.";
+        if (kind == FailureKind.QUARANTINED) return "The processor is quarantined and its name remains held. Follow the incident runbook.";
+        if (kind == FailureKind.DETACHED) return "The caller stopped waiting; the operation may still complete.";
+        return "Failure kind: " + kind + ". Effects may already have occurred; inspect the evidence before retrying.";
+    }
+
     static String hint(String outcome, String reason) {
+        if (outcome.equals("FAILED")) return "The request failed; effects may already have occurred. Inspect the evidence before retrying.";
         String r = reason == null ? "" : reason;
         if (outcome.equals("UNKNOWN_TARGET")) {
-            return "Most likely nothing was stopped. Check the name (group/processor); Mongoose 1.0.33 cannot refuse"
-                    + " an unknown name.";
+            return "This legacy reply did not confirm a stop. Check the qualified group/processor name and current status; do not infer completion.";
         }
         if (outcome.equals("PENDING")) return "The stop may still happen; refresh to see whether the processor is gone.";
         if (r.contains("mailbox full") || r.contains("queue stayed full")) {
@@ -646,7 +708,7 @@ final class FailureIssues {
         return "Nothing changed.";
     }
 
-    // ------------------------------------------------------------------ what 1.0.33 cannot show
+    // ------------------------------------------------------------------ compatibility UI limits
 
     static List<Map<String, Object>> notAvailable(boolean serverWired) {
         List<Map<String, Object>> out = new ArrayList<>();
@@ -654,8 +716,7 @@ final class FailureIssues {
             out.add(gap("Group control status", "This server is not a MongooseServer: quarantine, dead groups,"
                     + " capture failures and shutdown results cannot be read.", "MongooseServer"));
         }
-        out.add(gap("Handwritten handler failures", "Mongoose 1.0.33 logs a WARNING and retries the handler; no admin"
-                + " surface reports it. See Logs.", "Mongoose #77"));
+        out.add(gap("Handwritten handler failures", "Recovery depends on the dispatch strategy capabilities. Inspect the ERROR/WARNING log; this panel has no structured per-handler history.", "plugin milestone 2"));
         out.add(gap("Control record evidence", "Sequence numbers of ProcessorQuarantined, Dead and QueueDrop records"
                 + " are only in a control-audit export.", "proposal A3"));
         out.add(gap("First loss per queue", "Only the drop count and health verdict are live; the first QueueDrop"
@@ -663,10 +724,10 @@ final class FailureIssues {
         out.add(gap("Failed close to capture", "A failed physical close is reported by resource id; the capture it"
                 + " belongs to is not.", "proposal A2"));
         out.add(gap("Capture resource limit", "The configured limit cannot be read.", "proposal A5"));
-        out.add(gap("Failure kind", "Replies carry an outcome and reason text, no typed failure kind.", "Mongoose #77"));
+        out.add(gap("Typed request evidence", "Stop replies expose FailureKind; generic command text does not carry EvidenceStatus. No VERIFIED status is inferred.", "plugin milestone 2"));
         out.add(gap("Retry an incomplete shutdown", "No admin command resumes shutdown().", "proposal A4"));
-        out.add(gap("Overload policy and latch", "Queues drop after the spin bound; no policy, latch or clear.",
-                "Mongoose #79"));
+        out.add(gap("Overload actions", "Overload states are shown. Use the Commands panel for overload.status and overload.clear <feed>; guided clear/kill-switch controls are not implemented.",
+                "plugin milestone 2"));
         out.add(gap("Replay status", "No admin command or endpoint.", "proposal A9"));
         return out;
     }
@@ -716,8 +777,9 @@ final class FailureIssues {
         m.put("kind", kind);
         m.put("severity", severity.name());
         m.put("subject", subject);
-        // Mongoose #77 adds a typed FailureKind; 1.0.33 has none, so the field is present and null
+        // Null means this source did not supply a typed kind/evidence status; never infer verified evidence.
         m.put("failureKind", null);
+        m.put("evidenceStatus", null);
         return m;
     }
 
@@ -750,7 +812,7 @@ final class FailureIssues {
                 "Names a directory that does not exist yet, on the server host (relative paths resolve against the"
                         + " server's working directory). One export runs at a time.",
                 "Writes group " + group + "'s control-audit records for offline analysis and reports completeness."
-                        + " Changes no server state.");
+                        + " Export acknowledges the control-audit gap it exported for later replies; it does not repair incomplete history.");
         m.put("command", "control.audit.export");
         m.put("args", List.of(group));
         m.put("statusCommand", "control.audit.export.status");

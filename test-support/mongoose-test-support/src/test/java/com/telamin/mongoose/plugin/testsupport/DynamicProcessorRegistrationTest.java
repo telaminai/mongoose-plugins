@@ -37,9 +37,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  *   <li><b>Wrong wait condition.</b>
  *       {@code MongooseServer.registeredProcessors().containsKey(group)}
  *       is true as soon as the agent group exists, before the dispatcher
- *       has drained the queued reader and started polling. Wait for the
- *       group's {@code registeredEventProcessors()} to be non-empty before
- *       offering events.</li>
+ *       has finished wiring its subscriptions. The processor registry is populated
+ *       before service/feed registration. Wait for a registered processor AND
+ *       no outstanding add request before offering events.</li>
  * </ol>
  *
  * <p>Companion test:
@@ -65,10 +65,12 @@ class DynamicProcessorRegistrationTest {
         try (MongooseTestHarness h = tryStartHarness(feed, staticHandler, registrar)) {
 
             // Give the dynamic registrar time to install its processor AND
-            // for the dispatcher to drain the queued reader so events flow.
+            // for its add request to finish wiring services/feed subscriptions.
+            // Registry publication alone occurs before addEventFeed (buildAndStart).
             h.awaitCondition(() -> registrar.flow != null
                     && h.server().registeredProcessors().getOrDefault("dynamic-group",
-                            java.util.Collections.emptyList()).stream().findAny().isPresent());
+                            java.util.Collections.emptyList()).stream().findAny().isPresent()
+                    && h.server().controlGroupStatus("dynamic-group").outstandingRequests() == 0);
 
             // Resolve the LIVE handler bean. Fluxtion source-gen replaces the
             // user-supplied node instance with a new bean inside the generated

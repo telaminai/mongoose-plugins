@@ -61,12 +61,12 @@ class AdminRestScenarioIT {
             assertFalse(issues.contains("hand/handwritten"), "Mongoose 1.0.33 reports no handwritten failure: " + issues);
             assertTrue(issues.contains("\"fact\":\"Handwritten handler failures\""), "the gap is listed, not hidden: " + issues);
             String stop = body(g.record("server.processors.stop pricing/pricer", s.command("server.processors.stop", "pricing/pricer")));
-            assertTrue(stop.contains("stop FAILED: processor quarantined; lifecycle cleanup requires operator resolution"), stop);
+            assertTrue(stop.contains("stop FAILED (QUARANTINED): processor quarantined; lifecycle cleanup requires operator resolution"), stop);
             // acknowledging moves the issue; it stays open and keeps the worst severity
             assertEquals(200, g.record("POST /api/issues/ack", s.postWeb("/api/issues/ack",
                     "{\"id\":\"PROCESSOR_QUARANTINED:pricing/pricer\"}")).statusCode());
             String acked = body(g.record("GET /api/issues (acknowledged, stop recorded)", s.get("/api/issues")));
-            assertTrue(acked.contains("\"subject\":\"pricing/pricer\",\"failureKind\":null,\"group\":\"pricing\""), acked);
+            assertTrue(acked.contains("\"failureKind\":\"QUARANTINED\""), acked);
             assertTrue(acked.contains("\"acknowledged\":true"), acked);
             // the only CRITICAL issue is acknowledged; it must still set the worst severity, and stay unacknowledged-count 1 (the INFO stop)
             assertWorst("CRITICAL", acked);
@@ -109,7 +109,7 @@ class AdminRestScenarioIT {
             assertTrue(issues.contains("No processor in doomed runs: ok are listed but not running."), issues);
             assertTrue(issues.contains("\"action\":\"restart-process\""), issues);
             assertTrue(body(g.record("server.processors.stop doomed/ok", s.command("server.processors.stop", "doomed/ok")))
-                    .contains("stop NOT_RUNNING: group doomed is DEAD"));
+                    .contains("stop NOT_RUNNING (FAILED_DEAD): group doomed is DEAD"));
             g.verify();
         }
     }
@@ -223,14 +223,16 @@ class AdminRestScenarioIT {
 
     @Test
     void e2_queueOverloadWithCountersDisabled() throws Exception {
-        // Mongoose's default (performanceMonitoring off): drops still happen, but no surface can see them
+        // Structured overload state remains observable with performance counters disabled.
         try (ScenarioServer s = new ScenarioServer(1_500, false)) {
             Scenarios.overload(s);
             String issues = body(s.get("/api/issues"));
             assertFalse(issues.contains("QUEUE_LOSS"), issues);
-            assertWorst(null, issues);
+            assertWorst("DEGRADED", issues);
+            assertTrue(issues.contains("\"failureKind\":\"OVERLOAD_LOSS\""), issues);
+            assertTrue(issues.contains("\"overloadState\":\"DEGRADED\""), issues);
             assertTrue(issues.contains("\"fact\":\"Performance counters disabled\""), issues);
-            assertTrue(issues.contains("queue loss and service up/down cannot be observed.\",\"needs\":\"performanceMonitoring.enabled: true\",\"live\":true"), issues);
+            assertTrue(issues.contains("Counter totals and service up/down gauges cannot be observed; structured overload and control health remain available.\",\"needs\":\"performanceMonitoring.enabled: true\",\"live\":true"), issues);
             assertTrue(issues.contains("\"liveGaps\":1"), issues);
             assertFalse(issues.contains("HEALTH_UNKNOWN"), "counters-disabled checks are folded into the gap: " + issues);
         }
@@ -243,18 +245,18 @@ class AdminRestScenarioIT {
             s.add("busy", "consumer", Fixtures.Healthy::new);
             awaitTrue("busy running", () -> s.server.controlGroupStatus("busy").state() == ControlDriver.GroupState.RUNNING, 5_000);
             s.server.stopProcessor("busy", "consumer", 2_000);
-            // Mongoose 1.0.33: stopping something that does not exist prints "stop pending (still applies)"
+            // Mongoose1.1.0 refuses unknown names with an explicit state kind.
             assertTrue(body(g.record("server.processors.stop nosuch/x", s.command("server.processors.stop", "nosuch/x")))
-                    .contains("stop pending (still applies): nosuch/x"));
-            // Mongoose 1.0.33 admin defect: a missing argument is an IndexOutOfBounds
+                    .contains("stop REFUSED (REFUSED_STATE): no such group"));
+            // Missing arguments are typed invalid refusals, not a transport exception.
             assertTrue(body(g.record("server.processors.stop (no args)", s.command("server.processors.stop")))
-                    .contains("exception: Index 1 out of bounds for length 1"));
+                    .contains("stop REFUSED (REFUSED_INVALID): usage: server.processors.stop <group>/<processor>"));
             // M1 (proposal §4.6): the console says what it can: nothing holds that name; the request was invalid
             String issues = body(g.record("GET /api/issues", s.get("/api/issues")));
             assertWorst("INFO", issues);
-            assertTrue(issues.contains("\"kind\":\"REQUEST_UNCONFIRMED\",\"severity\":\"INFO\",\"subject\":\"nosuch/x\""), issues);
-            assertTrue(issues.contains("\"outcome\":\"UNKNOWN_TARGET\""), issues);
-            assertTrue(issues.contains("\"outcome\":\"INVALID\""), issues);
+            assertTrue(issues.contains("\"kind\":\"REQUEST_REFUSED\",\"severity\":\"INFO\",\"subject\":\"nosuch/x\""), issues);
+            assertTrue(issues.contains("\"failureKind\":\"REFUSED_STATE\""), issues);
+            assertTrue(issues.contains("\"failureKind\":\"REFUSED_INVALID\""), issues);
             g.verify();
         }
         try (ScenarioServer s = new ScenarioServer(1_500)) {
@@ -262,13 +264,12 @@ class AdminRestScenarioIT {
             var busy = Scenarios.fullMailbox(s);
             String refused = body(g.record("server.processors.stop busy/consumer (mailbox full)",
                     s.command("server.processors.stop", "busy/consumer")));
-            // the admin path's reason is "processor-stop queue stayed full (4096) for <timeout> ms", while the handle
-            // path (and the contract table) says "mailbox full": the same refusal has two wordings
-            assertTrue(refused.contains("stop REFUSED: group busy: processor-stop queue stayed full (4096) for 100 ms"), refused);
+            // The1.1.0 command preserves REFUSED_ADMISSION and names the full mailbox.
+            assertTrue(refused.contains("stop REFUSED (REFUSED_ADMISSION): group busy: processor-stop request refused: mailbox full (capacity 4096) for 100 ms"), refused);
             String issues = body(g.record("GET /api/issues", s.get("/api/issues")));
             assertWorst("INFO", issues);
             assertTrue(issues.contains("\"kind\":\"REQUEST_REFUSED\",\"severity\":\"INFO\",\"subject\":\"busy/consumer\""), issues);
-            assertTrue(issues.contains("The group's thread is not draining its control mailbox"), issues);
+            assertTrue(issues.contains("Refusal kind: REFUSED_ADMISSION"), issues);
             busy.parker().release.countDown();
             g.verify();
         }

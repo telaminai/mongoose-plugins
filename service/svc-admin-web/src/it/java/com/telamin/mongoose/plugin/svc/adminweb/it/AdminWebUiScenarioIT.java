@@ -74,7 +74,7 @@ class AdminWebUiScenarioIT {
                 assertThat(card.locator("[data-testid=issue-severity]")).hasText("CRITICAL");
                 assertThat(card.locator("[data-testid=issue-impact]")).containsText("no output from pricing/pricer");
                 assertThat(card.locator("[data-testid=issue-what]")).containsText("ProcessorDispatchException: generated processor execution failed");
-                assertThat(card.locator("[data-testid=issue-evidence-unavailable]")).containsText("not available in this Mongoose version");
+                assertThat(card.locator("[data-testid=issue-evidence-unavailable]")).containsText("not available here");
                 // evidence: the processor's capture, downloadable for the analyser
                 var link = card.locator("[data-testid=issue-evidence-link]");
                 assertThat(link).hasText("Download for the analyser");
@@ -107,7 +107,7 @@ class AdminWebUiScenarioIT {
                 assertThat(b.byTestId("issues-pill")).hasAttribute("data-worst", "CRITICAL");
                 b.shot("quarantine-acknowledged-still-open");
                 String stop = b.command("server.processors.stop", "pricing/pricer");
-                assertTrue(stop.contains("stop FAILED: processor quarantined"), stop);
+                assertTrue(stop.contains("stop FAILED (QUARANTINED): processor quarantined"), stop);
                 b.open();
                 assertThat(card(b, "REQUEST_FAILED", "pricing/pricer").locator("[data-testid=issue-outcome]")).hasText("FAILED");
                 b.shot("stop-failed-recorded");
@@ -124,6 +124,7 @@ class AdminWebUiScenarioIT {
                 // M1 (proposal §4.2): the dead group's processor is marked, and the group is an issue
                 assertThat(b.processorRow("doomed/ok").locator("[data-testid=overview-processor-state]")).hasText("group DEAD");
                 var issue = card(b, "GROUP_DEAD", "doomed");
+                assertThat(issue.locator("[data-testid=issue-failure-kind]")).hasText("FAILED_DEAD");
                 assertThat(issue.locator("[data-testid=issue-impact]")).containsText("No processor in doomed runs");
                 assertThat(issue.locator("[data-testid=issue-action][data-action=restart-process]")).isDisabled();
                 b.shot("overview-dead-group-card");
@@ -147,8 +148,9 @@ class AdminWebUiScenarioIT {
             ui(info, s, b -> {
                 b.open();
                 // M1 (proposal §4.3): a banner with the StopResult, and a CRITICAL issue
-                assertThat(b.byTestId("stop-result-banner")).containsText("groups still running: slowstop");
+                assertThat(b.byTestId("stop-result-banner")).containsText("groups with incomplete cleanup: slowstop");
                 assertThat(b.byTestId("stop-result-banner")).containsText("Server STOPPING");
+                assertThat(b.byTestId("stop-result-banner")).containsText("FAILED_SHUTDOWN");
                 var issue = card(b, "SHUTDOWN_INCOMPLETE", "server");
                 assertThat(issue.locator("[data-testid=issue-evidence]")).containsText("state CLOSING, outstanding requests 1");
                 assertThat(issue.locator("[data-testid=issue-action][data-action=retry-stop]")).isDisabled();
@@ -246,21 +248,21 @@ class AdminWebUiScenarioIT {
             ui(info, s, b -> {
                 b.open();
                 String refused = b.command("server.processors.stop", "busy/consumer");
-                assertTrue(refused.contains("stop REFUSED: group busy: processor-stop queue stayed full (4096)"), refused);
+                assertTrue(refused.contains("stop REFUSED (REFUSED_ADMISSION): group busy: processor-stop request refused: mailbox full (capacity 4096)"), refused);
                 b.shot("commands-mailbox-full");
-                // Mongoose 1.0.33 still prints "pending" for a name nothing holds
-                assertTrue(b.command("server.processors.stop", "nosuch/x").contains("stop pending (still applies)"));
+                // 1.1.0 refuses unknown names explicitly.
+                assertTrue(b.command("server.processors.stop", "nosuch/x").contains("stop REFUSED (REFUSED_STATE): no such group"));
                 b.open();
                 // M1 (proposal §4.6): both are INFO issues with the reason and a hint
                 var full = card(b, "REQUEST_REFUSED", "busy/consumer");
                 assertThat(full.locator("[data-testid=issue-outcome]")).hasText("REFUSED");
-                assertThat(full.locator("[data-testid=issue-impact]")).containsText("not draining its control mailbox");
-                var unknown = card(b, "REQUEST_UNCONFIRMED", "nosuch/x");
-                assertThat(unknown.locator("[data-testid=issue-outcome]")).hasText("UNKNOWN_TARGET");
-                assertThat(unknown.locator("[data-testid=issue-impact]")).containsText("Most likely nothing was stopped");
-                // the group filter narrows the panel
-                b.byTestId("issues-filter-kind").selectOption("REQUEST_UNCONFIRMED");
-                assertThat(b.page.locator("[data-testid=issue-card]")).hasCount(1);
+                assertThat(full.locator("[data-testid=issue-impact]")).containsText("Refusal kind: REFUSED_ADMISSION");
+                var unknown = card(b, "REQUEST_REFUSED", "nosuch/x");
+                assertThat(unknown.locator("[data-testid=issue-outcome]")).hasText("REFUSED");
+                assertThat(unknown.locator("[data-testid=issue-impact]")).containsText("Refusal kind: REFUSED_STATE");
+                // the kind filter retains both explicit refusals
+                b.byTestId("issues-filter-kind").selectOption("REQUEST_REFUSED");
+                assertThat(b.page.locator("[data-testid=issue-card]")).hasCount(2);
                 b.shot("overview-refusal-cards");
             });
             busy.parker().release.countDown();

@@ -751,8 +751,10 @@ document.addEventListener('alpine:init', () => {
             const r = s.lastStopResult;
             if (r.handedOff) return 'Shutdown continuing on the stop thread.';
             const parts = ['Server ' + (s.lifecycle || 'STOPPING') + ': the last shutdown is incomplete'];
-            parts.push('groups still running: ' + ((r.groupsRunning || []).join(', ') || 'none'));
+            parts.push('groups with incomplete cleanup: ' + ((r.groupsRunning || []).join(', ') || 'none'));
             parts.push('services left running: ' + ((r.servicesLeftRunning || []).join(', ') || 'none'));
+            if ((r.heldNames || []).length) parts.push('held names: ' + r.heldNames.map(h => h.group + '/' + h.name + ' generation ' + h.generation + ': ' + h.reason).join(', '));
+            if (r.failureKind) parts.push('failure kind: ' + r.failureKind);
             if (r.blockedStartup) parts.push('blocked startup: ' + r.blockedStartup);
             return parts.join(' — ');
         },

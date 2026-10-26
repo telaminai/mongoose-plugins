@@ -2,7 +2,7 @@ name: admin-web failure-scenario packs
 
 # REST + UI regression packs for svc-admin-web against the Mongoose control plane
 # (service/svc-admin-web/docs/testing-admin-web-it.md). Manual only for now. It runs against the
-# reactor's released Mongoose (1.0.33), resolved from the public repository.
+# reactor's released Mongoose (1.1.0), resolved from the public repository.
 on:
   workflow_dispatch:
     inputs:

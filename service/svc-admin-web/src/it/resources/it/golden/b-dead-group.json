@@ -3,6 +3,25 @@
     "body" : {
       "agents" : [ {
         "controlState" : "DEAD",
+        "controlStatus" : {
+          "captureCleanupFailures" : { },
+          "captureCloseFailures" : { },
+          "captureResourceSlotsInUse" : 0,
+          "captureResourcesHeld" : 0,
+          "captureUnobservable" : 0,
+          "captureWriteFailures" : 0,
+          "controlAuditDegraded" : false,
+          "group" : "doomed",
+          "outstandingRequests" : 0,
+          "overloadStates" : {
+            "feed" : {
+              "doomed/feed/onEventCallBack" : "UP"
+            }
+          },
+          "quarantinedProcessors" : { },
+          "state" : "DEAD",
+          "unacknowledgedCaptureFailures" : null
+        },
         "daemon" : false,
         "feeds" : [ {
           "callback" : "onEventCallBack",
@@ -22,6 +41,11 @@
             "feed" : "EventSubscriptionKey[eventSourceKey=EventSourceKey[sourceName=feed], callBackType=com.telamin.mongoose.service.CallBackType$OnEventCallBack@<HASH>]"
           } ]
         } ],
+        "overloadStates" : {
+          "feed" : {
+            "doomed/feed/onEventCallBack" : "UP"
+          }
+        },
         "priority" : 5,
         "thread" : "doomed",
         "threadState" : "TERMINATED",
@@ -33,7 +57,7 @@
   "GET /api/issues" : {
     "body" : {
       "counts" : {
-        "CRITICAL" : 1,
+        "CRITICAL" : 2,
         "DEGRADED" : 0,
         "INFO" : 0
       },
@@ -49,7 +73,7 @@
           "action" : "export-evidence",
           "args" : [ "doomed" ],
           "command" : "control.audit.export",
-          "consequence" : "Writes group doomed's control-audit records for offline analysis and reports completeness. Changes no server state.",
+          "consequence" : "Writes group doomed's control-audit records for offline analysis and reports completeness. Export acknowledges the control-audit gap it exported for later replies; it does not repair incomplete history.",
           "enabled" : true,
           "label" : "Export evidence",
           "precondition" : "Names a directory that does not exist yet, on the server host (relative paths resolve against the server's working directory). One export runs at a time.",
@@ -57,11 +81,11 @@
         }, {
           "action" : "restart-process",
           "consequence" : null,
-          "disabledReason" : "Mongoose 1.0.33 cannot restart a dead group. Replace the process under your incident policy.",
+          "disabledReason" : "Mongoose 1.1.0 cannot restart a dead group. Replace the process under your incident policy.",
           "enabled" : false,
           "label" : "Restart",
           "manual" : true,
-          "precondition" : "Mongoose 1.0.33 cannot restart a dead group. Replace the process under your incident policy."
+          "precondition" : "Mongoose 1.1.0 cannot restart a dead group. Replace the process under your incident policy."
         } ],
         "evidence" : [ {
           "label" : "Group state",
@@ -70,8 +94,9 @@
           "label" : "Thread",
           "value" : "doomed TERMINATED"
         } ],
-        "evidenceUnavailable" : [ "The Dead control record and the error that ended the thread are only in a control-audit export and the server log on Mongoose 1.0.33.", "With Mongoose's default error handler a fatal group error exits the JVM: this console only sees a DEAD group when the application installs its own handler." ],
-        "failureKind" : null,
+        "evidenceStatus" : null,
+        "evidenceUnavailable" : [ "The Dead control record and the error that ended the thread are only in a control-audit export and the server log on Mongoose 1.1.0.", "The default fatalErrorPolicy CONTAIN keeps the process alive; EXIT_PROCESS is an explicit opt-in." ],
+        "failureKind" : "FAILED_DEAD",
         "group" : "doomed",
         "id" : "GROUP_DEAD:doomed",
         "impact" : "No processor in doomed runs: ok are listed but not running. Requests to the group are answered NOT_RUNNING. Other groups keep running.",
@@ -80,14 +105,40 @@
         "since" : "<TS>",
         "subject" : "doomed",
         "title" : "Processor group dead",
-        "what" : "The group's agent thread ended abnormally. Mongoose admits no more requests for it and runs none of its processors."
+        "what" : "The group's control plane is DEAD. Mongoose admits no more requests for it and runs none of its processors."
+      }, {
+        "acknowledged" : false,
+        "actions" : [ {
+          "action" : "acknowledge",
+          "consequence" : "Moves it to Acknowledged. The issue stays open and keeps counting toward the health pill until Mongoose stops reporting it; nothing on the server changes.",
+          "enabled" : true,
+          "label" : "Acknowledge",
+          "precondition" : "None."
+        } ],
+        "evidence" : [ {
+          "label" : "Health check",
+          "value" : "group:doomed/control DOWN"
+        }, {
+          "label" : "Reason",
+          "value" : "group control plane is DEAD; its processors receive no events. Remedy: close the group or stop the server"
+        } ],
+        "evidenceStatus" : null,
+        "failureKind" : null,
+        "id" : "HEALTH_DOWN:group:doomed/control",
+        "impact" : "As described by the check's owner: group control plane is DEAD; its processors receive no events. Remedy: close the group or stop the server",
+        "kind" : "HEALTH_DOWN",
+        "severity" : "CRITICAL",
+        "since" : "<TS>",
+        "subject" : "group:doomed/control",
+        "title" : "Health check DOWN",
+        "what" : "Health check control of group:doomed reports DOWN: group control plane is DEAD; its processors receive no events. Remedy: close the group or stop the server"
       } ],
       "liveGaps" : 0,
-      "mongooseVersion" : "1.0.33",
+      "mongooseVersion" : "1.1.0",
       "notAvailable" : [ {
-        "detail" : "Mongoose 1.0.33 logs a WARNING and retries the handler; no admin surface reports it. See Logs.",
+        "detail" : "Recovery depends on the dispatch strategy capabilities. Inspect the ERROR/WARNING log; this panel has no structured per-handler history.",
         "fact" : "Handwritten handler failures",
-        "needs" : "Mongoose #77"
+        "needs" : "plugin milestone 2"
       }, {
         "detail" : "Sequence numbers of ProcessorQuarantined, Dead and QueueDrop records are only in a control-audit export.",
         "fact" : "Control record evidence",
@@ -105,23 +156,23 @@
         "fact" : "Capture resource limit",
         "needs" : "proposal A5"
       }, {
-        "detail" : "Replies carry an outcome and reason text, no typed failure kind.",
-        "fact" : "Failure kind",
-        "needs" : "Mongoose #77"
+        "detail" : "Stop replies expose FailureKind; generic command text does not carry EvidenceStatus. No VERIFIED status is inferred.",
+        "fact" : "Typed request evidence",
+        "needs" : "plugin milestone 2"
       }, {
         "detail" : "No admin command resumes shutdown().",
         "fact" : "Retry an incomplete shutdown",
         "needs" : "proposal A4"
       }, {
-        "detail" : "Queues drop after the spin bound; no policy, latch or clear.",
-        "fact" : "Overload policy and latch",
-        "needs" : "Mongoose #79"
+        "detail" : "Overload states are shown. Use the Commands panel for overload.status and overload.clear <feed>; guided clear/kill-switch controls are not implemented.",
+        "fact" : "Overload actions",
+        "needs" : "plugin milestone 2"
       }, {
         "detail" : "No admin command or endpoint.",
         "fact" : "Replay status",
         "needs" : "proposal A9"
       } ],
-      "unacknowledged" : 1,
+      "unacknowledged" : 2,
       "worst" : "CRITICAL"
     },
     "status" : 200
@@ -130,7 +181,7 @@
     "body" : {
       "command" : "control.group.status",
       "err" : [ ],
-      "output" : [ "ControlGroupStatus[group=doomed, state=DEAD, outstandingRequests=0, captureResourcesHeld=0, captureResourceSlotsInUse=0, captureCloseFailures={}, captureCleanupFailures={}, quarantinedProcessors={}]" ]
+      "output" : [ "ControlGroupStatus[group=doomed, state=DEAD, outstandingRequests=0, captureResourcesHeld=0, captureResourceSlotsInUse=0, captureCloseFailures={}, captureCleanupFailures={}, quarantinedProcessors={}, controlAuditDegraded=false, captureWriteFailures=0, captureUnobservable=0, unacknowledgedCaptureFailures=null, overloadStates={feed={doomed/feed/onEventCallBack=UP}}]" ]
     },
     "status" : 200
   },
@@ -146,7 +197,7 @@
     "body" : {
       "command" : "server.processors.stop",
       "err" : [ ],
-      "output" : [ "stopping processor:doomed/ok", "stop NOT_RUNNING: group doomed is DEAD" ]
+      "output" : [ "stopping processor:doomed/ok", "stop NOT_RUNNING (FAILED_DEAD): group doomed is DEAD" ]
     },
     "status" : 200
   }

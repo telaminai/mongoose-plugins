@@ -1,5 +1,7 @@
 # svc-admin-web
 
+Current release: **plugins 1.1.0 / Mongoose 1.1.0**. The 1.0.33 sections below describe the original milestone-1 design and evidence. Current compatibility, implemented state visibility, commands and remaining milestone-2 limits are in [the 1.1.0 release notes](../../docs/release/1.1.0.md).
+
 Browser-based admin & monitoring console for a running Mongoose server. Presentation layer over `AdminCommandRegistry` — the same command surface that `svc-admin-telnet` and `svc-admin-rest` drive — plus a dashboard, live JVM monitor, and log tail.
 
 Built against `io.javalin:javalin:6.3.0`. Frontend is plain HTML/CSS/JS with [htmx 2.0.4](https://htmx.org) + [Alpine.js 3.14.8](https://alpinejs.dev) vendored under `/vendor/` (single JAR, no Node toolchain, works offline).
@@ -211,7 +213,7 @@ Pre-requisite: mongoose-core ≥ 1.0.13 (counters service introduced in that rel
 - `CrossOriginRequestTest` (6) — `authMode: NONE`: cross-origin and token-less POSTs refused, same-origin with session + token accepted, `Origin: null` refused, DNS-rebinding `Host` refused, `allowedHosts`.
 - `AuditRefusalStatusTest`, `BindHostDefaultTest`, `SessionTokenTest`, `LogTailTest`, `MonitoringSamplerThroughputTest`, the audit-tail and capture suites.
 
-The failure-scenario packs (REST 9, UI 8, against a real Mongoose 1.0.33) run with `-Padmin-web-it`; see
+The failure-scenario packs (REST 9, UI 8, against a real Mongoose 1.1.0) run with `-Padmin-web-it`; see
 `docs/testing-admin-web-it.md`.
 
 ## Related

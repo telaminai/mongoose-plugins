@@ -1,7 +1,9 @@
 # admin-web failure-scenario packs
 
+Current release: **plugins 1.1.0 / Mongoose 1.1.0**. The 1.0.33 sections below describe the original milestone-1 design and evidence. Current compatibility, implemented state visibility, commands and remaining milestone-2 limits are in [the 1.1.0 release notes](../../../docs/release/1.1.0.md).
+
 Two regression packs drive the failure scenarios of `failure-ux-proposal.md` (a–h) against a real
-Mongoose 1.0.33 server, in-process, with svc-admin-web and svc-admin-rest bound to 127.0.0.1 on free
+Mongoose 1.1.0 server, in-process, with svc-admin-web and svc-admin-rest bound to 127.0.0.1 on free
 ports. They live in `src/it/java/com/telamin/mongoose/plugin/svc/adminweb/it/` (compiled only by the profile) and run only under the
 `admin-web-it` profile, so the normal build stays fast.
 
@@ -20,7 +22,7 @@ mvn -Padmin-web-it verify -pl service/svc-admin-web -Dit.groups=proposed -Dit.ex
 
 Fixtures (`Fixtures`, `Scenarios`, `ScenarioServer`) provoke each failure deterministically: a generated
 (AOT) processor and a handwritten one throwing on `boom`; a `StackOverflowError` killing a group (with a
-recording error handler: the default exits the JVM); a `stop()` blocked on a latch; capture resources whose
+recording error handler; the 1.1.0 default CONTAIN keeps the JVM alive); a `stop()` blocked on a latch; capture resources whose
 physical close throws (reflection onto the group's `captureResources`, since `MongooseServer` does not expose
 groups) with the resource limit set to 1; a parked consumer flooded past its 1024 queue; a parked group whose
 4096-slot control mailbox is filled.
@@ -29,13 +31,11 @@ Where the current behaviour is wrong, the current-behaviour test pins it with a 
 assertion lives in a `proposed` test. Do not change a current-behaviour assertion to make it pass; change it
 when the behaviour changes on purpose. Milestone 1 (the issues panel) moved the quarantine, dead-group,
 incomplete-stop and queue-loss assertions out of the `proposed` tests into the scenario packs (marked
-"M1"); what remains `proposed` needs a Mongoose change (first loss, capture ledger, refusing unknown stops,
-replay status).
+"M1"); what remains `proposed` needs a Mongoose change (first loss, capture ledger, replay status).
 
 The harness registers its test feed after boot and then calls `startService("feed")` (`registerService` does not
 start a service). Each scenario asserts the exact worst severity: a, b, c CRITICAL; d, e DEGRADED; f INFO; g, h
-none. `e2` runs the overload with performance monitoring off (Mongoose's default) and asserts that queue loss is
-reported as a blind spot of this server, not as "no issue".
+none. `e2` runs the overload with performance monitoring off (Mongoose's default) and asserts that structured overload remains DEGRADED while counter totals are reported as unavailable.
 
 **Browser.** Playwright for Java 1.49.0, headless Chromium. `scripts/` only fetches vendor JS, so there was
 no existing driver to reuse. Playwright gives JUnit-native control, auto-waiting assertions, console and
@@ -47,5 +47,5 @@ where). Allowed 4xx: `/api/files` (404 without a loader directory) and the 401 a
 **Artifacts** under `target/admin-web-it/`: `ui/<test>/NN-step.png` screenshots for every step (evidence,
 not a pixel-diff criterion), `ui/<test>/trace.zip` on failure (open with
 `npx playwright show-trace`), `ui/<test>/http-errors.txt`, and `rest/<scenario>.actual.json`.
-CI: `.github/workflows/admin-web-it.yml` (manual dispatch; resolves the released Mongoose 1.0.33; uploads
+CI: `.github/workflows/admin-web-it.yml` (manual dispatch; resolves Mongoose 1.1.0; uploads
 the artifacts).

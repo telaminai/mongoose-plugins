@@ -2,7 +2,7 @@
   "GET /api/commands" : {
     "body" : {
       "adminAvailable" : true,
-      "commands" : [ "?", "audit.list", "audit.start", "audit.status", "audit.stop", "commands", "control.audit.export", "control.audit.export.status", "control.group.status", "eventSources", "help", "latency.disable", "latency.enable", "latency.reset", "latency.status", "latency.toggle", "server.processors.list", "server.processors.stop", "server.service.list" ]
+      "commands" : [ "?", "audit.list", "audit.start", "audit.status", "audit.stop", "commands", "control.audit.acknowledge", "control.audit.export", "control.audit.export.status", "control.capture.acknowledge", "control.group.status", "eventSources", "help", "latency.disable", "latency.enable", "latency.reset", "latency.status", "latency.toggle", "overload.clear", "overload.status", "server.processors.list", "server.processors.stop", "server.service.list" ]
     },
     "status" : 200
   },
@@ -15,11 +15,11 @@
       },
       "issues" : [ ],
       "liveGaps" : 0,
-      "mongooseVersion" : "1.0.33",
+      "mongooseVersion" : "1.1.0",
       "notAvailable" : [ {
-        "detail" : "Mongoose 1.0.33 logs a WARNING and retries the handler; no admin surface reports it. See Logs.",
+        "detail" : "Recovery depends on the dispatch strategy capabilities. Inspect the ERROR/WARNING log; this panel has no structured per-handler history.",
         "fact" : "Handwritten handler failures",
-        "needs" : "Mongoose #77"
+        "needs" : "plugin milestone 2"
       }, {
         "detail" : "Sequence numbers of ProcessorQuarantined, Dead and QueueDrop records are only in a control-audit export.",
         "fact" : "Control record evidence",
@@ -37,17 +37,17 @@
         "fact" : "Capture resource limit",
         "needs" : "proposal A5"
       }, {
-        "detail" : "Replies carry an outcome and reason text, no typed failure kind.",
-        "fact" : "Failure kind",
-        "needs" : "Mongoose #77"
+        "detail" : "Stop replies expose FailureKind; generic command text does not carry EvidenceStatus. No VERIFIED status is inferred.",
+        "fact" : "Typed request evidence",
+        "needs" : "plugin milestone 2"
       }, {
         "detail" : "No admin command resumes shutdown().",
         "fact" : "Retry an incomplete shutdown",
         "needs" : "proposal A4"
       }, {
-        "detail" : "Queues drop after the spin bound; no policy, latch or clear.",
-        "fact" : "Overload policy and latch",
-        "needs" : "Mongoose #79"
+        "detail" : "Overload states are shown. Use the Commands panel for overload.status and overload.clear <feed>; guided clear/kill-switch controls are not implemented.",
+        "fact" : "Overload actions",
+        "needs" : "plugin milestone 2"
       }, {
         "detail" : "No admin command or endpoint.",
         "fact" : "Replay status",

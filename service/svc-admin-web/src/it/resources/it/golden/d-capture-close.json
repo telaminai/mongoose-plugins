@@ -17,7 +17,7 @@
     "body" : {
       "counts" : {
         "CRITICAL" : 0,
-        "DEGRADED" : 1,
+        "DEGRADED" : 3,
         "INFO" : 2
       },
       "issues" : [ {
@@ -55,7 +55,8 @@
           "label" : "Cleanup failure",
           "value" : "physical close: java.lang.IllegalStateException: forced capture close failure"
         } ],
-        "evidenceUnavailable" : [ "Which capture (processor and file) resource 1 belongs to: Mongoose 1.0.33 has no resource ledger (proposal A2). audit.stop reported STOPPED and the file is listed as an ordinary finished capture.", "The capture resource limit: Mongoose 1.0.33 has no getter (proposal A5)." ],
+        "evidenceStatus" : null,
+        "evidenceUnavailable" : [ "Which capture (processor and file) resource 1 belongs to: Mongoose 1.1.0 has no resource ledger (proposal A2). audit.stop reported STOPPED and the file is listed as an ordinary finished capture.", "The capture resource limit: Mongoose 1.1.0 has no getter (proposal A5)." ],
         "failureKind" : null,
         "group" : "cap",
         "id" : "CAPTURE_CLOSE_FAILED:cap:1",
@@ -75,25 +76,60 @@
           "enabled" : true,
           "label" : "Acknowledge",
           "precondition" : "None."
-        } ],
-        "command" : "audit.start",
-        "evidence" : [ {
-          "label" : "Reply",
-          "value" : "REFUSED: audit start for 'rec2' FAILED: open failed: physical capture resource limit reached"
         }, {
-          "label" : "Sent by",
-          "value" : "this console"
+          "action" : "export-evidence",
+          "args" : [ "cap" ],
+          "command" : "control.audit.export",
+          "consequence" : "Writes group cap's control-audit records for offline analysis and reports completeness. Export acknowledges the control-audit gap it exported for later replies; it does not repair incomplete history.",
+          "enabled" : true,
+          "label" : "Export evidence",
+          "precondition" : "Names a directory that does not exist yet, on the server host (relative paths resolve against the server's working directory). One export runs at a time.",
+          "statusCommand" : "control.audit.export.status"
         } ],
+        "evidence" : [ {
+          "label" : "Capture write failures",
+          "value" : "0"
+        }, {
+          "label" : "Unobservable captures",
+          "value" : "0"
+        } ],
+        "evidenceStatus" : null,
         "failureKind" : null,
-        "id" : "REQUEST_REFUSED:1",
-        "impact" : "Nothing changed. A capture slot is held; see any capture close failure issue.",
-        "kind" : "REQUEST_REFUSED",
-        "outcome" : "REFUSED",
-        "severity" : "INFO",
+        "group" : "cap",
+        "id" : "CAPTURE_EVIDENCE_GAP:cap",
+        "impact" : "Capture may be incomplete. Local issue acknowledgement does not acknowledge engine capture failures; use control.capture.acknowledge <group> in Commands after investigation.",
+        "kind" : "CAPTURE_EVIDENCE_GAP",
+        "severity" : "DEGRADED",
         "since" : "<TS>",
-        "subject" : "rec2",
-        "title" : "Request refused",
-        "what" : "audit.start rec2 was not applied (REFUSED): audit start for 'rec2' FAILED: open failed: physical capture resource limit reached"
+        "subject" : "cap",
+        "title" : "Unacknowledged capture failure",
+        "what" : "unacknowledged capture failures: writes=0 unobservable=0 closes=1 detaches=0 (processors keep running)"
+      }, {
+        "acknowledged" : false,
+        "actions" : [ {
+          "action" : "acknowledge",
+          "consequence" : "Moves it to Acknowledged. The issue stays open and keeps counting toward the health pill until Mongoose stops reporting it; nothing on the server changes.",
+          "enabled" : true,
+          "label" : "Acknowledge",
+          "precondition" : "None."
+        } ],
+        "evidence" : [ {
+          "label" : "Health check",
+          "value" : "group:cap/audit-capture DEGRADED"
+        }, {
+          "label" : "Reason",
+          "value" : "unacknowledged capture failures: writes=0 unobservable=0 closes=1 detaches=0 (processors keep running)"
+        } ],
+        "evidenceStatus" : null,
+        "failureKind" : null,
+        "id" : "HEALTH_DEGRADED:group:cap/audit-capture",
+        "impact" : "As described by the check's owner: unacknowledged capture failures: writes=0 unobservable=0 closes=1 detaches=0 (processors keep running)",
+        "kind" : "HEALTH_DEGRADED",
+        "severity" : "DEGRADED",
+        "since" : "<TS>",
+        "subject" : "group:cap/audit-capture",
+        "title" : "Health check DEGRADED",
+        "what" : "Health check audit-capture of group:cap reports DEGRADED: unacknowledged capture failures: writes=0 unobservable=0 closes=1 detaches=0 (processors keep running)"
       }, {
         "acknowledged" : false,
         "actions" : [ {
@@ -111,6 +147,35 @@
           "label" : "Sent by",
           "value" : "this console"
         } ],
+        "evidenceStatus" : null,
+        "failureKind" : null,
+        "id" : "REQUEST_REFUSED:1",
+        "impact" : "Nothing changed. A capture slot is held; see any capture close failure issue.",
+        "kind" : "REQUEST_REFUSED",
+        "outcome" : "REFUSED",
+        "severity" : "INFO",
+        "since" : "<TS>",
+        "subject" : "rec2",
+        "title" : "Request refused",
+        "what" : "audit.start rec2 returned (REFUSED): audit start for 'rec2' FAILED: open failed: physical capture resource limit reached"
+      }, {
+        "acknowledged" : false,
+        "actions" : [ {
+          "action" : "acknowledge",
+          "consequence" : "Moves it to Acknowledged. The issue stays open and keeps counting toward the health pill until Mongoose stops reporting it; nothing on the server changes.",
+          "enabled" : true,
+          "label" : "Acknowledge",
+          "precondition" : "None."
+        } ],
+        "command" : "audit.start",
+        "evidence" : [ {
+          "label" : "Reply",
+          "value" : "REFUSED: audit start for 'rec2' FAILED: open failed: physical capture resource limit reached"
+        }, {
+          "label" : "Sent by",
+          "value" : "this console"
+        } ],
+        "evidenceStatus" : null,
         "failureKind" : null,
         "id" : "REQUEST_REFUSED:2",
         "impact" : "Nothing changed. A capture slot is held; see any capture close failure issue.",
@@ -120,14 +185,14 @@
         "since" : "<TS>",
         "subject" : "rec2",
         "title" : "Request refused",
-        "what" : "audit.start rec2 was not applied (REFUSED): audit start for 'rec2' FAILED: open failed: physical capture resource limit reached"
+        "what" : "audit.start rec2 returned (REFUSED): audit start for 'rec2' FAILED: open failed: physical capture resource limit reached"
       } ],
       "liveGaps" : 0,
-      "mongooseVersion" : "1.0.33",
+      "mongooseVersion" : "1.1.0",
       "notAvailable" : [ {
-        "detail" : "Mongoose 1.0.33 logs a WARNING and retries the handler; no admin surface reports it. See Logs.",
+        "detail" : "Recovery depends on the dispatch strategy capabilities. Inspect the ERROR/WARNING log; this panel has no structured per-handler history.",
         "fact" : "Handwritten handler failures",
-        "needs" : "Mongoose #77"
+        "needs" : "plugin milestone 2"
       }, {
         "detail" : "Sequence numbers of ProcessorQuarantined, Dead and QueueDrop records are only in a control-audit export.",
         "fact" : "Control record evidence",
@@ -145,23 +210,23 @@
         "fact" : "Capture resource limit",
         "needs" : "proposal A5"
       }, {
-        "detail" : "Replies carry an outcome and reason text, no typed failure kind.",
-        "fact" : "Failure kind",
-        "needs" : "Mongoose #77"
+        "detail" : "Stop replies expose FailureKind; generic command text does not carry EvidenceStatus. No VERIFIED status is inferred.",
+        "fact" : "Typed request evidence",
+        "needs" : "plugin milestone 2"
       }, {
         "detail" : "No admin command resumes shutdown().",
         "fact" : "Retry an incomplete shutdown",
         "needs" : "proposal A4"
       }, {
-        "detail" : "Queues drop after the spin bound; no policy, latch or clear.",
-        "fact" : "Overload policy and latch",
-        "needs" : "Mongoose #79"
+        "detail" : "Overload states are shown. Use the Commands panel for overload.status and overload.clear <feed>; guided clear/kill-switch controls are not implemented.",
+        "fact" : "Overload actions",
+        "needs" : "plugin milestone 2"
       }, {
         "detail" : "No admin command or endpoint.",
         "fact" : "Replay status",
         "needs" : "proposal A9"
       } ],
-      "unacknowledged" : 3,
+      "unacknowledged" : 5,
       "worst" : "DEGRADED"
     },
     "status" : 200
@@ -216,7 +281,7 @@
     "body" : {
       "command" : "control.group.status",
       "err" : [ ],
-      "output" : [ "ControlGroupStatus[group=cap, state=RUNNING, outstandingRequests=0, captureResourcesHeld=0, captureResourceSlotsInUse=1, captureCloseFailures={1=java.lang.IllegalStateException: forced capture close failure}, captureCleanupFailures={1=physical close: java.lang.IllegalStateException: forced capture close failure}, quarantinedProcessors={}]" ]
+      "output" : [ "ControlGroupStatus[group=cap, state=RUNNING, outstandingRequests=0, captureResourcesHeld=0, captureResourceSlotsInUse=1, captureCloseFailures={1=java.lang.IllegalStateException: forced capture close failure}, captureCleanupFailures={1=physical close: java.lang.IllegalStateException: forced capture close failure}, quarantinedProcessors={}, controlAuditDegraded=false, captureWriteFailures=0, captureUnobservable=0, unacknowledgedCaptureFailures=unacknowledged capture failures: writes=0 unobservable=0 closes=1 detaches=0 (processors keep running), overloadStates={feed={cap/feed/onEventCallBack=UP}}]" ]
     },
     "status" : 200
   }
