@@ -571,6 +571,12 @@
     "instanceFqn" : "com.telamin.mongoose.plugin.svc.adminrest.JavalinAdminCommandService",
     "doc" : "Javalin REST admin endpoint.",
     "fields" : [ {
+      "name" : "allowedHosts",
+      "type" : "list",
+      "required" : false,
+      "default" : [ ],
+      "elementType" : "string"
+    }, {
       "name" : "authMode",
       "type" : "enum",
       "required" : false,

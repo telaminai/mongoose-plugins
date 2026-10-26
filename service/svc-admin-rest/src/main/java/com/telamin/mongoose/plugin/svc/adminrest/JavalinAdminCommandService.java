@@ -52,6 +52,14 @@ public class JavalinAdminCommandService implements EventFlowService<Object>, Lif
     @Getter
     @Setter
     private String staticDir;
+    /**
+     * Host names (the Host header, without port) accepted besides loopback names when {@code authMode} is NONE and
+     * the bind is loopback. Empty by default: only {@code localhost}, {@code 127.x.x.x} and {@code ::1}, which stops
+     * DNS rebinding. Set it when the endpoint is reached through another name (a local proxy or DNS alias).
+     */
+    @Getter
+    @Setter
+    private java.util.List<String> allowedHosts = new java.util.ArrayList<>();
 
     @Getter
     @Setter
@@ -317,6 +325,7 @@ public class JavalinAdminCommandService implements EventFlowService<Object>, Lif
 
     private void enforceAuth(Context ctx) {
         if (authMode == AuthMode.NONE) {
+            enforceBrowserSafety(ctx);
             return;
         }
         String header = ctx.header("Authorization");
@@ -358,6 +367,74 @@ public class JavalinAdminCommandService implements EventFlowService<Object>, Lif
             if (!constantTimeEquals(presented, resolvedBearerToken())) {
                 reject(ctx);
             }
+        }
+    }
+
+    /**
+     * With no credentials, the endpoint must not be drivable by a page in the operator's browser. A request is
+     * refused when its Host is not this endpoint (DNS rebinding onto a loopback bind; loopback names and
+     * {@code allowedHosts} only), when a browser names another origin or {@code Origin: null} (403), or when it carries
+     * a body, or a Content-Type, that is not {@code application/json} (415: a cross-site form or text/plain post
+     * needs no preflight). Scripts send no Origin and a JSON body, or no body at all ({@code curl -X POST .../api/help}).
+     */
+    private void enforceBrowserSafety(Context ctx) {
+        if (!hostAllowed(ctx.header("Host"), host, allowedHosts)) {
+            throw new io.javalin.http.HttpResponseException(HttpStatus.FORBIDDEN.getCode(),
+                    "host not allowed: " + ctx.header("Host") + " (add it to allowedHosts)");
+        }
+        if (!originMatchesHost(ctx.header("Origin"), ctx.header("Host"))) {
+            throw new io.javalin.http.HttpResponseException(HttpStatus.FORBIDDEN.getCode(),
+                    "cross-origin request refused: " + ctx.header("Origin"));
+        }
+        String contentType = ctx.header("Content-Type");
+        boolean hasBody = ctx.contentLength() > 0 || !ctx.body().isEmpty();
+        boolean json = contentType != null
+                && contentType.trim().toLowerCase(java.util.Locale.ROOT).startsWith("application/json");
+        if ((hasBody || contentType != null) && !json) {
+            throw new io.javalin.http.HttpResponseException(HttpStatus.UNSUPPORTED_MEDIA_TYPE.getCode(),
+                    "send the request body with Content-Type: application/json");
+        }
+    }
+
+    /** The Host names this endpoint: a loopback literal, a name in {@code allowed}, or anything on an off-box bind with no list. */
+    static boolean hostAllowed(String hostHeader, String boundHost, java.util.List<String> allowed) {
+        String name = hostName(hostHeader);
+        if (name == null) return false;
+        if (isLoopbackName(name)) return true;
+        if (allowed != null && !allowed.isEmpty()) {
+            return allowed.stream().anyMatch(a -> a != null && a.equalsIgnoreCase(name));
+        }
+        return !isLoopbackName(boundHost == null ? "" : boundHost.trim().toLowerCase(java.util.Locale.ROOT));
+    }
+
+    static String hostName(String hostHeader) {
+        if (hostHeader == null || hostHeader.isBlank()) return null;
+        String h = hostHeader.trim().toLowerCase(java.util.Locale.ROOT);
+        if (h.startsWith("[")) {
+            int end = h.indexOf(']');
+            return end < 0 ? null : h.substring(1, end);
+        }
+        int colon = h.indexOf(':');
+        if (colon >= 0 && h.indexOf(':', colon + 1) < 0) h = h.substring(0, colon);
+        return h;
+    }
+
+    static boolean isLoopbackName(String name) {
+        return name.equals("localhost") || name.equals("::1") || name.equals("0:0:0:0:0:0:0:1")
+                || name.matches("127\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}");
+    }
+
+    /** No Origin (a non-browser client) passes; otherwise its host:port must equal the Host header. */
+    static boolean originMatchesHost(String origin, String hostHeader) {
+        if (origin == null) return true;
+        if (hostHeader == null) return false;
+        try {
+            java.net.URI uri = java.net.URI.create(origin.trim());
+            if (uri.getHost() == null) return false; // includes Origin: null
+            String authority = uri.getRawAuthority();
+            return authority != null && authority.equalsIgnoreCase(hostHeader.trim());
+        } catch (IllegalArgumentException e) {
+            return false;
         }
     }
 
