@@ -67,10 +67,19 @@ class AuditRefusalStatusTest {
         svc.start();
     }
 
+    /** POSTs as the UI does: an (anonymous) session cookie and its CSRF token first. */
     private HttpResponse<String> post(String path) throws Exception {
         HttpClient c = HttpClient.newHttpClient();
+        HttpResponse<String> login = c.send(HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/api/session/login"))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString("{}")).build(), HttpResponse.BodyHandlers.ofString());
+        String cookie = login.headers().firstValue("set-cookie").orElse("").split(";", 2)[0];
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("\"csrfToken\"\\s*:\\s*\"([^\"]+)\"").matcher(login.body());
+        String csrf = m.find() ? m.group(1) : "";
         return c.send(HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + path))
                 .header("Content-Type", "application/json")
+                .header("Cookie", cookie)
+                .header("X-CSRF-Token", csrf)
                 .POST(HttpRequest.BodyPublishers.ofString("{}")).build(), HttpResponse.BodyHandlers.ofString());
     }
 
