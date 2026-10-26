@@ -571,6 +571,12 @@
     "instanceFqn" : "com.telamin.mongoose.plugin.svc.adminrest.JavalinAdminCommandService",
     "doc" : "Javalin REST admin endpoint.",
     "fields" : [ {
+      "name" : "allowedHosts",
+      "type" : "list",
+      "required" : false,
+      "default" : [ ],
+      "elementType" : "string"
+    }, {
       "name" : "authMode",
       "type" : "enum",
       "required" : false,
@@ -587,7 +593,7 @@
       "name" : "host",
       "type" : "string",
       "required" : false,
-      "default" : "0.0.0.0",
+      "default" : "127.0.0.1",
       "format" : "host",
       "doc" : "Bind address (0.0.0.0 = all interfaces — front with TLS)."
     }, {
@@ -626,6 +632,12 @@
     "instanceFqn" : "com.telamin.mongoose.plugin.svc.adminweb.WebAdminService",
     "doc" : "Browser admin & monitoring console (REST + WebSocket + SPA).",
     "fields" : [ {
+      "name" : "allowedHosts",
+      "type" : "list",
+      "required" : false,
+      "default" : [ ],
+      "elementType" : "string"
+    }, {
       "name" : "authMode",
       "type" : "enum",
       "required" : false,

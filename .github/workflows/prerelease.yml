@@ -26,7 +26,7 @@ jobs:
           python3 - <<'PYTHON'
           import os, re, xml.etree.ElementTree as ET
           version = ET.parse('pom.xml').getroot().find('{http://maven.apache.org/POM/4.0.0}version').text
-          assert re.fullmatch(r'\d+\.\d+\.\d+(?:-rc\d+)?', version), version
+          assert re.fullmatch(r'\d+\.\d+\.\d+(?:\.\d+)?(?:-rc\d+)?', version), version
           assert os.environ['RELEASE_TAG'] == 'v' + version, 'tag/POM mismatch'
           PYTHON
           git log -1 --format='%H %s'

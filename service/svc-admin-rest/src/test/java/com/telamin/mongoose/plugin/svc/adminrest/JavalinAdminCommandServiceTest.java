@@ -77,7 +77,10 @@ class JavalinAdminCommandServiceTest {
     }
 
     private static int freePort() {
-        try (ServerSocket s = new ServerSocket(0)) {
+        // reuse-addr off on 127.0.0.1, as the bind uses: with it on, macOS can hand out a port already held there
+        try (ServerSocket s = new ServerSocket()) {
+            s.setReuseAddress(false);
+            s.bind(new java.net.InetSocketAddress("127.0.0.1", 0));
             return s.getLocalPort();
         } catch (Exception e) {
             throw new RuntimeException(e);
@@ -97,6 +100,8 @@ class JavalinAdminCommandServiceTest {
                 .POST(body == null ? HttpRequest.BodyPublishers.noBody()
                         : HttpRequest.BodyPublishers.ofString(body));
         if (authHeader != null) b.header("Authorization", authHeader);
+        // a body is sent as JSON, as every script must (authMode NONE refuses any other body: CrossOriginRequestTest)
+        if (body != null) b.header("Content-Type", "application/json");
         return HttpClient.newHttpClient().send(b.build(), HttpResponse.BodyHandlers.ofString());
     }
 
