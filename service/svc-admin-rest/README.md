@@ -102,6 +102,26 @@ If the endpoint is reachable off-box with `authMode: NONE`, `init()` logs a warn
 
 > **Upgrading:** before this release `host` defaulted to `0.0.0.0`. A deployment that relied on that default for off-box access must now set `host` explicitly.
 
+## Browser safety with `authMode: NONE`
+
+With no credentials, a page open in the operator's browser could otherwise drive the endpoint. In `NONE` mode:
+
+- a request whose `Origin` header is present and is not this endpoint (`Origin` host:port must equal `Host`), or is
+  `Origin: null`, gets `403`;
+- a request with a body, or with a `Content-Type`, that is not `application/json` gets `415` (this blocks
+  cross-site form and `text/plain` posts, which browsers send without a preflight);
+- with a loopback bind, a request whose `Host` is not `localhost`, `127.x.x.x` or `::1` gets `403` (DNS rebinding).
+  Add other names you reach it by (a local proxy, a DNS alias) to `allowedHosts`.
+
+What a script must send: no `Origin` (curl, Python and Java clients send none), and `Content-Type: application/json`
+with any body. A body-less `curl -X POST http://127.0.0.1:8080/api/help` still works.
+
+```bash
+curl -X POST http://127.0.0.1:8080/admin -H 'Content-Type: application/json' -d '{"command":"help","arguments":[]}'
+```
+
+`BASIC`/`BEARER` clients authenticate with the `Authorization` header and are not subject to these checks.
+
 ## Notes
 
 - The service implements `EventFlowService<Object>` to fit the Mongoose service-injection model. It does not push events into the dispatch pipeline — the `subscribe`/`unSubscribe`/`setEventToQueuePublisher` overrides are intentional no-ops.

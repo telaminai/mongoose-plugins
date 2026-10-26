@@ -97,6 +97,8 @@ class JavalinAdminCommandServiceTest {
                 .POST(body == null ? HttpRequest.BodyPublishers.noBody()
                         : HttpRequest.BodyPublishers.ofString(body));
         if (authHeader != null) b.header("Authorization", authHeader);
+        // a body is sent as JSON, as every script must (authMode NONE refuses any other body: CrossOriginRequestTest)
+        if (body != null) b.header("Content-Type", "application/json");
         return HttpClient.newHttpClient().send(b.build(), HttpResponse.BodyHandlers.ofString());
     }
 
