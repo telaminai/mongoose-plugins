@@ -204,7 +204,7 @@ Pre-requisite: mongoose-core ≥ 1.0.13 (counters service introduced in that rel
 
 ## Tests
 
-`mvn test` runs 163 unit tests in 21 classes, among them:
+`mvn test` runs 165 unit tests in 22 classes, among them:
 
 - `WebAdminServiceTest` (78) — auth fail-fast + BASIC/BEARER, session + CSRF, command list / invoke, `/api/server`, `/api/jvm`, `/api/services`, `/api/services/{name}/config`, `/api/agents`, `/api/queues`, graphml, `/api/files`, WS auth gate, `MonitoringSampler`, log-tail lifecycle.
 - `FailureIssuesTest` (11) — request issues from admin replies, acknowledgement never closes an issue, live blind spots (counters disabled, no health service), UNKNOWN checks as INFO, a failing health walk reported as `READ_FAILED`.
