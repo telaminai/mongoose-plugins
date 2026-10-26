@@ -1,6 +1,6 @@
 {
   "schemaVersion" : 1,
-  "pluginsVersion" : "1.0.46.1",
+  "pluginsVersion" : "1.0.47",
   "plugins" : [ {
     "artifactId" : "mongoose",
     "kind" : "source",
