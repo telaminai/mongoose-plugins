@@ -28,8 +28,8 @@
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <mongoose.version>1.0.33</mongoose.version>
-        <plugins.version>1.0.46</plugins.version>
+        <mongoose.version>1.1.0</mongoose.version>
+        <plugins.version>1.1.0</plugins.version>
     </properties>
 
     <!-- released plugins and Mongoose are published to the public Fluxtion repository -->

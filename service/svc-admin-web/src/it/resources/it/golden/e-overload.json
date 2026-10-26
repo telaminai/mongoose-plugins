@@ -2,7 +2,7 @@
   "GET /api/commands" : {
     "body" : {
       "adminAvailable" : true,
-      "commands" : [ "?", "audit.list", "audit.start", "audit.status", "audit.stop", "commands", "control.audit.export", "control.audit.export.status", "control.group.status", "eventSources", "help", "latency.disable", "latency.enable", "latency.reset", "latency.status", "latency.toggle", "server.processors.list", "server.processors.stop", "server.service.list" ]
+      "commands" : [ "?", "audit.list", "audit.start", "audit.status", "audit.stop", "commands", "control.audit.acknowledge", "control.audit.export", "control.audit.export.status", "control.capture.acknowledge", "control.group.status", "eventSources", "help", "latency.disable", "latency.enable", "latency.reset", "latency.status", "latency.toggle", "overload.clear", "overload.status", "server.processors.list", "server.processors.stop", "server.service.list" ]
     },
     "status" : 200
   },
@@ -59,6 +59,30 @@
         "verdict" : "UP"
       }, {
         "asOfEpochMs" : "<TS>",
+        "check" : "audit-capture",
+        "component" : "group:slow",
+        "reason" : null,
+        "verdict" : "UP"
+      }, {
+        "asOfEpochMs" : "<TS>",
+        "check" : "control",
+        "component" : "group:slow",
+        "reason" : null,
+        "verdict" : "UP"
+      }, {
+        "asOfEpochMs" : "<TS>",
+        "check" : "control-audit",
+        "component" : "group:slow",
+        "reason" : null,
+        "verdict" : "UP"
+      }, {
+        "asOfEpochMs" : "<TS>",
+        "check" : "overload",
+        "component" : "group:slow",
+        "reason" : "{feed={slow/feed/onEventCallBack=DEGRADED}}",
+        "verdict" : "DEGRADED"
+      }, {
+        "asOfEpochMs" : "<TS>",
         "check" : "up",
         "component" : "serverAdmin",
         "reason" : null,
@@ -71,7 +95,7 @@
     "body" : {
       "counts" : {
         "CRITICAL" : 0,
-        "DEGRADED" : 1,
+        "DEGRADED" : 3,
         "INFO" : 0
       },
       "issues" : [ {
@@ -86,7 +110,7 @@
           "action" : "export-evidence",
           "args" : [ "slow" ],
           "command" : "control.audit.export",
-          "consequence" : "Writes group slow's control-audit records for offline analysis and reports completeness. Changes no server state.",
+          "consequence" : "Writes group slow's control-audit records for offline analysis and reports completeness. Export acknowledges the control-audit gap it exported for later replies; it does not repair incomplete history.",
           "enabled" : true,
           "label" : "Export evidence",
           "precondition" : "Names a directory that does not exist yet, on the server host (relative paths resolve against the server's working directory). One export runs at a time.",
@@ -94,10 +118,59 @@
         }, {
           "action" : "clear",
           "consequence" : null,
-          "disabledReason" : "No reset on Mongoose 1.0.33: the verdict stays DEGRADED while the drop count is non-zero. Clearing never restores lost items.",
+          "disabledReason" : "Guided clear is not implemented. Inspect overload.status and use overload.clear <feed> in Commands under the incident runbook.",
+          "enabled" : false,
+          "label" : "Clear overload",
+          "precondition" : "Guided clear is not implemented. Inspect overload.status and use overload.clear <feed> in Commands under the incident runbook."
+        } ],
+        "evidence" : [ {
+          "label" : "Feed",
+          "value" : "feed"
+        }, {
+          "label" : "Queue",
+          "value" : "slow/feed/onEventCallBack"
+        }, {
+          "label" : "State",
+          "value" : "DEGRADED"
+        } ],
+        "evidenceStatus" : null,
+        "failureKind" : "OVERLOAD_LOSS",
+        "feed" : "feed",
+        "group" : "slow",
+        "id" : "OVERLOAD_LOSS:slow:feed:slow/feed/onEventCallBack",
+        "impact" : "Data was lost or refused. Reconcile the stream before using overload.clear; it re-arms detection and cannot restore lost data.",
+        "kind" : "OVERLOAD_LOSS",
+        "overloadState" : "DEGRADED",
+        "queue" : "slow/feed/onEventCallBack",
+        "severity" : "DEGRADED",
+        "since" : "<TS>",
+        "subject" : "feed → slow",
+        "title" : "Overload DEGRADED",
+        "what" : "Subscriber queue reports DEGRADED. REMOVED retains an unresolved latch after unsubscribe."
+      }, {
+        "acknowledged" : false,
+        "actions" : [ {
+          "action" : "acknowledge",
+          "consequence" : "Moves it to Acknowledged. The issue stays open and keeps counting toward the health pill until Mongoose stops reporting it; nothing on the server changes.",
+          "enabled" : true,
+          "label" : "Acknowledge",
+          "precondition" : "None."
+        }, {
+          "action" : "export-evidence",
+          "args" : [ "slow" ],
+          "command" : "control.audit.export",
+          "consequence" : "Writes group slow's control-audit records for offline analysis and reports completeness. Export acknowledges the control-audit gap it exported for later replies; it does not repair incomplete history.",
+          "enabled" : true,
+          "label" : "Export evidence",
+          "precondition" : "Names a directory that does not exist yet, on the server host (relative paths resolve against the server's working directory). One export runs at a time.",
+          "statusCommand" : "control.audit.export.status"
+        }, {
+          "action" : "clear",
+          "consequence" : null,
+          "disabledReason" : "Use overload.status and overload.clear <feed> in Commands for configured policies. An unconfigured feed retains its cumulative DEGRADED verdict; clearing never restores lost items.",
           "enabled" : false,
           "label" : "Clear",
-          "precondition" : "No reset on Mongoose 1.0.33: the verdict stays DEGRADED while the drop count is non-zero. Clearing never restores lost items."
+          "precondition" : "Use overload.status and overload.clear <feed> in Commands for configured policies. An unconfigured feed retains its cumulative DEGRADED verdict; clearing never restores lost items."
         } ],
         "dropped" : "<N>",
         "evidence" : [ {
@@ -110,7 +183,8 @@
           "label" : "Queue",
           "value" : "/feed/feed/group/slow/subscriber/ComposingEventProcessorAgent#<HASH>"
         } ],
-        "evidenceUnavailable" : [ "The first loss (sequence and time of the QueueDrop record) is only in the group's control-audit export on Mongoose 1.0.33: run Export evidence." ],
+        "evidenceStatus" : null,
+        "evidenceUnavailable" : [ "The first loss (sequence and time of the QueueDrop record) is only in the group's control-audit export on Mongoose 1.1.0: run Export evidence." ],
         "failureKind" : null,
         "feed" : "feed",
         "group" : "slow",
@@ -122,14 +196,40 @@
         "since" : "<TS>",
         "subject" : "feed → slow",
         "title" : "Queue loss",
-        "what" : "A full queue dropped items after its spin bound. Health DEGRADED: <N> item(s) dropped by queue /feed/feed/group/slow/subscriber/ComposingEventProcessorAgent#<HASH>"
+        "what" : "The queue reports lost items under its configured policy. Health DEGRADED: <N> item(s) dropped by queue /feed/feed/group/slow/subscriber/ComposingEventProcessorAgent#<HASH>"
+      }, {
+        "acknowledged" : false,
+        "actions" : [ {
+          "action" : "acknowledge",
+          "consequence" : "Moves it to Acknowledged. The issue stays open and keeps counting toward the health pill until Mongoose stops reporting it; nothing on the server changes.",
+          "enabled" : true,
+          "label" : "Acknowledge",
+          "precondition" : "None."
+        } ],
+        "evidence" : [ {
+          "label" : "Health check",
+          "value" : "group:slow/overload DEGRADED"
+        }, {
+          "label" : "Reason",
+          "value" : "{feed={slow/feed/onEventCallBack=DEGRADED}}"
+        } ],
+        "evidenceStatus" : null,
+        "failureKind" : null,
+        "id" : "HEALTH_DEGRADED:group:slow/overload",
+        "impact" : "As described by the check's owner: {feed={slow/feed/onEventCallBack=DEGRADED}}",
+        "kind" : "HEALTH_DEGRADED",
+        "severity" : "DEGRADED",
+        "since" : "<TS>",
+        "subject" : "group:slow/overload",
+        "title" : "Health check DEGRADED",
+        "what" : "Health check overload of group:slow reports DEGRADED: {feed={slow/feed/onEventCallBack=DEGRADED}}"
       } ],
       "liveGaps" : 0,
-      "mongooseVersion" : "1.0.33",
+      "mongooseVersion" : "1.1.0",
       "notAvailable" : [ {
-        "detail" : "Mongoose 1.0.33 logs a WARNING and retries the handler; no admin surface reports it. See Logs.",
+        "detail" : "Recovery depends on the dispatch strategy capabilities. Inspect the ERROR/WARNING log; this panel has no structured per-handler history.",
         "fact" : "Handwritten handler failures",
-        "needs" : "Mongoose #77"
+        "needs" : "plugin milestone 2"
       }, {
         "detail" : "Sequence numbers of ProcessorQuarantined, Dead and QueueDrop records are only in a control-audit export.",
         "fact" : "Control record evidence",
@@ -147,23 +247,23 @@
         "fact" : "Capture resource limit",
         "needs" : "proposal A5"
       }, {
-        "detail" : "Replies carry an outcome and reason text, no typed failure kind.",
-        "fact" : "Failure kind",
-        "needs" : "Mongoose #77"
+        "detail" : "Stop replies expose FailureKind; generic command text does not carry EvidenceStatus. No VERIFIED status is inferred.",
+        "fact" : "Typed request evidence",
+        "needs" : "plugin milestone 2"
       }, {
         "detail" : "No admin command resumes shutdown().",
         "fact" : "Retry an incomplete shutdown",
         "needs" : "proposal A4"
       }, {
-        "detail" : "Queues drop after the spin bound; no policy, latch or clear.",
-        "fact" : "Overload policy and latch",
-        "needs" : "Mongoose #79"
+        "detail" : "Overload states are shown. Use the Commands panel for overload.status and overload.clear <feed>; guided clear/kill-switch controls are not implemented.",
+        "fact" : "Overload actions",
+        "needs" : "plugin milestone 2"
       }, {
         "detail" : "No admin command or endpoint.",
         "fact" : "Replay status",
         "needs" : "proposal A9"
       } ],
-      "unacknowledged" : 1,
+      "unacknowledged" : 3,
       "worst" : "DEGRADED"
     },
     "status" : 200
@@ -192,7 +292,7 @@
     "body" : {
       "command" : "control.group.status",
       "err" : [ ],
-      "output" : [ "ControlGroupStatus[group=slow, state=RUNNING, outstandingRequests=0, captureResourcesHeld=0, captureResourceSlotsInUse=0, captureCloseFailures={}, captureCleanupFailures={}, quarantinedProcessors={}]" ]
+      "output" : [ "ControlGroupStatus[group=slow, state=RUNNING, outstandingRequests=0, captureResourcesHeld=0, captureResourceSlotsInUse=0, captureCloseFailures={}, captureCleanupFailures={}, quarantinedProcessors={}, controlAuditDegraded=false, captureWriteFailures=0, captureUnobservable=0, unacknowledgedCaptureFailures=null, overloadStates={feed={slow/feed/onEventCallBack=DEGRADED}}]" ]
     },
     "status" : 200
   }

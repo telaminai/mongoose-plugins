@@ -423,6 +423,8 @@
                                         <span class="tag" data-testid="issue-severity" :class="issueSeverityClass(i.severity)" x-text="i.severity"></span>
                                         <span class="mono small issue-kind" data-testid="issue-kind" x-text="i.kind"></span>
                                         <strong class="mono" data-testid="issue-subject" x-text="i.subject"></strong>
+                                        <span class="tag" x-show="i.failureKind" data-testid="issue-failure-kind" x-text="i.failureKind"></span>
+                                        <span class="tag warn" x-show="i.evidenceStatus" data-testid="issue-evidence-status" x-text="i.evidenceStatus"></span>
                                         <span class="tag" x-show="i.outcome" data-testid="issue-outcome" x-text="i.outcome"></span>
                                         <span class="muted small issue-since" :title="'first seen by this console'"
                                               x-text="'since ' + formatSince(i.since)"></span>
@@ -439,7 +441,7 @@
                                             </template>
                                             <template x-for="(u, ui) in (i.evidenceUnavailable || [])" :key="'u' + ui">
                                                 <div class="issue-evidence-item small muted" data-testid="issue-evidence-unavailable">
-                                                    <span class="tag">not available in this Mongoose version</span> <span x-text="u"></span>
+                                                    <span class="tag">not available here</span> <span x-text="u"></span>
                                                 </div>
                                             </template>
                                         </div></div>

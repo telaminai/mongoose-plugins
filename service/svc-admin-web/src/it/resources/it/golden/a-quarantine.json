@@ -3,6 +3,27 @@
     "body" : {
       "agents" : [ {
         "controlState" : "RUNNING",
+        "controlStatus" : {
+          "captureCleanupFailures" : { },
+          "captureCloseFailures" : { },
+          "captureResourceSlotsInUse" : 0,
+          "captureResourcesHeld" : 0,
+          "captureUnobservable" : 0,
+          "captureWriteFailures" : 0,
+          "controlAuditDegraded" : false,
+          "group" : "pricing",
+          "outstandingRequests" : 0,
+          "overloadStates" : {
+            "feed" : {
+              "pricing/feed/onEventCallBack" : "UP"
+            }
+          },
+          "quarantinedProcessors" : {
+            "pricer" : "com.telamin.mongoose.dutycycle.ProcessorDispatchException: generated processor execution failed during event dispatch; processor=com.telamin.mongoose.plugin.svc.adminweb.it.Fixtures$ThrowingGenerated; processor requires isolation; no retry or automatic recovery; cause: java.lang.IllegalStateException: injected pricing failure in generated graph"
+          },
+          "state" : "RUNNING",
+          "unacknowledgedCaptureFailures" : null
+        },
         "daemon" : false,
         "feeds" : [ {
           "callback" : "onEventCallBack",
@@ -26,15 +47,39 @@
           "kind" : "processor",
           "name" : "pricer",
           "state" : "QUARANTINED",
-          "stateReason" : "com.telamin.mongoose.dutycycle.ProcessorDispatchException: generated processor execution failed during event dispatch; processor=com.telamin.mongoose.plugin.svc.adminweb.it.Fixtures$ThrowingGenerated; processor requires isolation; no retry or automatic recovery",
+          "stateReason" : "com.telamin.mongoose.dutycycle.ProcessorDispatchException: generated processor execution failed during event dispatch; processor=com.telamin.mongoose.plugin.svc.adminweb.it.Fixtures$ThrowingGenerated; processor requires isolation; no retry or automatic recovery; cause: java.lang.IllegalStateException: injected pricing failure in generated graph",
           "subscriptions" : [ ]
         } ],
+        "overloadStates" : {
+          "feed" : {
+            "pricing/feed/onEventCallBack" : "UP"
+          }
+        },
         "priority" : 5,
         "thread" : "pricing",
         "threadState" : "<LIVE>",
         "type" : "processor"
       }, {
         "controlState" : "RUNNING",
+        "controlStatus" : {
+          "captureCleanupFailures" : { },
+          "captureCloseFailures" : { },
+          "captureResourceSlotsInUse" : 0,
+          "captureResourcesHeld" : 0,
+          "captureUnobservable" : 0,
+          "captureWriteFailures" : 0,
+          "controlAuditDegraded" : false,
+          "group" : "hand",
+          "outstandingRequests" : 0,
+          "overloadStates" : {
+            "feed" : {
+              "hand/feed/onEventCallBack" : "UP"
+            }
+          },
+          "quarantinedProcessors" : { },
+          "state" : "RUNNING",
+          "unacknowledgedCaptureFailures" : null
+        },
         "daemon" : false,
         "feeds" : [ {
           "callback" : "onEventCallBack",
@@ -54,6 +99,11 @@
             "feed" : "EventSubscriptionKey[eventSourceKey=EventSourceKey[sourceName=feed], callBackType=com.telamin.mongoose.service.CallBackType$OnEventCallBack@<HASH>]"
           } ]
         } ],
+        "overloadStates" : {
+          "feed" : {
+            "hand/feed/onEventCallBack" : "UP"
+          }
+        },
         "priority" : 5,
         "thread" : "hand",
         "threadState" : "<LIVE>",
@@ -81,7 +131,7 @@
           "action" : "export-evidence",
           "args" : [ "pricing" ],
           "command" : "control.audit.export",
-          "consequence" : "Writes group pricing's control-audit records for offline analysis and reports completeness. Changes no server state.",
+          "consequence" : "Writes group pricing's control-audit records for offline analysis and reports completeness. Export acknowledges the control-audit gap it exported for later replies; it does not repair incomplete history.",
           "enabled" : true,
           "label" : "Export evidence",
           "precondition" : "Names a directory that does not exist yet, on the server host (relative paths resolve against the server's working directory). One export runs at a time.",
@@ -89,10 +139,10 @@
         }, {
           "action" : "stop",
           "consequence" : null,
-          "disabledReason" : "Known outcome on Mongoose 1.0.33: stop FAILED: processor quarantined. The name stays reserved until shutdown.",
+          "disabledReason" : "Known outcome on Mongoose 1.1.0: stop FAILED (QUARANTINED): processor quarantined. The name stays reserved until shutdown.",
           "enabled" : false,
           "label" : "Stop",
-          "precondition" : "Known outcome on Mongoose 1.0.33: stop FAILED: processor quarantined. The name stays reserved until shutdown."
+          "precondition" : "Known outcome on Mongoose 1.1.0: stop FAILED (QUARANTINED): processor quarantined. The name stays reserved until shutdown."
         }, {
           "action" : "replace",
           "consequence" : null,
@@ -106,10 +156,11 @@
           "value" : "control.group.status pricing: quarantinedProcessors has pricer"
         }, {
           "label" : "Reason",
-          "value" : "com.telamin.mongoose.dutycycle.ProcessorDispatchException: generated processor execution failed during event dispatch; processor=com.telamin.mongoose.plugin.svc.adminweb.it.Fixtures$ThrowingGenerated; processor requires isolation; no retry or automatic recovery"
+          "value" : "com.telamin.mongoose.dutycycle.ProcessorDispatchException: generated processor execution failed during event dispatch; processor=com.telamin.mongoose.plugin.svc.adminweb.it.Fixtures$ThrowingGenerated; processor requires isolation; no retry or automatic recovery; cause: java.lang.IllegalStateException: injected pricing failure in generated graph"
         } ],
-        "evidenceUnavailable" : [ "The ProcessorQuarantined control record (sequence, time) is only in a control-audit export on Mongoose 1.0.33: run Export evidence." ],
-        "failureKind" : null,
+        "evidenceStatus" : null,
+        "evidenceUnavailable" : [ "The ProcessorQuarantined control record (sequence, time) is only in a control-audit export on Mongoose 1.1.0: run Export evidence." ],
+        "failureKind" : "QUARANTINED",
         "group" : "pricing",
         "id" : "PROCESSOR_QUARANTINED:pricing/pricer",
         "impact" : "no output from pricing/pricer until the process is replaced: it receives no events and no timers. Other processors in group pricing keep running (peer). Shutdown will report pricing incomplete and keep the services it uses.",
@@ -119,14 +170,14 @@
         "since" : "<TS>",
         "subject" : "pricing/pricer",
         "title" : "Processor quarantined",
-        "what" : "The generated processor threw while handling an event. Mongoose fenced it from its feeds and timers and will not call it again. Reason: com.telamin.mongoose.dutycycle.ProcessorDispatchException: generated processor execution failed during event dispatch; processor=com.telamin.mongoose.plugin.svc.adminweb.it.Fixtures$ThrowingGenerated; processor requires isolation; no retry or automatic recovery"
+        "what" : "The generated processor threw while handling an event. Mongoose fenced it from its feeds and timers and will not call it again. Reason: com.telamin.mongoose.dutycycle.ProcessorDispatchException: generated processor execution failed during event dispatch; processor=com.telamin.mongoose.plugin.svc.adminweb.it.Fixtures$ThrowingGenerated; processor requires isolation; no retry or automatic recovery; cause: java.lang.IllegalStateException: injected pricing failure in generated graph"
       } ],
       "liveGaps" : 0,
-      "mongooseVersion" : "1.0.33",
+      "mongooseVersion" : "1.1.0",
       "notAvailable" : [ {
-        "detail" : "Mongoose 1.0.33 logs a WARNING and retries the handler; no admin surface reports it. See Logs.",
+        "detail" : "Recovery depends on the dispatch strategy capabilities. Inspect the ERROR/WARNING log; this panel has no structured per-handler history.",
         "fact" : "Handwritten handler failures",
-        "needs" : "Mongoose #77"
+        "needs" : "plugin milestone 2"
       }, {
         "detail" : "Sequence numbers of ProcessorQuarantined, Dead and QueueDrop records are only in a control-audit export.",
         "fact" : "Control record evidence",
@@ -144,17 +195,17 @@
         "fact" : "Capture resource limit",
         "needs" : "proposal A5"
       }, {
-        "detail" : "Replies carry an outcome and reason text, no typed failure kind.",
-        "fact" : "Failure kind",
-        "needs" : "Mongoose #77"
+        "detail" : "Stop replies expose FailureKind; generic command text does not carry EvidenceStatus. No VERIFIED status is inferred.",
+        "fact" : "Typed request evidence",
+        "needs" : "plugin milestone 2"
       }, {
         "detail" : "No admin command resumes shutdown().",
         "fact" : "Retry an incomplete shutdown",
         "needs" : "proposal A4"
       }, {
-        "detail" : "Queues drop after the spin bound; no policy, latch or clear.",
-        "fact" : "Overload policy and latch",
-        "needs" : "Mongoose #79"
+        "detail" : "Overload states are shown. Use the Commands panel for overload.status and overload.clear <feed>; guided clear/kill-switch controls are not implemented.",
+        "fact" : "Overload actions",
+        "needs" : "plugin milestone 2"
       }, {
         "detail" : "No admin command or endpoint.",
         "fact" : "Replay status",
@@ -184,7 +235,7 @@
           "action" : "export-evidence",
           "args" : [ "pricing" ],
           "command" : "control.audit.export",
-          "consequence" : "Writes group pricing's control-audit records for offline analysis and reports completeness. Changes no server state.",
+          "consequence" : "Writes group pricing's control-audit records for offline analysis and reports completeness. Export acknowledges the control-audit gap it exported for later replies; it does not repair incomplete history.",
           "enabled" : true,
           "label" : "Export evidence",
           "precondition" : "Names a directory that does not exist yet, on the server host (relative paths resolve against the server's working directory). One export runs at a time.",
@@ -192,10 +243,10 @@
         }, {
           "action" : "stop",
           "consequence" : null,
-          "disabledReason" : "Known outcome on Mongoose 1.0.33: stop FAILED: processor quarantined. The name stays reserved until shutdown.",
+          "disabledReason" : "Known outcome on Mongoose 1.1.0: stop FAILED (QUARANTINED): processor quarantined. The name stays reserved until shutdown.",
           "enabled" : false,
           "label" : "Stop",
-          "precondition" : "Known outcome on Mongoose 1.0.33: stop FAILED: processor quarantined. The name stays reserved until shutdown."
+          "precondition" : "Known outcome on Mongoose 1.1.0: stop FAILED (QUARANTINED): processor quarantined. The name stays reserved until shutdown."
         }, {
           "action" : "replace",
           "consequence" : null,
@@ -209,10 +260,11 @@
           "value" : "control.group.status pricing: quarantinedProcessors has pricer"
         }, {
           "label" : "Reason",
-          "value" : "com.telamin.mongoose.dutycycle.ProcessorDispatchException: generated processor execution failed during event dispatch; processor=com.telamin.mongoose.plugin.svc.adminweb.it.Fixtures$ThrowingGenerated; processor requires isolation; no retry or automatic recovery"
+          "value" : "com.telamin.mongoose.dutycycle.ProcessorDispatchException: generated processor execution failed during event dispatch; processor=com.telamin.mongoose.plugin.svc.adminweb.it.Fixtures$ThrowingGenerated; processor requires isolation; no retry or automatic recovery; cause: java.lang.IllegalStateException: injected pricing failure in generated graph"
         } ],
-        "evidenceUnavailable" : [ "The ProcessorQuarantined control record (sequence, time) is only in a control-audit export on Mongoose 1.0.33: run Export evidence." ],
-        "failureKind" : null,
+        "evidenceStatus" : null,
+        "evidenceUnavailable" : [ "The ProcessorQuarantined control record (sequence, time) is only in a control-audit export on Mongoose 1.1.0: run Export evidence." ],
+        "failureKind" : "QUARANTINED",
         "group" : "pricing",
         "id" : "PROCESSOR_QUARANTINED:pricing/pricer",
         "impact" : "no output from pricing/pricer until the process is replaced: it receives no events and no timers. Other processors in group pricing keep running (peer). Shutdown will report pricing incomplete and keep the services it uses.",
@@ -222,7 +274,7 @@
         "since" : "<TS>",
         "subject" : "pricing/pricer",
         "title" : "Processor quarantined",
-        "what" : "The generated processor threw while handling an event. Mongoose fenced it from its feeds and timers and will not call it again. Reason: com.telamin.mongoose.dutycycle.ProcessorDispatchException: generated processor execution failed during event dispatch; processor=com.telamin.mongoose.plugin.svc.adminweb.it.Fixtures$ThrowingGenerated; processor requires isolation; no retry or automatic recovery"
+        "what" : "The generated processor threw while handling an event. Mongoose fenced it from its feeds and timers and will not call it again. Reason: com.telamin.mongoose.dutycycle.ProcessorDispatchException: generated processor execution failed during event dispatch; processor=com.telamin.mongoose.plugin.svc.adminweb.it.Fixtures$ThrowingGenerated; processor requires isolation; no retry or automatic recovery; cause: java.lang.IllegalStateException: injected pricing failure in generated graph"
       }, {
         "acknowledged" : false,
         "actions" : [ {
@@ -240,23 +292,24 @@
           "label" : "Sent by",
           "value" : "this console"
         } ],
-        "failureKind" : null,
+        "evidenceStatus" : null,
+        "failureKind" : "QUARANTINED",
         "id" : "REQUEST_FAILED:1",
-        "impact" : "Expected for a quarantined processor; see its quarantine issue.",
+        "impact" : "The processor is quarantined and its name remains held. Follow the incident runbook.",
         "kind" : "REQUEST_FAILED",
         "outcome" : "FAILED",
         "severity" : "INFO",
         "since" : "<TS>",
         "subject" : "pricing/pricer",
         "title" : "Request failed",
-        "what" : "server.processors.stop pricing/pricer was not applied (FAILED): processor quarantined; lifecycle cleanup requires operator resolution"
+        "what" : "server.processors.stop pricing/pricer returned (FAILED): processor quarantined; lifecycle cleanup requires operator resolution"
       } ],
       "liveGaps" : 0,
-      "mongooseVersion" : "1.0.33",
+      "mongooseVersion" : "1.1.0",
       "notAvailable" : [ {
-        "detail" : "Mongoose 1.0.33 logs a WARNING and retries the handler; no admin surface reports it. See Logs.",
+        "detail" : "Recovery depends on the dispatch strategy capabilities. Inspect the ERROR/WARNING log; this panel has no structured per-handler history.",
         "fact" : "Handwritten handler failures",
-        "needs" : "Mongoose #77"
+        "needs" : "plugin milestone 2"
       }, {
         "detail" : "Sequence numbers of ProcessorQuarantined, Dead and QueueDrop records are only in a control-audit export.",
         "fact" : "Control record evidence",
@@ -274,17 +327,17 @@
         "fact" : "Capture resource limit",
         "needs" : "proposal A5"
       }, {
-        "detail" : "Replies carry an outcome and reason text, no typed failure kind.",
-        "fact" : "Failure kind",
-        "needs" : "Mongoose #77"
+        "detail" : "Stop replies expose FailureKind; generic command text does not carry EvidenceStatus. No VERIFIED status is inferred.",
+        "fact" : "Typed request evidence",
+        "needs" : "plugin milestone 2"
       }, {
         "detail" : "No admin command resumes shutdown().",
         "fact" : "Retry an incomplete shutdown",
         "needs" : "proposal A4"
       }, {
-        "detail" : "Queues drop after the spin bound; no policy, latch or clear.",
-        "fact" : "Overload policy and latch",
-        "needs" : "Mongoose #79"
+        "detail" : "Overload states are shown. Use the Commands panel for overload.status and overload.clear <feed>; guided clear/kill-switch controls are not implemented.",
+        "fact" : "Overload actions",
+        "needs" : "plugin milestone 2"
       }, {
         "detail" : "No admin command or endpoint.",
         "fact" : "Replay status",
@@ -310,13 +363,13 @@
   },
   "REST POST /admin stop" : {
     "body" : {
-      "message" : "stopping processor:pricing/pricer\nstop FAILED: processor quarantined; lifecycle cleanup requires operator resolution"
+      "message" : "stopping processor:pricing/pricer\nstop FAILED (QUARANTINED): processor quarantined; lifecycle cleanup requires operator resolution"
     },
     "status" : 200
   },
   "REST POST /api/control.group.status" : {
     "body" : {
-      "message" : "Failure - usage: control.group.status <group>"
+      "message" : "Failure - usage: control.group.status <group> [--json]"
     },
     "status" : 200
   },
@@ -324,7 +377,7 @@
     "body" : {
       "command" : "control.group.status",
       "err" : [ ],
-      "output" : [ "ControlGroupStatus[group=hand, state=RUNNING, outstandingRequests=0, captureResourcesHeld=0, captureResourceSlotsInUse=0, captureCloseFailures={}, captureCleanupFailures={}, quarantinedProcessors={}]" ]
+      "output" : [ "ControlGroupStatus[group=hand, state=RUNNING, outstandingRequests=0, captureResourcesHeld=0, captureResourceSlotsInUse=0, captureCloseFailures={}, captureCleanupFailures={}, quarantinedProcessors={}, controlAuditDegraded=false, captureWriteFailures=0, captureUnobservable=0, unacknowledgedCaptureFailures=null, overloadStates={feed={hand/feed/onEventCallBack=UP}}]" ]
     },
     "status" : 200
   },
@@ -332,7 +385,7 @@
     "body" : {
       "command" : "control.group.status",
       "err" : [ ],
-      "output" : [ "ControlGroupStatus[group=pricing, state=RUNNING, outstandingRequests=0, captureResourcesHeld=0, captureResourceSlotsInUse=0, captureCloseFailures={}, captureCleanupFailures={}, quarantinedProcessors={pricer=com.telamin.mongoose.dutycycle.ProcessorDispatchException: generated processor execution failed during event dispatch; processor=com.telamin.mongoose.plugin.svc.adminweb.it.Fixtures$ThrowingGenerated; processor requires isolation; no retry or automatic recovery}]" ]
+      "output" : [ "ControlGroupStatus[group=pricing, state=RUNNING, outstandingRequests=0, captureResourcesHeld=0, captureResourceSlotsInUse=0, captureCloseFailures={}, captureCleanupFailures={}, quarantinedProcessors={pricer=com.telamin.mongoose.dutycycle.ProcessorDispatchException: generated processor execution failed during event dispatch; processor=com.telamin.mongoose.plugin.svc.adminweb.it.Fixtures$ThrowingGenerated; processor requires isolation; no retry or automatic recovery; cause: java.lang.IllegalStateException: injected pricing failure in generated graph}, controlAuditDegraded=false, captureWriteFailures=0, captureUnobservable=0, unacknowledgedCaptureFailures=null, overloadStates={feed={pricing/feed/onEventCallBack=UP}}]" ]
     },
     "status" : 200
   },
@@ -348,7 +401,7 @@
     "body" : {
       "command" : "server.processors.stop",
       "err" : [ ],
-      "output" : [ "stopping processor:pricing/pricer", "stop FAILED: processor quarantined; lifecycle cleanup requires operator resolution" ]
+      "output" : [ "stopping processor:pricing/pricer", "stop FAILED (QUARANTINED): processor quarantined; lifecycle cleanup requires operator resolution" ]
     },
     "status" : 200
   }

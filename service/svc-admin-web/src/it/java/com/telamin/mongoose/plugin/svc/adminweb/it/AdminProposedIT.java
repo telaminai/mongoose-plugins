@@ -53,14 +53,7 @@ class AdminProposedIT {
         }
     }
 
-    /** Proposal §4.6 / §7 (Mongoose): stopping a processor that does not exist is REFUSED, not "pending". */
-    @Test
-    void stopOfUnknownProcessorIsRefused() throws Exception {
-        try (ScenarioServer s = new ScenarioServer(1_500)) {
-            String out = s.command("server.processors.stop", "nosuch/x").body();
-            assertTrue(out.contains("stop REFUSED"), out);
-        }
-    }
+    // Unknown-stop refusal is now asserted by AdminRestScenarioIT.f_refusedControlRequests.
 
     /** Proposal §4.8: replay status is readable (experimental). */
     @Test

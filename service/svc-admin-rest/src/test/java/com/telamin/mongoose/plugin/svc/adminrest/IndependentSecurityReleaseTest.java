@@ -21,7 +21,7 @@ class IndependentSecurityReleaseTest {
             if(m.getName().equals("processAdminCommandRequest")) {calls.incrementAndGet(); ((AdminCommandRequest)a[0]).getOutput().accept("ok");}
             return null;
         });
-        service.adminRegistry(registry,"adminRegistry"); service.init(); 
+        service.adminRegistry(registry,"adminRegistry"); service.init();
         boolean protectedVersion=Boolean.parseBoolean(System.getProperty("security.probe.protected","true"));
         try {
             String local="127.0.0.1:"+port;

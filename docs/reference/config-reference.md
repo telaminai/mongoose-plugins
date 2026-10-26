@@ -6,7 +6,7 @@
     machine-readable, is at [`schema.json`](../schema/schema.json)
     (consumed by the Fluxtion project starter).
 
-Plugins release **`1.0.46-rc1`**. Feeds bind under `eventFeeds:` / sinks under `eventSinks:` (key `instance:`); services under `services:` (key `service:`).
+Plugins release **`1.1.0`**. Feeds bind under `eventFeeds:` / sinks under `eventSinks:` (key `instance:`); services under `services:` (key `service:`).
 
 ## Connectors
 
@@ -16,7 +16,7 @@ Built-in (mongoose-core): tail a file as an event source.
 
 - **Class**: `com.telamin.mongoose.connector.file.FileEventSource`
 - **YAML**: `eventFeeds:` → `instance:`
-- **From**: mongoose-core `1.0.33-rc1`
+- **From**: mongoose-core `1.1.0`
 
 | Field | Type | Required | Default | Allowed / notes |
 |---|---|:--:|---|---|
@@ -30,7 +30,7 @@ Built-in (mongoose-core): append messages to a file.
 
 - **Class**: `com.telamin.mongoose.connector.file.FileMessageSink`
 - **YAML**: `eventSinks:` → `instance:`
-- **From**: mongoose-core `1.0.33-rc1`
+- **From**: mongoose-core `1.1.0`
 
 | Field | Type | Required | Default | Allowed / notes |
 |---|---|:--:|---|---|
@@ -42,7 +42,7 @@ Built-in (mongoose-core): in-memory event source (tests / in-process).
 
 - **Class**: `com.telamin.mongoose.connector.memory.InMemoryEventSource`
 - **YAML**: `eventFeeds:` → `instance:`
-- **From**: mongoose-core `1.0.33-rc1`
+- **From**: mongoose-core `1.1.0`
 
 | Field | Type | Required | Default | Allowed / notes |
 |---|---|:--:|---|---|
@@ -55,7 +55,7 @@ Built-in (mongoose-core): in-memory message sink.
 
 - **Class**: `com.telamin.mongoose.connector.memory.InMemoryMessageSink`
 - **YAML**: `eventSinks:` → `instance:`
-- **From**: mongoose-core `1.0.33-rc1`
+- **From**: mongoose-core `1.1.0`
 
 _No configurable fields._
 
@@ -281,9 +281,10 @@ Javalin REST admin endpoint.
 
 | Field | Type | Required | Default | Allowed / notes |
 |---|---|:--:|---|---|
+| `allowedHosts` | list&lt;string&gt; |  | `[]` |  |
 | `authMode` | enum |  | `NONE` | `NONE` \| `BASIC` \| `BEARER`<br>NONE \| BASIC \| BEARER. |
 | `bearerToken` | string |  |  | BEARER credential ($ENV. resolvable). |
-| `host` | string |  | `0.0.0.0` | _format: host_<br>Bind address (0.0.0.0 = all interfaces — front with TLS). |
+| `host` | string |  | `127.0.0.1` | _format: host_<br>Bind address (0.0.0.0 = all interfaces — front with TLS). |
 | `listenPort` | int |  | `8080` | _format: port_ |
 | `password` | string |  |  | BASIC credential ($ENV. resolvable). |
 | `realm` | string |  | `mongoose-admin` |  |
@@ -299,6 +300,7 @@ Browser admin & monitoring console (REST + WebSocket + SPA).
 
 | Field | Type | Required | Default | Allowed / notes |
 |---|---|:--:|---|---|
+| `allowedHosts` | list&lt;string&gt; |  | `[]` |  |
 | `authMode` | enum |  | `NONE` | `NONE` \| `BASIC` \| `BEARER`<br>NONE \| BASIC \| BEARER. |
 | `basePath` | string |  |  |  |
 | `bearerToken` | string |  |  | BEARER credential ($ENV. resolvable). |

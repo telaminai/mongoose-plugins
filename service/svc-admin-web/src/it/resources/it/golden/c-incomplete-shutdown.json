@@ -3,6 +3,25 @@
     "body" : {
       "agents" : [ {
         "controlState" : "CLOSING",
+        "controlStatus" : {
+          "captureCleanupFailures" : { },
+          "captureCloseFailures" : { },
+          "captureResourceSlotsInUse" : 0,
+          "captureResourcesHeld" : 0,
+          "captureUnobservable" : 0,
+          "captureWriteFailures" : 0,
+          "controlAuditDegraded" : false,
+          "group" : "slowstop",
+          "outstandingRequests" : 1,
+          "overloadStates" : {
+            "feed" : {
+              "slowstop/feed/onEventCallBack" : "UP"
+            }
+          },
+          "quarantinedProcessors" : { },
+          "state" : "CLOSING",
+          "unacknowledgedCaptureFailures" : null
+        },
         "daemon" : false,
         "feeds" : [ {
           "callback" : "onEventCallBack",
@@ -13,6 +32,11 @@
         "idleStrategyClass" : "org.agrona.concurrent.YieldingIdleStrategy",
         "kind" : "processor",
         "members" : [ ],
+        "overloadStates" : {
+          "feed" : {
+            "slowstop/feed/onEventCallBack" : "UP"
+          }
+        },
         "priority" : 5,
         "thread" : "Thread-<N>",
         "threadState" : "NEW",
@@ -39,13 +63,13 @@
         }, {
           "action" : "retry-stop",
           "consequence" : null,
-          "disabledReason" : "No admin command on Mongoose 1.0.33 (proposal A4). The application can call shutdown() again once the blocker can progress: it resumes without repeating callbacks, and failed closes are not retried.",
+          "disabledReason" : "No admin command on Mongoose 1.1.0 (proposal A4). The application can call shutdown() again once the blocker can progress: it resumes without repeating callbacks, and failed closes are not retried.",
           "enabled" : false,
           "label" : "Retry stop",
-          "precondition" : "No admin command on Mongoose 1.0.33 (proposal A4). The application can call shutdown() again once the blocker can progress: it resumes without repeating callbacks, and failed closes are not retried."
+          "precondition" : "No admin command on Mongoose 1.1.0 (proposal A4). The application can call shutdown() again once the blocker can progress: it resumes without repeating callbacks, and failed closes are not retried."
         } ],
         "evidence" : [ {
-          "label" : "Groups still running",
+          "label" : "Groups with incomplete cleanup",
           "value" : "slowstop"
         }, {
           "label" : "Services left running",
@@ -54,23 +78,25 @@
           "label" : "Group slowstop",
           "value" : "state CLOSING, outstanding requests 1"
         } ],
-        "evidenceUnavailable" : [ "Which callback is blocked: Mongoose 1.0.33 reports the group, not the processor or callback." ],
-        "failureKind" : null,
+        "evidenceStatus" : null,
+        "evidenceUnavailable" : [ "StopResult does not identify a blocked callback or prove a listed group is still executing. Inspect its control status, held names and logs." ],
+        "failureKind" : "FAILED_SHUTDOWN",
+        "heldNames" : [ ],
         "id" : "SHUTDOWN_INCOMPLETE",
-        "impact" : "Groups slowstop have not stopped; services they may use are kept running (this console is one of them). Their resources stay held.",
+        "impact" : "Cleanup completion is unconfirmed for the listed groups or tasks. StopResult lists these services left running: com.telamin.mongoose.service.health.MongooseHealthService, com.telamin.mongoose.pool.ObjectPoolsRegistry, com.telamin.mongoose.service.audit.MongooseAuditIntrospectionService, adminWebService, com.telamin.mongoose.service.introspection.MongooseIntrospectionService, adminRestService, com.telamin.mongoose.service.counters.MongooseCountersService, feed, com.telamin.mongoose.service.audit.MongooseAuditCaptureService, serverAdmin, com.telamin.mongoose.service.counters.MongooseLatencyService, com.telamin.mongoose.service.servercontrol.MongooseServerController. Resolve held names and cleanup failures before treating shutdown as complete.",
         "kind" : "SHUTDOWN_INCOMPLETE",
         "severity" : "CRITICAL",
         "since" : "<TS>",
         "subject" : "server",
         "title" : "Shutdown incomplete",
-        "what" : "The last shutdown returned incomplete. The server stays STOPPING with the groups and services below still running."
+        "what" : "The last shutdown returned incomplete. The server stays STOPPING with unconfirmed cleanup or held names. A listed group or service is not necessarily still executing."
       } ],
       "liveGaps" : 0,
-      "mongooseVersion" : "1.0.33",
+      "mongooseVersion" : "1.1.0",
       "notAvailable" : [ {
-        "detail" : "Mongoose 1.0.33 logs a WARNING and retries the handler; no admin surface reports it. See Logs.",
+        "detail" : "Recovery depends on the dispatch strategy capabilities. Inspect the ERROR/WARNING log; this panel has no structured per-handler history.",
         "fact" : "Handwritten handler failures",
-        "needs" : "Mongoose #77"
+        "needs" : "plugin milestone 2"
       }, {
         "detail" : "Sequence numbers of ProcessorQuarantined, Dead and QueueDrop records are only in a control-audit export.",
         "fact" : "Control record evidence",
@@ -88,17 +114,17 @@
         "fact" : "Capture resource limit",
         "needs" : "proposal A5"
       }, {
-        "detail" : "Replies carry an outcome and reason text, no typed failure kind.",
-        "fact" : "Failure kind",
-        "needs" : "Mongoose #77"
+        "detail" : "Stop replies expose FailureKind; generic command text does not carry EvidenceStatus. No VERIFIED status is inferred.",
+        "fact" : "Typed request evidence",
+        "needs" : "plugin milestone 2"
       }, {
         "detail" : "No admin command resumes shutdown().",
         "fact" : "Retry an incomplete shutdown",
         "needs" : "proposal A4"
       }, {
-        "detail" : "Queues drop after the spin bound; no policy, latch or clear.",
-        "fact" : "Overload policy and latch",
-        "needs" : "Mongoose #79"
+        "detail" : "Overload states are shown. Use the Commands panel for overload.status and overload.clear <feed>; guided clear/kill-switch controls are not implemented.",
+        "fact" : "Overload actions",
+        "needs" : "plugin milestone 2"
       }, {
         "detail" : "No admin command or endpoint.",
         "fact" : "Replay status",
@@ -114,8 +140,10 @@
       "lastStopResult" : {
         "blockedStartup" : null,
         "complete" : false,
+        "failureKind" : "FAILED_SHUTDOWN",
         "groupsRunning" : [ "slowstop" ],
         "handedOff" : false,
+        "heldNames" : [ ],
         "servicesLeftRunning" : [ "com.telamin.mongoose.service.health.MongooseHealthService", "com.telamin.mongoose.pool.ObjectPoolsRegistry", "com.telamin.mongoose.service.audit.MongooseAuditIntrospectionService", "adminWebService", "com.telamin.mongoose.service.introspection.MongooseIntrospectionService", "adminRestService", "com.telamin.mongoose.service.counters.MongooseCountersService", "feed", "com.telamin.mongoose.service.audit.MongooseAuditCaptureService", "serverAdmin", "com.telamin.mongoose.service.counters.MongooseLatencyService", "com.telamin.mongoose.service.servercontrol.MongooseServerController" ]
       },
       "lifecycle" : "STOPPING",
@@ -138,7 +166,7 @@
     "body" : {
       "command" : "control.group.status",
       "err" : [ ],
-      "output" : [ "ControlGroupStatus[group=slowstop, state=CLOSING, outstandingRequests=1, captureResourcesHeld=0, captureResourceSlotsInUse=0, captureCloseFailures={}, captureCleanupFailures={}, quarantinedProcessors={}]" ]
+      "output" : [ "ControlGroupStatus[group=slowstop, state=CLOSING, outstandingRequests=1, captureResourcesHeld=0, captureResourceSlotsInUse=0, captureCloseFailures={}, captureCleanupFailures={}, quarantinedProcessors={}, controlAuditDegraded=false, captureWriteFailures=0, captureUnobservable=0, unacknowledgedCaptureFailures=null, overloadStates={feed={slowstop/feed/onEventCallBack=UP}}]" ]
     },
     "status" : 200
   }

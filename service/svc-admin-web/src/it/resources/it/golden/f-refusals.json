@@ -18,21 +18,22 @@
         "command" : "server.processors.stop",
         "evidence" : [ {
           "label" : "Reply",
-          "value" : "UNKNOWN_TARGET: no processor group lists nosuch/x; Mongoose 1.0.33 still reports it as pending"
+          "value" : "REFUSED: no such group"
         }, {
           "label" : "Sent by",
           "value" : "this console"
         } ],
-        "failureKind" : null,
-        "id" : "REQUEST_UNCONFIRMED:1",
-        "impact" : "Most likely nothing was stopped. Check the name (group/processor); Mongoose 1.0.33 cannot refuse an unknown name.",
-        "kind" : "REQUEST_UNCONFIRMED",
-        "outcome" : "UNKNOWN_TARGET",
+        "evidenceStatus" : null,
+        "failureKind" : "REFUSED_STATE",
+        "id" : "REQUEST_REFUSED:1",
+        "impact" : "No effect was applied. Refusal kind: REFUSED_STATE; inspect the target and admission conditions before retrying.",
+        "kind" : "REQUEST_REFUSED",
+        "outcome" : "REFUSED",
         "severity" : "INFO",
         "since" : "<TS>",
         "subject" : "nosuch/x",
-        "title" : "Request for an unknown name",
-        "what" : "server.processors.stop nosuch/x was not applied (UNKNOWN_TARGET): no processor group lists nosuch/x; Mongoose 1.0.33 still reports it as pending"
+        "title" : "Request refused",
+        "what" : "server.processors.stop nosuch/x returned (REFUSED): no such group"
       }, {
         "acknowledged" : false,
         "actions" : [ {
@@ -45,28 +46,29 @@
         "command" : "server.processors.stop",
         "evidence" : [ {
           "label" : "Reply",
-          "value" : "INVALID: exception: Index 1 out of bounds for length 1"
+          "value" : "REFUSED: usage: server.processors.stop <group>/<processor>"
         }, {
           "label" : "Sent by",
           "value" : "this console"
         } ],
-        "failureKind" : null,
+        "evidenceStatus" : null,
+        "failureKind" : "REFUSED_INVALID",
         "id" : "REQUEST_REFUSED:2",
-        "impact" : "Nothing changed: the request was malformed.",
+        "impact" : "No effect was applied. Refusal kind: REFUSED_INVALID; inspect the target and admission conditions before retrying.",
         "kind" : "REQUEST_REFUSED",
-        "outcome" : "INVALID",
+        "outcome" : "REFUSED",
         "severity" : "INFO",
         "since" : "<TS>",
         "subject" : "server.processors.stop",
         "title" : "Request invalid",
-        "what" : "server.processors.stop was not applied (INVALID): exception: Index 1 out of bounds for length 1"
+        "what" : "server.processors.stop returned (REFUSED): usage: server.processors.stop <group>/<processor>"
       } ],
       "liveGaps" : 0,
-      "mongooseVersion" : "1.0.33",
+      "mongooseVersion" : "1.1.0",
       "notAvailable" : [ {
-        "detail" : "Mongoose 1.0.33 logs a WARNING and retries the handler; no admin surface reports it. See Logs.",
+        "detail" : "Recovery depends on the dispatch strategy capabilities. Inspect the ERROR/WARNING log; this panel has no structured per-handler history.",
         "fact" : "Handwritten handler failures",
-        "needs" : "Mongoose #77"
+        "needs" : "plugin milestone 2"
       }, {
         "detail" : "Sequence numbers of ProcessorQuarantined, Dead and QueueDrop records are only in a control-audit export.",
         "fact" : "Control record evidence",
@@ -84,17 +86,17 @@
         "fact" : "Capture resource limit",
         "needs" : "proposal A5"
       }, {
-        "detail" : "Replies carry an outcome and reason text, no typed failure kind.",
-        "fact" : "Failure kind",
-        "needs" : "Mongoose #77"
+        "detail" : "Stop replies expose FailureKind; generic command text does not carry EvidenceStatus. No VERIFIED status is inferred.",
+        "fact" : "Typed request evidence",
+        "needs" : "plugin milestone 2"
       }, {
         "detail" : "No admin command resumes shutdown().",
         "fact" : "Retry an incomplete shutdown",
         "needs" : "proposal A4"
       }, {
-        "detail" : "Queues drop after the spin bound; no policy, latch or clear.",
-        "fact" : "Overload policy and latch",
-        "needs" : "Mongoose #79"
+        "detail" : "Overload states are shown. Use the Commands panel for overload.status and overload.clear <feed>; guided clear/kill-switch controls are not implemented.",
+        "fact" : "Overload actions",
+        "needs" : "plugin milestone 2"
       }, {
         "detail" : "No admin command or endpoint.",
         "fact" : "Replay status",
@@ -108,7 +110,7 @@
   "server.processors.stop (no args)" : {
     "body" : {
       "command" : "server.processors.stop",
-      "err" : [ "exception: Index 1 out of bounds for length 1" ],
+      "err" : [ "stop REFUSED (REFUSED_INVALID): usage: server.processors.stop <group>/<processor>" ],
       "output" : [ ]
     },
     "status" : 200
@@ -117,7 +119,7 @@
     "body" : {
       "command" : "server.processors.stop",
       "err" : [ ],
-      "output" : [ "stopping processor:nosuch/x", "stop pending (still applies): nosuch/x" ]
+      "output" : [ "stopping processor:nosuch/x", "stop REFUSED (REFUSED_STATE): no such group" ]
     },
     "status" : 200
   }

@@ -1,5 +1,7 @@
 # Failure UX for svc-admin-web: issues and remediation
 
+Current release: **plugins 1.1.0 / Mongoose 1.1.0**. The 1.0.33 sections below describe the original milestone-1 design and evidence. Current compatibility, implemented state visibility, commands and remaining milestone-2 limits are in [the 1.1.0 release notes](../../../docs/release/1.1.0.md).
+
 Status: proposal, **milestone 1 implemented** against released Mongoose **1.0.33** (§8). Originally validated
 against 1.0.33-rc1 (`feature/control-plane` dfbfdd9, PR #76) on 2026-10-25. Issue #77 (FailureKind) and #79
 (overload policy) are not released; §6 covers what they add.

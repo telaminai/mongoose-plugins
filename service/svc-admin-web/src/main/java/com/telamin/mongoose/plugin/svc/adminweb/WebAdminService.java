@@ -947,7 +947,7 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
     }
 
     /**
-     * The server lifecycle as far as Mongoose 1.0.33 exposes it ({@code isStarted}, {@code lastStopResult}): an
+     * The server lifecycle as far as Mongoose 1.1.0 exposes it ({@code isStarted}, {@code lastStopResult}): an
      * incomplete stop leaves the server STOPPING; {@code UNKNOWN} covers starting and a stop in progress.
      */
     static String lifecycle(boolean started, com.telamin.mongoose.StopResult stop) {
@@ -963,6 +963,8 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         m.put("blockedStartup", stop.blockedStartup());
         m.put("groupsRunning", stop.groupsRunning());
         m.put("servicesLeftRunning", stop.servicesLeftRunning());
+        m.put("heldNames", stop.heldNames());
+        m.put("failureKind", stop.failureKind().name());
         return m;
     }
 
@@ -1043,7 +1045,7 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
     }
 
     /**
-     * Mongoose 1.0.33 refuses capture changes with a reason: an unknown or ambiguous name
+     * Mongoose 1.1.0 refuses capture changes with a reason: an unknown or ambiguous name
      * ({@code IllegalArgumentException}, 404, the message names the qualified selectors to use) or a
      * start/stop that was not applied - open/resource limit, open failed or timed out, group closed,
      * request cancelled before the group took it ({@code IllegalStateException}, 409). Either way the
@@ -2219,7 +2221,7 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
     }
 
     /**
-     * Adds the control-plane state Mongoose 1.0.33 keeps per processor group: {@code controlState} on the group,
+     * Adds the control-plane state Mongoose 1.1.0 keeps per processor group: {@code controlState} on the group,
      * a {@code state} on each member, and the group's quarantined processors, which the registry no longer lists
      * (they are fenced, not gone: Mongoose keeps their name and instance until shutdown).
      */
@@ -2241,6 +2243,8 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
     static void applyControlState(Map<String, Object> group, com.telamin.mongoose.MongooseServer.ControlGroupStatus st) {
         String state = String.valueOf(st.state());
         group.put("controlState", state);
+        group.put("controlStatus", st);
+        group.put("overloadStates", st.overloadStates());
         String memberState = switch (st.state()) {
             case RUNNING -> "RUNNING";
             case DEAD -> "NOT_RUNNING_GROUP_DEAD";
@@ -3089,7 +3093,7 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
 
     /**
      * Adds {@code dropped} and {@code health} to each queue from the per-queue drop counters and
-     * {@code queue-drops:<path>} health checks, matched on (feed, agent group): Mongoose 1.0.33 names a
+     * {@code queue-drops:<path>} health checks, matched on (feed, agent group): Mongoose 1.1.0 names a
      * data-path queue {@code /feed/<feed>/group/<group>/subscriber/<ref>}. The first loss is not live on 1.0.33
      * (it is a control-audit record), so it is not reported here.
      */

@@ -18,28 +18,29 @@
         "command" : "server.processors.stop",
         "evidence" : [ {
           "label" : "Reply",
-          "value" : "REFUSED: group busy: processor-stop queue stayed full (4096) for 100 ms; is the group's thread running?"
+          "value" : "REFUSED: group busy: processor-stop request refused: mailbox full (capacity 4096) for 100 ms; is the group's thread running?"
         }, {
           "label" : "Sent by",
           "value" : "this console"
         } ],
-        "failureKind" : null,
+        "evidenceStatus" : null,
+        "failureKind" : "REFUSED_ADMISSION",
         "id" : "REQUEST_REFUSED:1",
-        "impact" : "Nothing changed. The group's thread is not draining its control mailbox: check its thread state on Agents before retrying.",
+        "impact" : "No effect was applied. Refusal kind: REFUSED_ADMISSION; inspect the target and admission conditions before retrying.",
         "kind" : "REQUEST_REFUSED",
         "outcome" : "REFUSED",
         "severity" : "INFO",
         "since" : "<TS>",
         "subject" : "busy/consumer",
         "title" : "Request refused",
-        "what" : "server.processors.stop busy/consumer was not applied (REFUSED): group busy: processor-stop queue stayed full (4096) for 100 ms; is the group's thread running?"
+        "what" : "server.processors.stop busy/consumer returned (REFUSED): group busy: processor-stop request refused: mailbox full (capacity 4096) for 100 ms; is the group's thread running?"
       } ],
       "liveGaps" : 0,
-      "mongooseVersion" : "1.0.33",
+      "mongooseVersion" : "1.1.0",
       "notAvailable" : [ {
-        "detail" : "Mongoose 1.0.33 logs a WARNING and retries the handler; no admin surface reports it. See Logs.",
+        "detail" : "Recovery depends on the dispatch strategy capabilities. Inspect the ERROR/WARNING log; this panel has no structured per-handler history.",
         "fact" : "Handwritten handler failures",
-        "needs" : "Mongoose #77"
+        "needs" : "plugin milestone 2"
       }, {
         "detail" : "Sequence numbers of ProcessorQuarantined, Dead and QueueDrop records are only in a control-audit export.",
         "fact" : "Control record evidence",
@@ -57,17 +58,17 @@
         "fact" : "Capture resource limit",
         "needs" : "proposal A5"
       }, {
-        "detail" : "Replies carry an outcome and reason text, no typed failure kind.",
-        "fact" : "Failure kind",
-        "needs" : "Mongoose #77"
+        "detail" : "Stop replies expose FailureKind; generic command text does not carry EvidenceStatus. No VERIFIED status is inferred.",
+        "fact" : "Typed request evidence",
+        "needs" : "plugin milestone 2"
       }, {
         "detail" : "No admin command resumes shutdown().",
         "fact" : "Retry an incomplete shutdown",
         "needs" : "proposal A4"
       }, {
-        "detail" : "Queues drop after the spin bound; no policy, latch or clear.",
-        "fact" : "Overload policy and latch",
-        "needs" : "Mongoose #79"
+        "detail" : "Overload states are shown. Use the Commands panel for overload.status and overload.clear <feed>; guided clear/kill-switch controls are not implemented.",
+        "fact" : "Overload actions",
+        "needs" : "plugin milestone 2"
       }, {
         "detail" : "No admin command or endpoint.",
         "fact" : "Replay status",
@@ -82,7 +83,7 @@
     "body" : {
       "command" : "server.processors.stop",
       "err" : [ ],
-      "output" : [ "stopping processor:busy/consumer", "stop REFUSED: group busy: processor-stop queue stayed full (4096) for 100 ms; is the group's thread running?" ]
+      "output" : [ "stopping processor:busy/consumer", "stop REFUSED (REFUSED_ADMISSION): group busy: processor-stop request refused: mailbox full (capacity 4096) for 100 ms; is the group's thread running?" ]
     },
     "status" : 200
   }
