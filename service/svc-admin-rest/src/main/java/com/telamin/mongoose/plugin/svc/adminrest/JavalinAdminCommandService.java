@@ -114,6 +114,7 @@ public class JavalinAdminCommandService implements EventFlowService<Object>, Lif
         if (authMode == AuthMode.BEARER && (resolvedBearerToken() == null || resolvedBearerToken().isEmpty())) {
             throw new IllegalStateException("BEARER auth selected but bearerToken not configured");
         }
+        loopbackBound = isLoopbackBind(host);
         if (exposedWithoutAuth(host, authMode)) {
             log.warn("admin REST is reachable off-box on {}:{} with no authentication; set authMode BASIC or BEARER"
                     + " (and front it with TLS), or bind host 127.0.0.1", host, listenPort);
@@ -377,8 +378,11 @@ public class JavalinAdminCommandService implements EventFlowService<Object>, Lif
      * a body, or a Content-Type, that is not {@code application/json} (415: a cross-site form or text/plain post
      * needs no preflight). Scripts send no Origin and a JSON body, or no body at all ({@code curl -X POST .../api/help}).
      */
+    /** Whether the configured bind address resolves to loopback; computed once at startup. */
+    private boolean loopbackBound;
+
     private void enforceBrowserSafety(Context ctx) {
-        if (!hostAllowed(ctx.header("Host"), host, allowedHosts)) {
+        if (!hostAllowed(ctx.header("Host"), loopbackBound, allowedHosts)) {
             throw new io.javalin.http.HttpResponseException(HttpStatus.FORBIDDEN.getCode(),
                     "host not allowed: " + ctx.header("Host") + " (add it to allowedHosts)");
         }
@@ -389,7 +393,7 @@ public class JavalinAdminCommandService implements EventFlowService<Object>, Lif
         String contentType = ctx.header("Content-Type");
         boolean hasBody = ctx.contentLength() > 0 || !ctx.body().isEmpty();
         boolean json = contentType != null
-                && contentType.trim().toLowerCase(java.util.Locale.ROOT).startsWith("application/json");
+                && contentType.split(";", 2)[0].trim().equalsIgnoreCase("application/json");
         if ((hasBody || contentType != null) && !json) {
             throw new io.javalin.http.HttpResponseException(HttpStatus.UNSUPPORTED_MEDIA_TYPE.getCode(),
                     "send the request body with Content-Type: application/json");
@@ -398,13 +402,27 @@ public class JavalinAdminCommandService implements EventFlowService<Object>, Lif
 
     /** The Host names this endpoint: a loopback literal, a name in {@code allowed}, or anything on an off-box bind with no list. */
     static boolean hostAllowed(String hostHeader, String boundHost, java.util.List<String> allowed) {
+        return hostAllowed(hostHeader, isLoopbackBind(boundHost), allowed);
+    }
+
+    private static boolean hostAllowed(String hostHeader, boolean loopbackBind, java.util.List<String> allowed) {
         String name = hostName(hostHeader);
         if (name == null) return false;
         if (isLoopbackName(name)) return true;
         if (allowed != null && !allowed.isEmpty()) {
             return allowed.stream().anyMatch(a -> a != null && a.equalsIgnoreCase(name));
         }
-        return !isLoopbackName(boundHost == null ? "" : boundHost.trim().toLowerCase(java.util.Locale.ROOT));
+        return !loopbackBind;
+    }
+
+    /** Resolve only operator configuration, never an incoming Host header. */
+    private static boolean isLoopbackBind(String boundHost) {
+        if (boundHost == null || boundHost.isBlank()) return false;
+        try {
+            return java.net.InetAddress.getByName(boundHost).isLoopbackAddress();
+        } catch (java.net.UnknownHostException e) {
+            return false; // the server's bind fails separately for an unresolvable configuration
+        }
     }
 
     static String hostName(String hostHeader) {

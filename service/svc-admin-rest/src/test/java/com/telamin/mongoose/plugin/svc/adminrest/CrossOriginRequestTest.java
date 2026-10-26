@@ -113,6 +113,8 @@ class CrossOriginRequestTest {
         assertEquals(415, text.status(), text.body());
         assertTrue(text.body().contains("Content-Type: application/json"), text.body());
         assertEquals(415, post("/admin", local(), JSON).status(), "no content type with a body");
+        assertEquals(415, post("/admin", local(), JSON, "Content-Type: application/jsonp").status(),
+                "a JSON-looking prefix is not the application/json media type");
         assertTrue(ran.isEmpty(), "no command may run: " + ran);
     }
 

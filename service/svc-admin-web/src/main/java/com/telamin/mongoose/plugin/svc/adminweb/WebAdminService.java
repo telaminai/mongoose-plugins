@@ -271,6 +271,7 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         if (authMode == AuthMode.BEARER && (resolvedBearerToken() == null || resolvedBearerToken().isEmpty())) {
             throw new IllegalStateException("BEARER auth selected but bearerToken not configured");
         }
+        loopbackBound = isLoopbackBind(host);
         if (exposedWithoutAuth(host, authMode)) {
             log.warn("web admin is reachable off-box on {}:{} with no authentication; set authMode BASIC or BEARER"
                     + " (and front it with TLS), or bind host 127.0.0.1", host, listenPort);
@@ -581,6 +582,9 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
 
     // -------- auth filter --------
 
+    /** Whether the configured bind address resolves to loopback; computed once at startup. */
+    private boolean loopbackBound;
+
     private void enforceAuthAndCsrf(Context ctx) {
         String path = ctx.path();
         // The login endpoint itself is the auth bootstrap — it validates
@@ -590,7 +594,7 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
 
         // DNS rebinding: a page on another name resolved to this address is same-origin to the browser, so the
         // Host header is the only thing that tells it apart. Checked on every request, including login.
-        if (!hostAllowed(ctx.header("Host"), host, allowedHosts)) {
+        if (!hostAllowed(ctx.header("Host"), loopbackBound, allowedHosts)) {
             throw new io.javalin.http.ForbiddenResponse("host not allowed: " + ctx.header("Host")
                     + " (add it to allowedHosts)", Map.of());
         }
@@ -637,13 +641,27 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
      * when the bind is off-box and no allow-list is set. Never resolves the name (that is what rebinding abuses).
      */
     static boolean hostAllowed(String hostHeader, String boundHost, List<String> allowed) {
+        return hostAllowed(hostHeader, isLoopbackBind(boundHost), allowed);
+    }
+
+    private static boolean hostAllowed(String hostHeader, boolean loopbackBind, java.util.List<String> allowed) {
         String name = hostName(hostHeader);
         if (name == null) return false;
         if (isLoopbackName(name)) return true;
         if (allowed != null && !allowed.isEmpty()) {
             return allowed.stream().anyMatch(a -> a != null && a.equalsIgnoreCase(name));
         }
-        return !isLoopbackName(boundHost == null ? "" : boundHost.trim().toLowerCase(java.util.Locale.ROOT));
+        return !loopbackBind;
+    }
+
+    /** Resolve only operator configuration, never an incoming Host header. */
+    private static boolean isLoopbackBind(String boundHost) {
+        if (boundHost == null || boundHost.isBlank()) return false;
+        try {
+            return java.net.InetAddress.getByName(boundHost).isLoopbackAddress();
+        } catch (java.net.UnknownHostException e) {
+            return false; // the server's bind fails separately for an unresolvable configuration
+        }
     }
 
     /** The name part of a Host header ({@code name}, {@code name:port}, {@code [v6]:port}), lower case. */
@@ -3390,7 +3408,7 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         // Auth: same as /api/*. Origin allow-list: same-origin only by default
         // (browser cookies aren't sent on cross-origin WS upgrade anyway, but
         // belt+braces). CSRF on WS comes through ?csrf=... query param.
-        if (!hostAllowed(ctx.header("Host"), host, allowedHosts)) {
+        if (!hostAllowed(ctx.header("Host"), loopbackBound, allowedHosts)) {
             throw new io.javalin.http.ForbiddenResponse("host not allowed: " + ctx.header("Host"), Map.of());
         }
         if (authMode != AuthMode.NONE) {
