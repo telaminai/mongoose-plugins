@@ -113,4 +113,84 @@ class FailureIssuesTest {
         assertEquals("Group control status", gaps.get(0).get("fact"), "without a MongooseServer the console says so first");
         assertTrue(gaps.stream().anyMatch(g -> "First loss per queue".equals(g.get("fact"))));
     }
+
+    // ---------------------------------------------------------------- health and counters
+
+    private static MongooseHealthService health(java.util.function.Consumer<MongooseHealthService.StatusVisitor> walk) {
+        return (MongooseHealthService) java.lang.reflect.Proxy.newProxyInstance(FailureIssuesTest.class.getClassLoader(),
+                new Class<?>[]{MongooseHealthService.class}, (proxy, m, args) -> {
+                    if (m.getName().equals("forEachStatus")) {
+                        walk.accept((MongooseHealthService.StatusVisitor) args[0]);
+                        return null;
+                    }
+                    return m.getName().equals("toString") ? "stub-health" : null;
+                });
+    }
+
+    private static MongooseCountersService counters(boolean operational) {
+        return (MongooseCountersService) java.lang.reflect.Proxy.newProxyInstance(FailureIssuesTest.class.getClassLoader(),
+                new Class<?>[]{MongooseCountersService.class}, (proxy, m, args) -> switch (m.getName()) {
+                    case "isOperational" -> operational;
+                    case "toString" -> "stub-counters";
+                    default -> null;
+                });
+    }
+
+    private static FailureIssues.Sources sources(MongooseHealthService h, MongooseCountersService c) {
+        return new FailureIssues.Sources() {
+            @Override public MongooseServer server() { return null; }
+            @Override public Map<String, AgentGroupSnapshot> agentGroups() { return Map.of(); }
+            @Override public MongooseHealthService health() { return h; }
+            @Override public MongooseCountersService counters() { return c; }
+            @Override public List<AuditSinkHandle> captures() { return List.of(); }
+        };
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Map<String, Object>> gaps(Map<String, Object> report) {
+        return (List<Map<String, Object>>) report.get("notAvailable");
+    }
+
+    @Test
+    void countersDisabledIsALiveBlindSpotNotSilence() {
+        var h = health(v -> {
+            v.visit("feed", "queue-drops:/feed/feed/group/g/subscriber/x", com.telamin.mongoose.service.health.HealthStatus.unknown("counters disabled"));
+            v.visit("feed", "up", com.telamin.mongoose.service.health.HealthStatus.unknown("counters disabled"));
+        });
+        Map<String, Object> report = new FailureIssues(sources(h, counters(false))).report();
+        assertEquals(2, report.get("liveGaps"), "counters off (and no server in this stub)");
+        Map<String, Object> gap = gaps(report).stream()
+                .filter(g -> "Performance counters disabled".equals(g.get("fact"))).findFirst().orElseThrow();
+        assertEquals(Boolean.TRUE, gap.get("live"));
+        assertTrue(((List<?>) report.get("issues")).isEmpty(), "folded into the gap, not one INFO per check");
+    }
+
+    @Test
+    void healthServiceNotBoundIsALiveBlindSpot() {
+        Map<String, Object> report = new FailureIssues(NOTHING_WIRED).report();
+        assertEquals(2, report.get("liveGaps"), "no server and no health service");
+        assertTrue(gaps(report).stream().anyMatch(g -> "Health checks".equals(g.get("fact")) && Boolean.TRUE.equals(g.get("live"))));
+    }
+
+    @Test
+    void anOtherUnknownCheckIsListedAsInfo() {
+        var h = health(v -> v.visit("venue", "session", com.telamin.mongoose.service.health.HealthStatus.unknown("no heartbeat yet")));
+        Map<String, Object> issue = issues(new FailureIssues(sources(h, counters(true)))).get(0);
+        assertEquals("HEALTH_UNKNOWN", issue.get("kind"));
+        assertEquals("INFO", issue.get("severity"));
+        assertEquals("venue/session", issue.get("subject"));
+    }
+
+    @Test
+    void aFailingCheckIsReportedAndTheRestAreStillRead() {
+        var h = health(v -> {
+            v.visit("bad", "check", null);
+            v.visit("venue", "session", com.telamin.mongoose.service.health.HealthStatus.down("logged out"));
+            throw new IllegalStateException("health walk broke");
+        });
+        List<Map<String, Object>> list = issues(new FailureIssues(sources(h, counters(true))));
+        assertTrue(list.stream().anyMatch(i -> "HEALTH_DOWN".equals(i.get("kind"))), list.toString());
+        assertTrue(list.stream().anyMatch(i -> "READ_FAILED".equals(i.get("kind"))
+                && String.valueOf(i.get("what")).contains("health walk broke")), list.toString());
+    }
 }

@@ -77,24 +77,55 @@ final class FailureIssues {
     /** {@code GET /api/issues}. */
     Map<String, Object> report() {
         List<Map<String, Object>> issues = new ArrayList<>();
+        List<Map<String, Object>> liveGaps = new ArrayList<>();
         MongooseServer server = sources.server();
-        StopResult stop = server == null ? null : server.lastStopResult();
-        boolean stopping = stop != null && !stop.complete();
-        if (server != null) {
-            for (String group : groupNames(server)) {
+        StopResult stop = null;
+        if (server == null) {
+            liveGaps.add(liveGap("Group control status", "This server is not a MongooseServer: quarantine, dead"
+                    + " groups, capture failures and shutdown results cannot be read.", "MongooseServer"));
+        } else {
+            try {
+                stop = server.lastStopResult();
+            } catch (RuntimeException e) {
+                issues.add(readFailed("server", "the last StopResult", e));
+            }
+            boolean stopping = stop != null && !stop.complete();
+            Collection<String> groups;
+            try {
+                groups = groupNames(server);
+            } catch (RuntimeException e) {
+                issues.add(readFailed("server", "the processor group list", e));
+                groups = List.of();
+            }
+            for (String group : groups) {
                 MongooseServer.ControlGroupStatus st;
                 try {
                     st = server.controlGroupStatus(group);
                 } catch (IllegalArgumentException notAProcessorGroup) {
                     continue;
+                } catch (RuntimeException e) {
+                    issues.add(readFailed(group, "the control status of group " + group, e));
+                    continue;
                 }
-                quarantined(server, st, issues);
-                dead(server, st, issues);
-                captureFailures(st, stopping, issues);
+                // one failing group must not hide the facts of the others
+                List<Map<String, Object>> found = new ArrayList<>();
+                try {
+                    quarantined(server, st, found);
+                    dead(server, st, found);
+                    captureFailures(st, stopping, found);
+                    issues.addAll(found);
+                } catch (RuntimeException e) {
+                    issues.addAll(found);
+                    issues.add(readFailed(group, "the failure facts of group " + group, e));
+                }
             }
-            shutdown(server, stop, issues);
+            try {
+                shutdown(server, stop, issues);
+            } catch (RuntimeException e) {
+                issues.add(readFailed("server", "the shutdown state", e));
+            }
         }
-        health(issues);
+        health(issues, liveGaps);
         synchronized (requests) {
             for (Map<String, Object> r : requests) issues.add(new LinkedHashMap<>(r));
         }
@@ -130,8 +161,22 @@ final class FailureIssues {
         out.put("counts", counts);
         out.put("unacknowledged", unacknowledged);
         out.put("issues", issues);
-        out.put("notAvailable", notAvailable(server != null));
+        List<Map<String, Object>> gaps = new ArrayList<>(liveGaps);
+        gaps.addAll(notAvailable(true));
+        out.put("notAvailable", gaps);
+        out.put("liveGaps", liveGaps.size());
         return out;
+    }
+
+    /** A source that could not be read is an issue, so the list never silently shrinks. */
+    static Map<String, Object> readFailed(String subject, String what, RuntimeException e) {
+        Map<String, Object> issue = issue("READ_FAILED:" + subject + ":" + what, "READ_FAILED", Severity.DEGRADED, subject);
+        issue.put("title", "Could not read " + what);
+        issue.put("what", "Reading " + what + " failed: " + e);
+        issue.put("evidence", List.of(evidence("Error", String.valueOf(e))));
+        issue.put("impact", "Issues that depend on " + what + " may be missing from this list; it is not complete.");
+        issue.put("actions", List.of(ack()));
+        return issue;
     }
 
     /** {@code POST /api/issues/ack}: true when the issue is open. Never changes a Mongoose fact. */
@@ -326,24 +371,68 @@ final class FailureIssues {
 
     // ------------------------------------------------------------------ health and queues
 
-    private void health(List<Map<String, Object>> issues) {
+    static final String COUNTERS_DISABLED = "counters disabled";
+
+    private void health(List<Map<String, Object>> issues, List<Map<String, Object>> liveGaps) {
         MongooseHealthService health = sources.health();
-        if (health == null) return;
-        Map<String, Long> drops = dropCounts();
+        if (health == null) {
+            liveGaps.add(liveGap("Health checks", "The Mongoose health service is not bound to this console: queue"
+                    + " loss and service up/down cannot be observed.", "MongooseHealthService"));
+            return;
+        }
+        boolean countersOff = false;
+        try {
+            MongooseCountersService counters = sources.counters();
+            countersOff = counters == null || !counters.isOperational();
+        } catch (RuntimeException e) {
+            issues.add(readFailed("counters", "the counters service", e));
+        }
+        if (countersOff) {
+            liveGaps.add(liveGap("Performance counters disabled", "performanceMonitoring is off on this server, so"
+                    + " every queue-drops and up health check is UNKNOWN: queue loss and service up/down cannot be"
+                    + " observed.", "performanceMonitoring.enabled: true"));
+        }
+        Map<String, Long> drops;
+        try {
+            drops = dropCounts();
+        } catch (RuntimeException e) {
+            issues.add(readFailed("counters", "the queue drop counters", e));
+            drops = Map.of();
+        }
+        Map<String, Long> dropsByPath = drops;
+        boolean folded = countersOff;
         try {
             health.forEachStatus((component, check, status) -> {
-                if (status == null) return;
-                HealthStatus.Verdict v = status.verdict();
-                if (v != HealthStatus.Verdict.DEGRADED && v != HealthStatus.Verdict.DOWN) return;
-                if (check.startsWith(QUEUE_DROPS_CHECK)) {
-                    issues.add(queueLoss(component, check.substring(QUEUE_DROPS_CHECK.length()), status, drops));
-                } else {
-                    issues.add(healthIssue(component, check, status));
+                // per check: one bad status must not end the walk and hide the checks after it
+                try {
+                    if (status == null) return;
+                    HealthStatus.Verdict v = status.verdict();
+                    if (v == HealthStatus.Verdict.UNKNOWN) {
+                        // "counters disabled" is covered once by the live gap above; any other UNKNOWN is listed
+                        if (!(folded && COUNTERS_DISABLED.equals(status.reason()))) {
+                            issues.add(healthIssue(component, check, status));
+                        }
+                        return;
+                    }
+                    if (v != HealthStatus.Verdict.DEGRADED && v != HealthStatus.Verdict.DOWN) return;
+                    if (check.startsWith(QUEUE_DROPS_CHECK)) {
+                        issues.add(queueLoss(component, check.substring(QUEUE_DROPS_CHECK.length()), status, dropsByPath));
+                    } else {
+                        issues.add(healthIssue(component, check, status));
+                    }
+                } catch (RuntimeException e) {
+                    issues.add(readFailed(component + "/" + check, "health check " + component + "/" + check, e));
                 }
             });
         } catch (RuntimeException e) {
-            // a health check that throws is reported by Mongoose as UNKNOWN; a visitor failure must not hide the rest
+            issues.add(readFailed("health", "the health checks", e));
         }
+    }
+
+    private static Map<String, Object> liveGap(String fact, String detail, String needs) {
+        Map<String, Object> m = gap(fact, detail, needs);
+        m.put("live", true);
+        return m;
     }
 
     private Map<String, Object> queueLoss(String feed, String path, HealthStatus status, Map<String, Long> drops) {
@@ -384,15 +473,20 @@ final class FailureIssues {
 
     private Map<String, Object> healthIssue(String component, String check, HealthStatus status) {
         String subject = component + "/" + check;
-        boolean down = status.verdict() == HealthStatus.Verdict.DOWN;
-        Map<String, Object> issue = issue((down ? "HEALTH_DOWN:" : "HEALTH_DEGRADED:") + subject,
-                down ? "HEALTH_DOWN" : "HEALTH_DEGRADED", down ? Severity.CRITICAL : Severity.DEGRADED, subject);
+        HealthStatus.Verdict v = status.verdict();
+        String kind = v == HealthStatus.Verdict.DOWN ? "HEALTH_DOWN"
+                : v == HealthStatus.Verdict.UNKNOWN ? "HEALTH_UNKNOWN" : "HEALTH_DEGRADED";
+        Severity severity = v == HealthStatus.Verdict.DOWN ? Severity.CRITICAL
+                : v == HealthStatus.Verdict.UNKNOWN ? Severity.INFO : Severity.DEGRADED;
+        Map<String, Object> issue = issue(kind + ":" + subject, kind, severity, subject);
         issue.put("title", "Health check " + status.verdict());
         issue.put("what", "Health check " + check + " of " + component + " reports " + status.verdict() + ": "
                 + status.reason());
         issue.put("evidence", List.of(evidence("Health check", subject + " " + status.verdict()),
                 evidence("Reason", String.valueOf(status.reason()))));
-        issue.put("impact", "As described by the check's owner: " + status.reason());
+        issue.put("impact", v == HealthStatus.Verdict.UNKNOWN
+                ? "What this check watches cannot be observed right now: " + status.reason()
+                : "As described by the check's owner: " + status.reason());
         issue.put("actions", List.of(ack()));
         return issue;
     }

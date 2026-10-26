@@ -55,8 +55,8 @@
         "asOfEpochMs" : "<TS>",
         "check" : "up",
         "component" : "feed",
-        "reason" : "service not started",
-        "verdict" : "DOWN"
+        "reason" : null,
+        "verdict" : "UP"
       }, {
         "asOfEpochMs" : "<TS>",
         "check" : "up",
@@ -70,36 +70,11 @@
   "GET /api/issues" : {
     "body" : {
       "counts" : {
-        "CRITICAL" : 1,
+        "CRITICAL" : 0,
         "DEGRADED" : 1,
         "INFO" : 0
       },
       "issues" : [ {
-        "acknowledged" : false,
-        "actions" : [ {
-          "action" : "acknowledge",
-          "consequence" : "Moves it to Acknowledged. The issue stays open and keeps counting toward the health pill until Mongoose stops reporting it; nothing on the server changes.",
-          "enabled" : true,
-          "label" : "Acknowledge",
-          "precondition" : "None."
-        } ],
-        "evidence" : [ {
-          "label" : "Health check",
-          "value" : "feed/up DOWN"
-        }, {
-          "label" : "Reason",
-          "value" : "service not started"
-        } ],
-        "failureKind" : null,
-        "id" : "HEALTH_DOWN:feed/up",
-        "impact" : "As described by the check's owner: service not started",
-        "kind" : "HEALTH_DOWN",
-        "severity" : "CRITICAL",
-        "since" : "<TS>",
-        "subject" : "feed/up",
-        "title" : "Health check DOWN",
-        "what" : "Health check up of feed reports DOWN: service not started"
-      }, {
         "acknowledged" : false,
         "actions" : [ {
           "action" : "acknowledge",
@@ -149,6 +124,7 @@
         "title" : "Queue loss",
         "what" : "A full queue dropped items after its spin bound. Health DEGRADED: <N> item(s) dropped by queue /feed/feed/group/slow/subscriber/ComposingEventProcessorAgent#<HASH>"
       } ],
+      "liveGaps" : 0,
       "mongooseVersion" : "1.0.33",
       "notAvailable" : [ {
         "detail" : "Mongoose 1.0.33 logs a WARNING and retries the handler; no admin surface reports it. See Logs.",
@@ -187,8 +163,8 @@
         "fact" : "Replay status",
         "needs" : "proposal A9"
       } ],
-      "unacknowledged" : 2,
-      "worst" : "CRITICAL"
+      "unacknowledged" : 1,
+      "worst" : "DEGRADED"
     },
     "status" : 200
   },

@@ -218,6 +218,9 @@ class AdminWebUiScenarioIT {
                 assertThat(issue.locator("[data-testid=issue-evidence]")).containsText("Dropped: " + dropped);
                 assertThat(issue.locator("[data-testid=issue-evidence-unavailable]")).containsText("first loss");
                 assertThat(issue.locator("[data-testid=issue-action][data-action=clear]")).isDisabled();
+                // exact: queue loss is the worst fact here, so the pill is DEGRADED, not CRITICAL
+                assertThat(b.byTestId("issues-pill")).hasAttribute("data-worst", "DEGRADED");
+                assertThat(b.byTestId("ws-pill")).not().hasClass(java.util.regex.Pattern.compile(".*pill-ok.*"));
                 b.shot("overview-queue-loss-card");
                 b.byTestId("nav-managed").click();
                 b.page.locator(".integration-tab", new com.microsoft.playwright.Page.LocatorOptions().setHasText("Queues")).click();
@@ -293,16 +296,26 @@ class AdminWebUiScenarioIT {
                 // CURRENT (not reachable): no command or view shows Mongoose record/replay status
                 assertThat(b.page.locator("[data-testid=cmd-item]")).hasCount(0);
                 b.shot("commands-no-replay");
-                // M1: with no failure provoked, the only issue is the harness feed's built-in "up" check, which
-                // Mongoose 1.0.33 leaves DOWN for a source registered after boot; the panel also lists what
-                // 1.0.33 cannot show, so an empty panel would never read as healthy
+                // M1: a clean server is "no known issues", never green, and lists what cannot be observed
                 b.open();
-                assertThat(b.page.locator("[data-testid=issue-card]")).hasCount(1);
-                assertThat(card(b, "HEALTH_DOWN", "feed/up").locator("[data-testid=issue-what]")).containsText("service not started");
+                assertThat(b.page.locator("[data-testid=issue-card]")).hasCount(0);
+                assertThat(b.byTestId("issues-pill")).hasText("No known issues");
+                assertThat(b.byTestId("issues-pill")).hasAttribute("data-worst", "NONE");
+                assertThat(b.byTestId("issues-strip-worst")).hasText("NO KNOWN ISSUES");
+                assertThat(b.byTestId("issues-empty")).containsText("not a clean bill of health");
                 b.byTestId("issues-gaps-toggle").click();
                 assertThat(b.page.locator("[data-testid=issue-gap]", new com.microsoft.playwright.Page.LocatorOptions().setHasText("Replay status"))).isVisible();
                 assertThat(b.page.locator("[data-testid=issue-gap]", new com.microsoft.playwright.Page.LocatorOptions().setHasText("Handwritten handler failures"))).isVisible();
                 b.shot("overview-no-known-issues-with-gaps");
+                // a failed poll never leaves "No known issues" standing as current
+                b.page.route("**/api/issues", route -> route.abort("aborted"));
+                assertThat(b.byTestId("issues-pill")).containsText("Issues unavailable since",
+                        new com.microsoft.playwright.assertions.LocatorAssertions.ContainsTextOptions().setTimeout(8_000));
+                assertThat(b.byTestId("issues-stale")).isVisible();
+                b.shot("issues-unavailable-stale");
+                b.page.unroute("**/api/issues");
+                assertThat(b.byTestId("issues-pill")).hasText("No known issues",
+                        new com.microsoft.playwright.assertions.LocatorAssertions.HasTextOptions().setTimeout(8_000));
             });
         }
     }

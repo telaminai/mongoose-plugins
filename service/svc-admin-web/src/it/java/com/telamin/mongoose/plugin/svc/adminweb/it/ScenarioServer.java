@@ -53,6 +53,11 @@ public final class ScenarioServer implements AutoCloseable {
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
 
     public ScenarioServer(long shutdownTimeoutMillis) throws Exception {
+        this(shutdownTimeoutMillis, true);
+    }
+
+    /** {@code monitoring=false} boots with performance monitoring (counters, capture) off, Mongoose's default. */
+    public ScenarioServer(long shutdownTimeoutMillis, boolean monitoring) throws Exception {
         workDir = Files.createTempDirectory("admin-web-it");
         auditDir = Files.createDirectories(workDir.resolve("audit"));
         webPort = freePort();
@@ -86,13 +91,14 @@ public final class ScenarioServer implements AutoCloseable {
                         .serviceClass(JavalinAdminCommandService.class).name("adminRestService").build())
                 .shutdownTimeoutMillis(shutdownTimeoutMillis)
                 .build();
-        cfg.setPerformanceMonitoring(perf);
+        if (monitoring) cfg.setPerformanceMonitoring(perf);
         cfg.setControlWaitMillis(3_000);
 
         server = MongooseServer.bootServer(cfg);
-        // Registered after boot, so on 1.0.33 its built-in "up" health check stays DOWN "service not started"
-        // although it publishes: every scenario therefore also shows a HEALTH_DOWN feed/up issue (a real fact).
+        // registered after boot, so it must be started explicitly: registerService does not start a service, and
+        // its "up" health check would rightly stay DOWN "service not started"
         server.registerEventSource("feed", feed);
+        server.startService("feed");
         awaitTrue("web admin up", () -> get("/healthz").statusCode() == 200, 10_000);
     }
 
@@ -110,7 +116,7 @@ public final class ScenarioServer implements AutoCloseable {
         return send(HttpRequest.newBuilder(URI.create(webBase() + path)).GET().build());
     }
 
-    /** POST to the web admin with the anonymous-session CSRF token (AuthMode.NONE still checks CSRF). */
+    /** POST to the web admin with the anonymous session cookie and its CSRF token, which every mode requires. */
     public HttpResponse<String> postWeb(String path, String json) {
         return send(HttpRequest.newBuilder(URI.create(webBase() + path))
                 .header("Content-Type", "application/json")

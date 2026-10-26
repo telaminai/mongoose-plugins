@@ -32,9 +32,10 @@ incomplete-stop and queue-loss assertions out of the `proposed` tests into the s
 "M1"); what remains `proposed` needs a Mongoose change (first loss, capture ledger, refusing unknown stops,
 replay status).
 
-The harness registers its test feed after boot, so on Mongoose 1.0.33 that feed's built-in `up` health check
-stays DOWN ("service not started") although it publishes. Every scenario therefore also shows a
-`HEALTH_DOWN feed/up` issue; it is a real Mongoose fact, not hidden.
+The harness registers its test feed after boot and then calls `startService("feed")` (`registerService` does not
+start a service). Each scenario asserts the exact worst severity: a, b, c CRITICAL; d, e DEGRADED; f INFO; g, h
+none. `e2` runs the overload with performance monitoring off (Mongoose's default) and asserts that queue loss is
+reported as a blind spot of this server, not as "no issue".
 
 **Browser.** Playwright for Java 1.49.0, headless Chromium. `scripts/` only fetches vendor JS, so there was
 no existing driver to reuse. Playwright gives JUnit-native control, auto-waiting assertions, console and

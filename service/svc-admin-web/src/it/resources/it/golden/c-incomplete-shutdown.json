@@ -24,7 +24,7 @@
   "GET /api/issues" : {
     "body" : {
       "counts" : {
-        "CRITICAL" : 2,
+        "CRITICAL" : 1,
         "DEGRADED" : 0,
         "INFO" : 0
       },
@@ -64,32 +64,8 @@
         "subject" : "server",
         "title" : "Shutdown incomplete",
         "what" : "The last shutdown returned incomplete. The server stays STOPPING with the groups and services below still running."
-      }, {
-        "acknowledged" : false,
-        "actions" : [ {
-          "action" : "acknowledge",
-          "consequence" : "Moves it to Acknowledged. The issue stays open and keeps counting toward the health pill until Mongoose stops reporting it; nothing on the server changes.",
-          "enabled" : true,
-          "label" : "Acknowledge",
-          "precondition" : "None."
-        } ],
-        "evidence" : [ {
-          "label" : "Health check",
-          "value" : "feed/up DOWN"
-        }, {
-          "label" : "Reason",
-          "value" : "service not started"
-        } ],
-        "failureKind" : null,
-        "id" : "HEALTH_DOWN:feed/up",
-        "impact" : "As described by the check's owner: service not started",
-        "kind" : "HEALTH_DOWN",
-        "severity" : "CRITICAL",
-        "since" : "<TS>",
-        "subject" : "feed/up",
-        "title" : "Health check DOWN",
-        "what" : "Health check up of feed reports DOWN: service not started"
       } ],
+      "liveGaps" : 0,
       "mongooseVersion" : "1.0.33",
       "notAvailable" : [ {
         "detail" : "Mongoose 1.0.33 logs a WARNING and retries the handler; no admin surface reports it. See Logs.",
@@ -128,7 +104,7 @@
         "fact" : "Replay status",
         "needs" : "proposal A9"
       } ],
-      "unacknowledged" : 2,
+      "unacknowledged" : 1,
       "worst" : "CRITICAL"
     },
     "status" : 200

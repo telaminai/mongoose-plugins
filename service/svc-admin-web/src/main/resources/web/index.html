@@ -83,12 +83,13 @@
         <div class="topbar-actions">
             <!-- Worst open failure issue (acknowledged or not). "Live" beside it is only the
                  monitor connection; it says nothing about the server's health. -->
-            <button type="button" class="pill pill-btn" data-testid="issues-pill" :data-worst="issuesData.worst || 'NONE'"
+            <button type="button" class="pill pill-btn" data-testid="issues-pill" :data-worst="issuesData.worst || 'NONE'" :data-stale="issuesStaleSince ? 'true' : 'false'"
                     :class="issuesPill().cls" x-show="authed || authMode==='NONE'" @click="showIssues()"
                     title="Open issues">
                 <span class="pill-dot"></span><span x-text="issuesPill().label"></span>
             </button>
-            <span class="pill" :class="wsPill().cls" x-show="authed || authMode==='NONE'" title="Monitor connection">
+            <!-- connection only: neutral while connected so it never reads as "healthy" next to an open issue -->
+            <span class="pill" data-testid="ws-pill" :class="wsPill().cls === 'pill-ok' ? 'pill-muted' : wsPill().cls" x-show="authed || authMode==='NONE'" title="Monitor connection">
                 <span class="pill-dot"></span><span x-text="wsPill().label"></span>
             </span>
             <button class="icon-btn" @click="toggleTheme()"
@@ -297,14 +298,18 @@
             <!-- Issues strip: on every view. Severity counts of open issues; never a green "healthy". -->
             <div class="issues-strip" data-testid="issues-strip" x-show="issuesData.loaded" x-cloak
                  :class="'issues-strip-' + (issuesData.worst || 'NONE').toLowerCase()">
+                <span class="tag warn" data-testid="issues-stale" x-show="issuesStaleSince"
+                      x-text="'unavailable since ' + formatSince(issuesStaleSince) + ': showing the last list'"></span>
                 <span class="tag" data-testid="issues-strip-worst" :class="issueSeverityClass(issuesData.worst)"
                       x-text="issuesData.worst || 'NO KNOWN ISSUES'"></span>
                 <span class="mono small" data-testid="issues-strip-counts"
                       x-text="(issuesData.counts.CRITICAL || 0) + ' critical · ' + (issuesData.counts.DEGRADED || 0) + ' degraded · ' + (issuesData.counts.INFO || 0) + ' info'"></span>
                 <span class="muted small" x-show="(issuesData.issues || []).length"
                       x-text="'acknowledged: ' + ((issuesData.issues || []).length - issuesData.unacknowledged)"></span>
+                <span class="tag warn" data-testid="issues-strip-live-gaps" x-show="issuesData.liveGaps"
+                      x-text="issuesData.liveGaps + ' blind spot' + (issuesData.liveGaps === 1 ? '' : 's') + ' on this server'"></span>
                 <span class="muted small" data-testid="issues-strip-gaps"
-                      x-text="(issuesData.notAvailable || []).length + ' failure facts not observable on Mongoose ' + (issuesData.mongooseVersion || 'this version')"></span>
+                      x-text="(issuesData.notAvailable || []).length + ' failure facts not observable here (Mongoose ' + (issuesData.mongooseVersion || 'this version') + ')'"></span>
                 <button type="button" class="btn btn-ghost btn-sm" data-testid="issues-open" @click="showIssues()">Issues ▸</button>
             </div>
 
@@ -393,7 +398,8 @@
                         <h2>Issues</h2>
                         <span class="muted small" x-show="!(issuesData.issues || []).length" data-testid="issues-empty">
                             No issue is reported. That is not a clean bill of health: the facts listed under
-                            “Not observable” cannot be seen on this Mongoose version.
+                            “Not observable” cannot be seen<span x-show="issuesData.liveGaps"> — including blind
+                            spots of this server's configuration (marked)</span>.
                         </span>
                         <span class="issues-filters" x-show="(issuesData.issues || []).length">
                             <select data-testid="issues-filter-group" x-model="issuesFilter.group" aria-label="filter by group">
@@ -478,10 +484,10 @@
                     </template>
                     <div class="issues-gaps">
                         <button type="button" class="btn-link small" data-testid="issues-gaps-toggle" @click="issuesShowGaps = !issuesShowGaps"
-                                x-text="(issuesShowGaps ? '▾ ' : '▸ ') + 'Not observable on Mongoose ' + (issuesData.mongooseVersion || 'this version') + ' (' + (issuesData.notAvailable || []).length + ')'"></button>
+                                x-text="(issuesShowGaps ? '▾ ' : '▸ ') + 'Not observable here (Mongoose ' + (issuesData.mongooseVersion || 'this version') + ') (' + (issuesData.notAvailable || []).length + ')'"></button>
                         <ul class="issues-gap-list small" data-testid="issues-not-available" x-show="issuesShowGaps">
                             <template x-for="g in (issuesData.notAvailable || [])" :key="g.fact">
-                                <li data-testid="issue-gap"><strong x-text="g.fact"></strong> — <span x-text="g.detail"></span>
+                                <li data-testid="issue-gap" :data-live="g.live ? 'true' : 'false'"><span class="tag warn" x-show="g.live">this server</span> <strong x-text="g.fact"></strong> — <span x-text="g.detail"></span>
                                     <span class="muted" x-text="'(needs ' + g.needs + ')'"></span></li>
                             </template>
                         </ul>

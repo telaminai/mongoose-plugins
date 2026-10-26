@@ -16,36 +16,11 @@
   "GET /api/issues" : {
     "body" : {
       "counts" : {
-        "CRITICAL" : 1,
+        "CRITICAL" : 0,
         "DEGRADED" : 1,
         "INFO" : 2
       },
       "issues" : [ {
-        "acknowledged" : false,
-        "actions" : [ {
-          "action" : "acknowledge",
-          "consequence" : "Moves it to Acknowledged. The issue stays open and keeps counting toward the health pill until Mongoose stops reporting it; nothing on the server changes.",
-          "enabled" : true,
-          "label" : "Acknowledge",
-          "precondition" : "None."
-        } ],
-        "evidence" : [ {
-          "label" : "Health check",
-          "value" : "feed/up DOWN"
-        }, {
-          "label" : "Reason",
-          "value" : "service not started"
-        } ],
-        "failureKind" : null,
-        "id" : "HEALTH_DOWN:feed/up",
-        "impact" : "As described by the check's owner: service not started",
-        "kind" : "HEALTH_DOWN",
-        "severity" : "CRITICAL",
-        "since" : "<TS>",
-        "subject" : "feed/up",
-        "title" : "Health check DOWN",
-        "what" : "Health check up of feed reports DOWN: service not started"
-      }, {
         "acknowledged" : false,
         "actions" : [ {
           "action" : "acknowledge",
@@ -147,6 +122,7 @@
         "title" : "Request refused",
         "what" : "audit.start rec2 was not applied (REFUSED): audit start for 'rec2' FAILED: open failed: physical capture resource limit reached"
       } ],
+      "liveGaps" : 0,
       "mongooseVersion" : "1.0.33",
       "notAvailable" : [ {
         "detail" : "Mongoose 1.0.33 logs a WARNING and retries the handler; no admin surface reports it. See Logs.",
@@ -185,8 +161,8 @@
         "fact" : "Replay status",
         "needs" : "proposal A9"
       } ],
-      "unacknowledged" : 4,
-      "worst" : "CRITICAL"
+      "unacknowledged" : 3,
+      "worst" : "DEGRADED"
     },
     "status" : 200
   },

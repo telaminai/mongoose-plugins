@@ -330,7 +330,23 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         javalin.get("/api/server", this::handleServer);
         // Failure facts as issues, and the health checks behind some of them (docs/failure-ux-proposal.md).
         javalin.get("/api/issues", ctx -> {
-            Map<String, Object> report = issues.report();
+            Map<String, Object> report;
+            try {
+                report = issues.report();
+            } catch (RuntimeException e) {
+                // never a bare 500 for the whole list: say that the list could not be built
+                log.warn("building the issue list failed", e);
+                Map<String, Object> failed = FailureIssues.readFailed("console", "the issue list", e);
+                failed.put("since", System.currentTimeMillis());
+                failed.put("acknowledged", false);
+                report = new LinkedHashMap<>();
+                report.put("worst", "DEGRADED");
+                report.put("counts", Map.of("CRITICAL", 0, "DEGRADED", 1, "INFO", 0));
+                report.put("unacknowledged", 1);
+                report.put("issues", List.of(failed));
+                report.put("notAvailable", FailureIssues.notAvailable(mongooseServer() != null));
+                report.put("liveGaps", 0);
+            }
             report.put("mongooseVersion", mongooseVersion());
             ctx.json(report);
         });

@@ -25,7 +25,9 @@ document.addEventListener('alpine:init', () => {
         // ── failure issues (docs/failure-ux-proposal.md §3-§4) ──
         // GET /api/issues: every failure fact Mongoose exposes, as an issue with evidence, impact and
         // actions. Polled; "acknowledged" only moves an issue to its own section - it never closes it.
-        issuesData: { loaded: false, worst: null, counts: {}, unacknowledged: 0, issues: [], notAvailable: [], mongooseVersion: '' },
+        issuesData: { loaded: false, worst: null, counts: {}, unacknowledged: 0, issues: [], notAvailable: [], liveGaps: 0, mongooseVersion: '' },
+        // epoch ms of the first failed poll since the last good one; the shown list is then stale
+        issuesStaleSince: null,
         issuesFilter: { group: '', kind: '' },
         issuesShowGaps: false,
         issueExport: {},      // issue id -> { dir, running, output, err, statusOutput }
@@ -618,9 +620,17 @@ document.addEventListener('alpine:init', () => {
             try {
                 const opts = { credentials: 'same-origin' };
                 const [ir, sr] = await Promise.all([fetch('/api/issues', opts), fetch('/api/server', opts)]);
-                if (ir.ok) this.issuesData = Object.assign({ loaded: true }, await ir.json());
+                if (ir.ok) {
+                    this.issuesData = Object.assign({ loaded: true }, await ir.json());
+                    this.issuesStaleSince = null;
+                } else {
+                    this.issuesStaleSince = this.issuesStaleSince || Date.now();
+                }
                 if (sr.ok) this.server = await sr.json();
-            } catch (_) { /* transient: the next poll retries */ }
+            } catch (_) {
+                // the last list stays on screen, marked stale; the next poll retries
+                this.issuesStaleSince = this.issuesStaleSince || Date.now();
+            }
         },
 
         startIssuesPolling() {
@@ -636,9 +646,12 @@ document.addEventListener('alpine:init', () => {
         /** Topbar pill: the worst open issue, acknowledged or not. Never green: no issue is not "healthy". */
         issuesPill() {
             const d = this.issuesData;
+            if (this.issuesStaleSince) {
+                return { cls: 'pill-warn', label: 'Issues unavailable since ' + this.formatSince(this.issuesStaleSince) };
+            }
             if (!d.loaded) return { cls: 'pill-muted', label: 'Issues …' };
             const total = (d.issues || []).length;
-            if (!total) return { cls: 'pill-muted', label: 'No known issues' };
+            if (!total) return { cls: 'pill-muted', label: d.liveGaps ? 'No known issues · blind spots' : 'No known issues' };
             const cls = d.worst === 'CRITICAL' ? 'pill-err' : (d.worst === 'DEGRADED' ? 'pill-warn' : 'pill-muted');
             return { cls, label: d.worst + ' · ' + total + ' issue' + (total === 1 ? '' : 's') };
         },

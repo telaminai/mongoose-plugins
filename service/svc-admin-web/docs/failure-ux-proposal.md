@@ -194,8 +194,16 @@ stepper" to avoid the name clash [plugin].
 
 ## 8. Milestone 1 (released Mongoose 1.0.33)
 
-Implemented in the plugin, from typed Mongoose state only (`controlGroupStatus`, `lastStopResult`,
-`MongooseHealthService.forEachStatus`, the `queue.<path>.dropped` counters), never from a `toString()`:
+Implemented in the plugin. Server-side facts come from typed Mongoose state (`controlGroupStatus`,
+`lastStopResult`, `MongooseHealthService.forEachStatus`, the `queue.<path>.dropped` counters), never from a
+`toString()`. Two parts do read text, because 1.0.33 has nothing typed for them: request issues parse the admin
+reply lines of commands sent through this console (`stop <ReplyOutcome>: <reason>`, `stop pending (still
+applies): …`, `audit: …` on the error stream, `exception:`/`usage:`), and the hint on a request issue matches
+substrings of the reason ("mailbox full", "not admitted", "deadline", "ambiguous", "resource limit",
+"quarantined", "DEAD"). #77's typed replies (`FailureKind`, `REFUSED_INVALID`) replace both. Blind spots of the
+running server (counters disabled, health service not bound, no `MongooseServer`) are listed first in
+`notAvailable` with `live: true`; UNKNOWN checks other than "counters disabled" are INFO issues; a source that
+cannot be read becomes a `READ_FAILED` issue instead of a 500 or a shorter list.
 
 - `GET /api/issues` → `{worst, counts, unacknowledged, issues[], notAvailable[], mongooseVersion}`. Each issue:
   `id, kind, severity, subject, failureKind (null until #77), title, what, evidence[{label, value, href?}],

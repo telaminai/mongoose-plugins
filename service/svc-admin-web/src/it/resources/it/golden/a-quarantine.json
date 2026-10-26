@@ -65,7 +65,7 @@
   "GET /api/issues" : {
     "body" : {
       "counts" : {
-        "CRITICAL" : 2,
+        "CRITICAL" : 1,
         "DEGRADED" : 0,
         "INFO" : 0
       },
@@ -120,32 +120,8 @@
         "subject" : "pricing/pricer",
         "title" : "Processor quarantined",
         "what" : "The generated processor threw while handling an event. Mongoose fenced it from its feeds and timers and will not call it again. Reason: com.telamin.mongoose.dutycycle.ProcessorDispatchException: generated processor execution failed during event dispatch; processor=com.telamin.mongoose.plugin.svc.adminweb.it.Fixtures$ThrowingGenerated; processor requires isolation; no retry or automatic recovery"
-      }, {
-        "acknowledged" : false,
-        "actions" : [ {
-          "action" : "acknowledge",
-          "consequence" : "Moves it to Acknowledged. The issue stays open and keeps counting toward the health pill until Mongoose stops reporting it; nothing on the server changes.",
-          "enabled" : true,
-          "label" : "Acknowledge",
-          "precondition" : "None."
-        } ],
-        "evidence" : [ {
-          "label" : "Health check",
-          "value" : "feed/up DOWN"
-        }, {
-          "label" : "Reason",
-          "value" : "service not started"
-        } ],
-        "failureKind" : null,
-        "id" : "HEALTH_DOWN:feed/up",
-        "impact" : "As described by the check's owner: service not started",
-        "kind" : "HEALTH_DOWN",
-        "severity" : "CRITICAL",
-        "since" : "<TS>",
-        "subject" : "feed/up",
-        "title" : "Health check DOWN",
-        "what" : "Health check up of feed reports DOWN: service not started"
       } ],
+      "liveGaps" : 0,
       "mongooseVersion" : "1.0.33",
       "notAvailable" : [ {
         "detail" : "Mongoose 1.0.33 logs a WARNING and retries the handler; no admin surface reports it. See Logs.",
@@ -184,7 +160,7 @@
         "fact" : "Replay status",
         "needs" : "proposal A9"
       } ],
-      "unacknowledged" : 2,
+      "unacknowledged" : 1,
       "worst" : "CRITICAL"
     },
     "status" : 200
@@ -192,7 +168,7 @@
   "GET /api/issues (acknowledged, stop recorded)" : {
     "body" : {
       "counts" : {
-        "CRITICAL" : 2,
+        "CRITICAL" : 1,
         "DEGRADED" : 0,
         "INFO" : 1
       },
@@ -256,31 +232,6 @@
           "label" : "Acknowledge",
           "precondition" : "None."
         } ],
-        "evidence" : [ {
-          "label" : "Health check",
-          "value" : "feed/up DOWN"
-        }, {
-          "label" : "Reason",
-          "value" : "service not started"
-        } ],
-        "failureKind" : null,
-        "id" : "HEALTH_DOWN:feed/up",
-        "impact" : "As described by the check's owner: service not started",
-        "kind" : "HEALTH_DOWN",
-        "severity" : "CRITICAL",
-        "since" : "<TS>",
-        "subject" : "feed/up",
-        "title" : "Health check DOWN",
-        "what" : "Health check up of feed reports DOWN: service not started"
-      }, {
-        "acknowledged" : false,
-        "actions" : [ {
-          "action" : "acknowledge",
-          "consequence" : "Moves it to Acknowledged. The issue stays open and keeps counting toward the health pill until Mongoose stops reporting it; nothing on the server changes.",
-          "enabled" : true,
-          "label" : "Acknowledge",
-          "precondition" : "None."
-        } ],
         "command" : "server.processors.stop",
         "evidence" : [ {
           "label" : "Reply",
@@ -300,6 +251,7 @@
         "title" : "Request failed",
         "what" : "server.processors.stop pricing/pricer was not applied (FAILED): processor quarantined; lifecycle cleanup requires operator resolution"
       } ],
+      "liveGaps" : 0,
       "mongooseVersion" : "1.0.33",
       "notAvailable" : [ {
         "detail" : "Mongoose 1.0.33 logs a WARNING and retries the handler; no admin surface reports it. See Logs.",
@@ -338,7 +290,7 @@
         "fact" : "Replay status",
         "needs" : "proposal A9"
       } ],
-      "unacknowledged" : 2,
+      "unacknowledged" : 1,
       "worst" : "CRITICAL"
     },
     "status" : 200

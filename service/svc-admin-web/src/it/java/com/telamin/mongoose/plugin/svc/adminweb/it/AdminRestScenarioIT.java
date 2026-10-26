@@ -55,7 +55,9 @@ class AdminRestScenarioIT {
             assertTrue(issues.contains("Other processors in group pricing keep running (peer)"), issues);
             assertTrue(issues.contains("\"action\":\"export-evidence\",\"label\":\"Export evidence\",\"enabled\":true"), issues);
             assertTrue(issues.contains("\"action\":\"replace\",\"label\":\"Replace / re-add\",\"enabled\":false"), issues);
-            assertTrue(issues.contains("\"worst\":\"CRITICAL\""), issues);
+            // exact: the quarantine is the only CRITICAL fact (the harness adds none of its own)
+            assertWorst("CRITICAL", issues);
+            assertTrue(issues.contains("\"counts\":{\"CRITICAL\":1,\"DEGRADED\":0,\"INFO\":0}"), issues);
             assertFalse(issues.contains("hand/handwritten"), "Mongoose 1.0.33 reports no handwritten failure: " + issues);
             assertTrue(issues.contains("\"fact\":\"Handwritten handler failures\""), "the gap is listed, not hidden: " + issues);
             String stop = body(g.record("server.processors.stop pricing/pricer", s.command("server.processors.stop", "pricing/pricer")));
@@ -65,7 +67,10 @@ class AdminRestScenarioIT {
                     "{\"id\":\"PROCESSOR_QUARANTINED:pricing/pricer\"}")).statusCode());
             String acked = body(g.record("GET /api/issues (acknowledged, stop recorded)", s.get("/api/issues")));
             assertTrue(acked.contains("\"subject\":\"pricing/pricer\",\"failureKind\":null,\"group\":\"pricing\""), acked);
-            assertTrue(acked.contains("\"acknowledged\":true") && acked.contains("\"worst\":\"CRITICAL\""), acked);
+            assertTrue(acked.contains("\"acknowledged\":true"), acked);
+            // the only CRITICAL issue is acknowledged; it must still set the worst severity, and stay unacknowledged-count 1 (the INFO stop)
+            assertWorst("CRITICAL", acked);
+            assertTrue(acked.contains("\"counts\":{\"CRITICAL\":1,\"DEGRADED\":0,\"INFO\":1},\"unacknowledged\":1"), acked);
             assertTrue(acked.contains("\"kind\":\"REQUEST_FAILED\"") && acked.contains("\"outcome\":\"FAILED\""), acked);
             assertEquals(404, g.record("POST /api/issues/ack (unknown)", s.postWeb("/api/issues/ack", "{\"id\":\"nope\"}")).statusCode());
             // svc-admin-rest 1.0.46 (#42) answers every reply line; /api/{action} still cannot pass arguments
@@ -99,6 +104,7 @@ class AdminRestScenarioIT {
             assertTrue(agents.contains("\"controlState\":\"DEAD\""), agents);
             assertTrue(agents.contains("\"state\":\"NOT_RUNNING_GROUP_DEAD\""), agents);
             String issues = body(g.record("GET /api/issues", s.get("/api/issues")));
+            assertWorst("CRITICAL", issues);
             assertTrue(issues.contains("\"id\":\"GROUP_DEAD:doomed\",\"kind\":\"GROUP_DEAD\",\"severity\":\"CRITICAL\""), issues);
             assertTrue(issues.contains("No processor in doomed runs: ok are listed but not running."), issues);
             assertTrue(issues.contains("\"action\":\"restart-process\""), issues);
@@ -129,6 +135,7 @@ class AdminRestScenarioIT {
             assertTrue(server.contains("\"lifecycle\":\"STOPPING\""), server);
             assertTrue(server.contains("\"complete\":false") && server.contains("\"groupsRunning\":[\"slowstop\"]"), server);
             String issues = body(g.record("GET /api/issues", s.get("/api/issues")));
+            assertWorst("CRITICAL", issues);
             assertTrue(issues.contains("\"kind\":\"SHUTDOWN_INCOMPLETE\",\"severity\":\"CRITICAL\""), issues);
             assertTrue(issues.contains("\"label\":\"Group slowstop\",\"value\":\"state CLOSING, outstanding requests 1\""), issues);
             assertTrue(issues.contains("\"action\":\"retry-stop\",\"label\":\"Retry stop\",\"enabled\":false"), issues);
@@ -168,6 +175,7 @@ class AdminRestScenarioIT {
             g.record("audit.status", s.command("audit.status"));
             // M1 (proposal §4.4): the failed close is an issue by resource id; both refusals are recorded
             String issues = body(g.record("GET /api/issues", s.get("/api/issues")));
+            assertWorst("DEGRADED", issues);
             assertTrue(issues.contains("\"id\":\"CAPTURE_CLOSE_FAILED:cap:1\",\"kind\":\"CAPTURE_CLOSE_FAILED\",\"severity\":\"DEGRADED\",\"subject\":\"cap resource 1\""), issues);
             assertTrue(issues.contains("\"value\":\"java.lang.IllegalStateException: forced capture close failure\""), issues);
             assertTrue(issues.contains("\"label\":\"Capture slots in use\",\"value\":\"1 (resources held 0)\""), issues);
@@ -205,10 +213,26 @@ class AdminRestScenarioIT {
             assertTrue(health.contains("\"component\":\"feed\",\"check\":\"queue-drops:/feed/feed/group/slow/subscriber/"), health);
             assertTrue(health.contains("\"verdict\":\"DEGRADED\""), health);
             String issues = body(g.record("GET /api/issues", s.get("/api/issues")));
+            assertWorst("DEGRADED", issues);
             assertTrue(issues.contains("\"kind\":\"QUEUE_LOSS\",\"severity\":\"DEGRADED\",\"subject\":\"feed → slow\""), issues);
             assertTrue(issues.contains("\"dropped\":" + dropped + ","), issues);
             assertTrue(issues.contains("The first loss (sequence and time of the QueueDrop record) is only in the group's control-audit"), issues);
             g.verify();
+        }
+    }
+
+    @Test
+    void e2_queueOverloadWithCountersDisabled() throws Exception {
+        // Mongoose's default (performanceMonitoring off): drops still happen, but no surface can see them
+        try (ScenarioServer s = new ScenarioServer(1_500, false)) {
+            Scenarios.overload(s);
+            String issues = body(s.get("/api/issues"));
+            assertFalse(issues.contains("QUEUE_LOSS"), issues);
+            assertWorst(null, issues);
+            assertTrue(issues.contains("\"fact\":\"Performance counters disabled\""), issues);
+            assertTrue(issues.contains("queue loss and service up/down cannot be observed.\",\"needs\":\"performanceMonitoring.enabled: true\",\"live\":true"), issues);
+            assertTrue(issues.contains("\"liveGaps\":1"), issues);
+            assertFalse(issues.contains("HEALTH_UNKNOWN"), "counters-disabled checks are folded into the gap: " + issues);
         }
     }
 
@@ -227,6 +251,7 @@ class AdminRestScenarioIT {
                     .contains("exception: Index 1 out of bounds for length 1"));
             // M1 (proposal §4.6): the console says what it can: nothing holds that name; the request was invalid
             String issues = body(g.record("GET /api/issues", s.get("/api/issues")));
+            assertWorst("INFO", issues);
             assertTrue(issues.contains("\"kind\":\"REQUEST_UNCONFIRMED\",\"severity\":\"INFO\",\"subject\":\"nosuch/x\""), issues);
             assertTrue(issues.contains("\"outcome\":\"UNKNOWN_TARGET\""), issues);
             assertTrue(issues.contains("\"outcome\":\"INVALID\""), issues);
@@ -241,6 +266,7 @@ class AdminRestScenarioIT {
             // path (and the contract table) says "mailbox full": the same refusal has two wordings
             assertTrue(refused.contains("stop REFUSED: group busy: processor-stop queue stayed full (4096) for 100 ms"), refused);
             String issues = body(g.record("GET /api/issues", s.get("/api/issues")));
+            assertWorst("INFO", issues);
             assertTrue(issues.contains("\"kind\":\"REQUEST_REFUSED\",\"severity\":\"INFO\",\"subject\":\"busy/consumer\""), issues);
             assertTrue(issues.contains("The group's thread is not draining its control mailbox"), issues);
             busy.parker().release.countDown();
@@ -280,6 +306,10 @@ class AdminRestScenarioIT {
             String commands = body(g.record("GET /api/commands", s.get("/api/commands")));
             assertFalse(commands.contains("replay"), commands);
             assertEquals(404, g.record("GET /api/replay", s.get("/api/replay")).statusCode());
+            // a clean server has no issue at all, and still lists what cannot be observed
+            String issues = body(g.record("GET /api/issues", s.get("/api/issues")));
+            assertWorst(null, issues);
+            assertTrue(issues.contains("\"issues\":[]") && issues.contains("\"liveGaps\":0"), issues);
             assertTrue(s.server.replayers().isEmpty());
             g.verify();
         }
@@ -287,6 +317,12 @@ class AdminRestScenarioIT {
 
     private static String body(HttpResponse<String> r) {
         return r.body();
+    }
+
+    /** The exact worst severity of the issue list ("null" for none). */
+    private static void assertWorst(String expected, String issues) {
+        String want = expected == null ? "\"worst\":null" : "\"worst\":\"" + expected + "\"";
+        assertTrue(issues.startsWith("{" + want + ","), "expected " + want + " in " + issues);
     }
 
     private static int count(String text, String needle) {
