@@ -114,6 +114,21 @@ final class AuditRecordProjection {
     }
 
     /**
+     * What makes two headers the same stream identity: the header body without {@code startedAt}, which
+     * changes on every re-head of the same run (a sink re-installed, capture started or stopped). Falls back
+     * to the raw text when the header does not parse.
+     */
+    static String streamHeaderIdentity(String yaml) {
+        Object body = streamHeaderBody(yaml);
+        if (body instanceof java.util.Map<?, ?> m && !m.containsKey("_parseError")) {
+            java.util.Map<Object, Object> copy = new java.util.LinkedHashMap<>(m);
+            copy.remove("startedAt");
+            return copy.toString();
+        }
+        return yaml;
+    }
+
+    /**
      * JSON for an HTTP response header value: one line, and every non-ASCII character escaped, so the
      * value is always a legal header field whatever the processor or host names contain.
      */

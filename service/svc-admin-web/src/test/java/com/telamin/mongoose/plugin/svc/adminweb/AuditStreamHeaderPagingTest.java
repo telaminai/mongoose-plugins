@@ -61,14 +61,18 @@ class AuditStreamHeaderPagingTest {
         }
     }
 
-    /** The header text exactly as the runtime renders it (AuditStreamHeader.appendTo). */
+    /**
+     * The header text as the runtime renders it (AuditStreamHeader.appendTo, runtime 1.1.4: versions quoted).
+     * Hand-typed because this module still builds against runtime 1.1.3; replace with producer output when
+     * it moves to 1.1.4.
+     */
     static String header(String serverId, String startedAt) {
         return "auditStreamHeader:\n"
                 + "    schema: 1\n"
                 + "    processor: com.acme.TradeProcessor\n"
                 + "    sourceFingerprint: null\n"
-                + "    toolchainVersion: 1.0.84\n"
-                + "    runtimeVersion: 1.1.4\n"
+                + "    toolchainVersion: '1.0.84'\n"
+                + "    runtimeVersion: '1.1.4'\n"
                 + "    startedAt: '" + startedAt + "'\n"
                 + "    host: {serverId: " + serverId + ", group: pricing, name: quoter, generation: '1'}";
     }
@@ -258,6 +262,35 @@ class AuditStreamHeaderPagingTest {
         assertEquals(List.of(), past.seqs());
         assertEquals(1, past.headers().size());
         assertEquals("pricing-2", past.headers().get(0).at("/header/host/serverId").asText());
+    }
+
+    @Test
+    void aReHeadOfTheSameRunIsNotAChange() throws Exception {
+        boot(concat(header("pricing-1", "2026-11-03T09:15:02.118Z"), records(0, 2),
+                header("pricing-1", "2026-11-03T09:20:00.000Z") /* sink re-installed */, records(2, 2)));
+        Page all = page(0, 100);
+        assertEquals(range(0, 4), all.seqs());
+        assertEquals(1, all.headers().size(), "only startedAt differs: the same run: " + all.headers());
+    }
+
+    @Test
+    void aZeroLimitStillReportsTheHeaderInEffect() throws Exception {
+        boot(concat(header("pricing-1", "2026-11-03T09:15:02.118Z"), records(0, 5)));
+        Page p = page(3, 0);
+        assertEquals(List.of(), p.seqs());
+        assertEquals(1, p.headers().size());
+        assertEquals("pricing-1", p.headers().get(0).at("/header/host/serverId").asText());
+    }
+
+    @Test
+    void anOversizedHeaderIsOmittedNotSentWhole() throws Exception {
+        String big = "x".repeat(10_000);
+        boot(concat(header(big, "2026-11-03T09:15:02.118Z"), records(0, 2)));
+        HttpResponse<String> r = get("/api/audit/file/" + PROCESSOR + "?from=0&limit=10");
+        String value = r.headers().firstValue(WebAdminService.STREAM_HEADERS_HTTP_HEADER).orElseThrow();
+        assertTrue(value.length() <= WebAdminService.MAX_STREAM_HEADERS_BYTES, "bounded in bytes: " + value.length());
+        assertTrue(value.contains("_omitted"), value);
+        assertTrue(r.headers().firstValue(WebAdminService.STREAM_HEADERS_HTTP_HEADER + "-Truncated").isPresent());
     }
 
     @Test

@@ -1193,14 +1193,17 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
             long headerInEffectAt = 0;
             boolean inEffectEmitted = false;
             int midPageHeaders = 0;
-            while (emitted < limit) {
+            // limit 0 still reads up to `from`, so the header in effect there is reported
+            while (emitted < limit || (limit <= 0 && index < from)) {
                 try (net.openhft.chronicle.wire.DocumentContext dc = tailer.readingDocument()) {
                     if (!dc.isPresent()) break;
                     String yaml = dc.wire().getValueIn().text();
                     if (AuditRecordProjection.isStreamHeader(yaml)) {
                         // A repeat identical to the header already in effect (a roll-cycle repeat)
                         // changes nothing a client needs to know, so it is not listed again.
-                        if (yaml.equals(headerInEffect)) continue;
+                        // Compared without startedAt: a re-head of the same run is not a change either.
+                        if (headerInEffect != null && AuditRecordProjection.streamHeaderIdentity(yaml)
+                                .equals(AuditRecordProjection.streamHeaderIdentity(headerInEffect))) continue;
                         headerInEffect = yaml;
                         headerInEffectAt = index;
                         inEffectEmitted = false;
@@ -1239,7 +1242,24 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
             return;
         }
         try {
-            ctx.header(STREAM_HEADERS_HTTP_HEADER, AuditRecordProjection.toAsciiJson(streamHeaders));
+            String value = AuditRecordProjection.toAsciiJson(streamHeaders);
+            // bounded in BYTES, not only by count: a header's host context is the producer's to size, and the
+            // whole response header must stay inside the server's header buffer
+            while (value.length() > MAX_STREAM_HEADERS_BYTES && streamHeaders.size() > 1) {
+                streamHeaders.remove(streamHeaders.size() - 1);
+                headersTruncated = true;
+                value = AuditRecordProjection.toAsciiJson(streamHeaders);
+            }
+            if (value.length() > MAX_STREAM_HEADERS_BYTES) {
+                // even the header in effect is too large: say so, and where to read it whole
+                Map<String, Object> only = new java.util.LinkedHashMap<>(streamHeaders.get(0));
+                only.put("header", Map.of("_omitted", "stream header larger than " + MAX_STREAM_HEADERS_BYTES
+                        + " bytes; read it from /api/audit/export"));
+                streamHeaders.set(0, only);
+                headersTruncated = true;
+                value = AuditRecordProjection.toAsciiJson(streamHeaders);
+            }
+            ctx.header(STREAM_HEADERS_HTTP_HEADER, value);
         } catch (java.io.IOException e) {
             log.warn("audit read: stream headers not serialisable for {}", id, e);
         }
@@ -1259,11 +1279,18 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
     /** Mid-page header changes listed per page, keeping the response header well inside the server's
      *  header buffer; more sets {@code X-Audit-Stream-Headers-Truncated: true}. */
     static final int MAX_STREAM_HEADERS_PER_PAGE = 8;
+    /** The response header's size bound, in bytes of its ASCII JSON value. */
+    static final int MAX_STREAM_HEADERS_BYTES = 4096;
 
     private static Map<String, Object> streamHeaderEntry(long recordIndex, String yaml) {
         Map<String, Object> m = new java.util.LinkedHashMap<>();
         m.put("recordIndex", recordIndex);
-        m.put("header", AuditRecordProjection.streamHeaderBody(yaml));
+        Object body = AuditRecordProjection.streamHeaderBody(yaml);
+        if (body instanceof Map<?, ?> parsed && parsed.containsKey("_parseError")) {
+            // never echo an unreadable header's raw text into a response header
+            body = Map.of("_parseError", String.valueOf(parsed.get("_parseError")));
+        }
+        m.put("header", body);
         return m;
     }
 
