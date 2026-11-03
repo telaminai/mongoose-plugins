@@ -95,6 +95,9 @@ Then point a browser at `http://127.0.0.1:8181/`.
 | `POST` | `/api/session/logout`                             | yes + CSRF  | Invalidates the session cookie                  |
 | `WS`   | `/ws/monitor`                                     | yes + CSRF  | Pushes JVM snapshots; client controls rate via `{"op":"rate","ms":<n>}` (0 = Off). Server-effective period = `min(client-rates)`, sampler stops when every client is Off. When the mongoose server's `MongooseCountersService` is operational, each frame also carries a `throughput` block: `{feeds, groups, processors, nodes, queues}` with per-counter `{name, rate, total}` (rate = delta / windowMs × 1000). `throughput` is `null` when performance monitoring is disabled. |
 | `WS`   | `/ws/logs`                                        | yes + CSRF  | Replays buffered log records on connect, then pushes per-record live |
+| `GET`  | `/api/audit/file/{id}?from=&limit=`               | yes         | One page of audit event records as NDJSON (`from` default 0, `limit` default 1000). Stream headers are not records: see *Audit stream headers* below |
+| `GET`  | `/api/audit/file/{id}/export?format=yaml\|jsonl`  | yes         | The whole audit stream as a download, stream headers included |
+| `WS`   | `/ws/audit-tail/{processor}`                      | yes + CSRF  | Live audit records from the end of the stream, as JSON-array frames; stream headers are not sent |
 
 `POST /api/commands/{name}` takes `{"arguments":["..."]}`, the same field as `svc-admin-rest`. An empty body runs the
 command with no arguments. `{"args":[...]}` is still accepted for compatibility. If both fields are present and
@@ -103,6 +106,36 @@ not an array of strings gets a `400` with `{"command":..., "output":[], "err":["
 is not run. A login body that does not parse gets a `400`, not a `401`.
 
 CSRF on WebSocket upgrades is carried as `?csrf=...` query param (browsers cannot add headers to the WS handshake).
+
+### Audit stream headers
+
+The Fluxtion runtime writes an `auditStreamHeader:` document as the first document of every audit stream (before
+the first `eventLogRecord:`), again after a sink, format or host-context change, and Mongoose repeats it at the start
+of each roll cycle. It names the processor, source fingerprint, toolchain/runtime versions, start time and host. It is
+metadata about the stream, not an event record, so:
+
+- `GET /api/audit/file/{id}` pages over **event records only**. A header takes no `from` index and fills no `limit`
+  slot, so a client sees the same records on the same pages with or without headers in the stream. The body is
+  unchanged: one record per NDJSON line, never a header.
+- The headers relevant to the page are returned in the `X-Audit-Stream-Headers` response header, a single-line JSON
+  array (non-ASCII escaped):
+
+  ```json
+  [{"recordIndex": 0, "header": {"schema": 1, "processor": "com.acme.TradeProcessor", "sourceFingerprint": null,
+    "toolchainVersion": "1.0.84", "runtimeVersion": "1.1.4", "startedAt": "2026-11-03T09:15:02.118Z",
+    "host": {"serverId": "pricing-1", "group": "pricing", "name": "quoter", "generation": "1"}}}]
+  ```
+
+  `recordIndex` uses the same numbering as `from`: it is the index of the first record the header precedes. The first
+  entry is the header in effect at the start of the page, however far back it was written; any further entries are
+  headers that change mid-page (or, at the end of the stream, one written after the last record). A repeat identical
+  to the header already in effect is not listed again. `[]` means the stream has no header (written before headers
+  existed). A page with no records — past the end, or a header-only stream — still reports the header in effect. At
+  most 8 mid-page changes are listed; beyond that `X-Audit-Stream-Headers-Truncated: true` is set.
+- `GET /api/audit/file/{id}/export` is the whole stream and keeps every header: `format=yaml` writes it as its own
+  `---`-separated document, `format=jsonl` as a `{"auditStreamHeader": {...}}` line. Consumers that count records
+  should skip documents whose top key is `auditStreamHeader`.
+- `WS /ws/audit-tail/{processor}` frames carry records only.
 
 ### Graphml resource convention
 

@@ -77,6 +77,52 @@ final class AuditRecordProjection {
         }
     }
 
+    /** Top-level key of the stream header document the Fluxtion runtime writes first in every audit stream. */
+    static final String STREAM_HEADER_KEY = "auditStreamHeader";
+
+    /**
+     * Whether a Chronicle document is an audit stream header rather than an event record.
+     *
+     * <p>The runtime writes one {@code auditStreamHeader:} document before the first record of a stream,
+     * again after a sink, format or host-context change, and Mongoose repeats it at the start of each roll
+     * cycle. It is metadata about the stream, not an event cycle: nothing that counts, pages or tails
+     * records may count it as one.
+     */
+    static boolean isStreamHeader(String yaml) {
+        if (yaml == null) return false;
+        int i = 0;
+        while (i < yaml.length() && Character.isWhitespace(yaml.charAt(i))) i++;
+        return yaml.startsWith(STREAM_HEADER_KEY + ":", i);
+    }
+
+    /**
+     * The body of a stream header document (the map under {@code auditStreamHeader}), parsed for JSON
+     * output. Falls back to {@code {"raw": ..., "_parseError": ...}} like {@link #yamlToJson}, so one
+     * unreadable header never fails the response that carries it.
+     */
+    static Object streamHeaderBody(String yaml) {
+        try {
+            Object tree = YAML.load(yaml);
+            if (tree instanceof java.util.Map<?, ?> m && m.containsKey(STREAM_HEADER_KEY)) {
+                return m.get(STREAM_HEADER_KEY);
+            }
+            return tree;
+        } catch (RuntimeException e) {
+            return java.util.Map.of("raw", yaml,
+                    "_parseError", e.getClass().getSimpleName() + ": " + e.getMessage());
+        }
+    }
+
+    /**
+     * JSON for an HTTP response header value: one line, and every non-ASCII character escaped, so the
+     * value is always a legal header field whatever the processor or host names contain.
+     */
+    static String toAsciiJson(Object value) throws java.io.IOException {
+        return JSON.writer()
+                .with(com.fasterxml.jackson.core.json.JsonWriteFeature.ESCAPE_NON_ASCII)
+                .writeValueAsString(value);
+    }
+
     /**
      * Rewrite known free-form string fields in the YAML to block-literal
      * (<code>|</code>) style. Block literals carry their content verbatim

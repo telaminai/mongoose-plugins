@@ -1171,36 +1171,100 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         }
         long from = parseLong(ctx.queryParam("from"), 0);
         long limit = parseLong(ctx.queryParam("limit"), 1000);
-        ctx.contentType("application/x-ndjson");
+        // Paging is over EVENT RECORDS only. Stream header documents (auditStreamHeader:) are metadata:
+        // they take no index and no page slot, so a client sees the same records on the same pages
+        // whether or not the stream carries headers. The headers relevant to the page are returned in
+        // the X-Audit-Stream-Headers response header instead (see STREAM_HEADERS_HTTP_HEADER).
+        //
+        // The page is buffered so that header can be set before the body: the headers inside a page
+        // are only known once it has been read. A page is already bounded by `limit`.
+        StringBuilder body = new StringBuilder();
+        java.util.List<Map<String, Object>> streamHeaders = new java.util.ArrayList<>();
+        boolean headersTruncated = false;
         try (net.openhft.chronicle.queue.ChronicleQueue q =
                      net.openhft.chronicle.queue.impl.single.SingleChronicleQueueBuilder
                              .binary(handle.path())
                              .readOnly(true)
-                             .build();
-             java.io.PrintWriter w = new java.io.PrintWriter(ctx.outputStream())) {
+                             .build()) {
             net.openhft.chronicle.queue.ExcerptTailer tailer = q.createTailer();
-            long index = 0;
+            long index = 0;              // event records read so far, headers excluded
             long emitted = 0;
+            String headerInEffect = null;           // text of the latest header read
+            long headerInEffectAt = 0;
+            boolean inEffectEmitted = false;
+            int midPageHeaders = 0;
             while (emitted < limit) {
                 try (net.openhft.chronicle.wire.DocumentContext dc = tailer.readingDocument()) {
                     if (!dc.isPresent()) break;
-                    if (index++ < from) continue;
                     String yaml = dc.wire().getValueIn().text();
+                    if (AuditRecordProjection.isStreamHeader(yaml)) {
+                        // A repeat identical to the header already in effect (a roll-cycle repeat)
+                        // changes nothing a client needs to know, so it is not listed again.
+                        if (yaml.equals(headerInEffect)) continue;
+                        headerInEffect = yaml;
+                        headerInEffectAt = index;
+                        inEffectEmitted = false;
+                        if (index > from) {
+                            // inside the page (or, at end of stream, after its last record)
+                            if (midPageHeaders++ < MAX_STREAM_HEADERS_PER_PAGE) {
+                                streamHeaders.add(streamHeaderEntry(index, yaml));
+                            } else {
+                                headersTruncated = true;
+                            }
+                            inEffectEmitted = true;
+                        }
+                        continue;
+                    }
+                    if (index++ < from) continue;
+                    if (headerInEffect != null && !inEffectEmitted) {
+                        // the header in effect at the start of the page, however far back it was written
+                        streamHeaders.add(streamHeaderEntry(headerInEffectAt, headerInEffect));
+                        inEffectEmitted = true;
+                    }
                     if (yaml == null) continue;
-                    String json = AuditRecordProjection.yamlToJson(yaml);
-                    w.write(json);
-                    w.write('\n');
+                    body.append(AuditRecordProjection.yamlToJson(yaml)).append('\n');
                     emitted++;
                 }
             }
-            w.flush();
+            if (headerInEffect != null && !inEffectEmitted) {
+                // no record on this page (past the end, or a header-only stream): still say what is in effect
+                streamHeaders.add(streamHeaderEntry(headerInEffectAt, headerInEffect));
+            }
         } catch (Throwable e) {
             log.warn("audit read failed for {}", id, e);
             ctx.status(HttpStatus.INTERNAL_SERVER_ERROR);
             ctx.contentType("application/json");
             ctx.result("{\"err\":\"audit read failed: " + e.getClass().getSimpleName()
                     + ": " + String.valueOf(e.getMessage()).replace("\"", "'") + "\"}");
+            return;
         }
+        try {
+            ctx.header(STREAM_HEADERS_HTTP_HEADER, AuditRecordProjection.toAsciiJson(streamHeaders));
+        } catch (java.io.IOException e) {
+            log.warn("audit read: stream headers not serialisable for {}", id, e);
+        }
+        if (headersTruncated) ctx.header(STREAM_HEADERS_HTTP_HEADER + "-Truncated", "true");
+        ctx.contentType("application/x-ndjson");
+        ctx.result(body.toString());
+    }
+
+    /**
+     * Response header on {@code GET /api/audit/file/{id}} carrying the stream headers relevant to the
+     * page, as a JSON array of {@code {"recordIndex": n, "header": {...}}}. {@code recordIndex} is the
+     * record-space index (the same numbering as {@code from}) of the first record the header precedes.
+     * The first entry is the header in effect at the start of the page; later entries are headers that
+     * change mid-page. {@code []} when the stream has no header (written before headers existed).
+     */
+    static final String STREAM_HEADERS_HTTP_HEADER = "X-Audit-Stream-Headers";
+    /** Mid-page header changes listed per page, keeping the response header well inside the server's
+     *  header buffer; more sets {@code X-Audit-Stream-Headers-Truncated: true}. */
+    static final int MAX_STREAM_HEADERS_PER_PAGE = 8;
+
+    private static Map<String, Object> streamHeaderEntry(long recordIndex, String yaml) {
+        Map<String, Object> m = new java.util.LinkedHashMap<>();
+        m.put("recordIndex", recordIndex);
+        m.put("header", AuditRecordProjection.streamHeaderBody(yaml));
+        return m;
     }
 
     private void handleAuditExport(Context ctx) {
@@ -1238,7 +1302,9 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
                     String yaml = dc.wire().getValueIn().text();
                     if (yaml == null) continue;
                     if (json) {
-                        // One JSON object per line — drop-in for jq / Loki / Splunk.
+                        // One JSON object per line — drop-in for jq / Loki / Splunk. A stream header is
+                        // kept, verbatim in meaning, as {"auditStreamHeader": {...}}: the export is the
+                        // whole stream, and the header is what identifies the code that produced it.
                         w.write(AuditRecordProjection.yamlToJson(yaml));
                         w.write('\n');
                     } else {
@@ -1588,6 +1654,8 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
                 if (!dc.isPresent()) break;
                 String yaml = dc.wire().getValueIn().text();
                 if (yaml == null) continue;
+                // A stream header is metadata, not a record: frames carry records only, as the paged read does.
+                if (AuditRecordProjection.isStreamHeader(yaml)) continue;
                 state.pending.add(AuditRecordProjection.yamlToJson(yaml));
                 if (state.pending.size() >= BATCH_THRESHOLD) break;
             }

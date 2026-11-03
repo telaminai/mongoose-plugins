@@ -64,8 +64,17 @@
         return s.replace(/[\r\n\s]+$/, '').replace(/^[\r\n\s]+/, '');
     }
 
+    /** An audit stream header ({"auditStreamHeader": {...}}) is metadata about
+     *  the stream, not an event record. The server keeps it out of the paged
+     *  read and the live tail; this guards anything that feeds an export
+     *  (which does keep it) through the parser. */
+    function isStreamHeader(json) {
+        return !!json && typeof json === 'object' && 'auditStreamHeader' in json;
+    }
+
     function parseRecord(json, rawText) {
         if (!json || typeof json !== 'object') return null;
+        if (isStreamHeader(json)) return null;
         const body = json.eventLogRecord ?? json;
         if (!body || typeof body !== 'object') return null;
         return {
@@ -123,6 +132,7 @@
             if (!line) continue;
             try {
                 const obj = JSON.parse(line);
+                if (isStreamHeader(obj)) continue;
                 const rec = parseRecord(obj, line);
                 if (rec) records.push(rec);
                 else errors.push(`Line ${i + 1}: unrecognised record shape`);
@@ -154,5 +164,5 @@
         return out;
     }
 
-    window.eventLogParser = { parseNdjson, parseFrame, parseRecord };
+    window.eventLogParser = { parseNdjson, parseFrame, parseRecord, isStreamHeader };
 })();
