@@ -87,7 +87,7 @@ class JsonFileCacheAdminRegistrationTest {
     }
 
     @Test
-    void registration_guard_is_excluded_from_equals_and_toString() {
+    void registration_guard_is_excluded_from_toString() {
         RecordingRegistry registry = new RecordingRegistry();
         JsonFileCache registered = new JsonFileCache();
         registered.setRegistry(registry);
@@ -137,11 +137,30 @@ class JsonFileCacheAdminRegistrationTest {
         }
     }
 
+    @Test
+    void a_failed_registration_is_retried_by_the_next_callback() {
+        RecordingRegistry registry = new RecordingRegistry();
+        registry.failNextKeys = true;
+        JsonFileCache cache = new JsonFileCache();
+        cache.setEventFlowManager(null, "gymCache");
+
+        assertThrows(IllegalStateException.class, () -> cache.register(registry, "admin"));
+        cache.register(registry, "admin");
+
+        assertTrue(registry.commands.containsAll(EXPECTED));
+        assertEquals(1, registry.commands.stream().filter("cache.gymCache.keys"::equals).count());
+    }
+
     private static final class RecordingRegistry implements AdminCommandRegistry {
         final List<String> commands = new ArrayList<>();
+        boolean failNextKeys;
 
         @Override
         public <OUT, ERR> void registerCommand(String name, AdminFunction<OUT, ERR> command) {
+            if (failNextKeys && name.endsWith(".keys")) {
+                failNextKeys = false;
+                throw new IllegalStateException("registry not ready");
+            }
             commands.add(name);
         }
 

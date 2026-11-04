@@ -146,11 +146,13 @@ public class JsonFileCache implements Cache, Agent, Lifecycle, EventFlowService<
      * and only the one that completes the pair registers. Idempotent per registry.
      */
     private synchronized void registerAdminCommands() {
-        if (registry == null || serviceName == null || !commandsRegisteredWith.add(registry)) {
+        if (registry == null || serviceName == null || commandsRegisteredWith.contains(registry)) {
             return;
         }
         registry.registerCommand("cache." + serviceName + ".get", this::getCommand);
         registry.registerCommand("cache." + serviceName + ".keys", this::listKeys);
+        // Mark only after both succeed, so a failed registration is retried by the next callback.
+        commandsRegisteredWith.add(registry);
     }
 
     // EventFlowService -> EventSource contract: this cache does not push events
