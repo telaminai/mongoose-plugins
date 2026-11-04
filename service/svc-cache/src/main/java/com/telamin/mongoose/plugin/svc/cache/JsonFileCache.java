@@ -16,6 +16,7 @@ import com.telamin.mongoose.service.EventFlowService;
 import com.telamin.mongoose.service.admin.AdminCommandRegistry;
 import lombok.AccessLevel;
 import lombok.Data;
+import lombok.Getter;
 import lombok.Setter;
 import lombok.SneakyThrows;
 import lombok.extern.log4j.Log4j2;
@@ -46,6 +47,10 @@ public class JsonFileCache implements Cache, Agent, Lifecycle, EventFlowService<
     private File redoLogFile;
     private String serviceName;
     private AdminCommandRegistry registry;
+    /** Registry the admin commands were registered with; guards against double registration (#49). */
+    @Getter(AccessLevel.NONE)
+    @Setter(AccessLevel.NONE)
+    private AdminCommandRegistry commandsRegisteredWith;
     private boolean asyncWrite = false;
     /**
      * Hard cap on entries. {@code 0} (default) means unbounded. When set, the
@@ -117,14 +122,29 @@ public class JsonFileCache implements Cache, Agent, Lifecycle, EventFlowService<
     public void register(AdminCommandRegistry registry, String fileName) {
         log.info("Registering admin command registry {}", registry);
         this.registry = registry;
+        registerAdminCommands();
     }
 
     @Override
     public void setEventFlowManager(EventFlowManager eventFlowManager, String serviceName) {
         log.info("setEventFlowManager serviceName:{}", serviceName);
         this.serviceName = serviceName;
+        registerAdminCommands();
+    }
+
+    /**
+     * Registers the cache admin commands once both the registry and the service name
+     * are known. The server may call {@link #setEventFlowManager} before the
+     * {@code @ServiceRegistered} registry callback (issue #49), so each callback tries
+     * and only the one that completes the pair registers. Idempotent per registry.
+     */
+    private synchronized void registerAdminCommands() {
+        if (registry == null || serviceName == null || commandsRegisteredWith == registry) {
+            return;
+        }
         registry.registerCommand("cache." + serviceName + ".get", this::getCommand);
         registry.registerCommand("cache." + serviceName + ".keys", this::listKeys);
+        commandsRegisteredWith = registry;
     }
 
     // EventFlowService -> EventSource contract: this cache does not push events
