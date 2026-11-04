@@ -22,6 +22,15 @@ import java.util.List;
  * runs on the server side (off the processor's agent thread) where
  * SnakeYAML parsing is acceptable cost.
  *
+ * <p>Two runtime text forms are read. An older Fluxtion runtime writes
+ * header text bare; a newer one writes a header or {@code nodeLogs} value
+ * that YAML would misread as a one-line YAML double-quoted scalar
+ * (escapes <code>\\ \x22 \n \r \t \0 &#92;uXXXX</code>) and marks such a record
+ * with {@code textEncoding: QUOTED_SCALARS} as the first line after
+ * {@code eventLogRecord:}. The marker describes the YAML text only: the
+ * projection decodes the quoted scalars and drops the marker, so JSON
+ * consumers (the Replay tab) never see it as a record field.
+ *
  * <p>Static state: one {@link Yaml} loader + one {@link ObjectMapper}.
  * Both are documented as thread-safe for the read/write methods we
  * use. Saves a hot-path allocation per request.
@@ -41,6 +50,11 @@ final class AuditRecordProjection {
             "thread",
             "groupingId"
     };
+
+    /** The record key; the text-encoding marker is honoured only on the line directly after it. */
+    private static final String RECORD_KEY = "eventLogRecord:";
+    /** The runtime's per-record declaration that the record holds YAML double-quoted scalars. */
+    static final String TEXT_ENCODING_MARKER = "textEncoding: QUOTED_SCALARS";
 
     private AuditRecordProjection() {
     }
@@ -88,17 +102,32 @@ final class AuditRecordProjection {
      * Continuation lines are anything at the same or deeper indent until
      * the next sibling field key is seen (matching the surrounding
      * {@code <indent><word>:} pattern).
+     *
+     * <p>A record marked {@code textEncoding: QUOTED_SCALARS} (first line
+     * after {@code eventLogRecord:} only, so logged text cannot forge it)
+     * may carry a free-form field as one whole double-quoted scalar. That
+     * line is left as written for SnakeYAML to decode; rewriting it as a
+     * block literal would keep the quotes and escapes as text. The marker
+     * line itself is dropped. In an unmarked record (an older runtime) the
+     * value is bare text, so a value that merely looks quoted is still
+     * taken verbatim.
      */
     static String fixupFreeformScalars(String yaml) {
         if (yaml == null || yaml.isEmpty()) return yaml;
         String[] lines = yaml.split("\n", -1);
         StringBuilder out = new StringBuilder(yaml.length() + 64);
 
+        boolean quotedScalars = false;
         int i = 0;
         while (i < lines.length) {
             String line = lines[i];
+            if (i > 0 && isTextEncodingMarker(line) && isRecordKey(lines[i - 1])) {
+                quotedScalars = true;
+                i++;
+                continue;
+            }
             FieldMatch m = matchFreeformField(line);
-            if (m == null) {
+            if (m == null || (quotedScalars && isDoubleQuotedScalar(m.value))) {
                 out.append(line);
                 if (i < lines.length - 1) out.append('\n');
                 i++;
@@ -137,6 +166,31 @@ final class AuditRecordProjection {
             i = j;
         }
         return out.toString();
+    }
+
+    private static boolean isRecordKey(String line) {
+        return line.strip().equals(RECORD_KEY);
+    }
+
+    private static boolean isTextEncodingMarker(String line) {
+        return line.startsWith(" ") && line.strip().equals(TEXT_ENCODING_MARKER);
+    }
+
+    /** True when {@code value} is exactly one YAML double-quoted scalar: an
+     *  opening quote, escaped content, and the closing quote as its last
+     *  non-blank character. */
+    static boolean isDoubleQuotedScalar(String value) {
+        String v = value.stripTrailing();
+        if (v.length() < 2 || v.charAt(0) != '"') return false;
+        for (int k = 1; k < v.length(); k++) {
+            char c = v.charAt(k);
+            if (c == '\\') {
+                k++;
+            } else if (c == '"') {
+                return k == v.length() - 1;
+            }
+        }
+        return false;
     }
 
     /** Look for `<indent><freeformField>: <value>` at the start of `line`.
