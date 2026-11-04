@@ -16,8 +16,10 @@ import com.telamin.mongoose.service.EventFlowService;
 import com.telamin.mongoose.service.admin.AdminCommandRegistry;
 import lombok.AccessLevel;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.Setter;
+import lombok.ToString;
 import lombok.SneakyThrows;
 import lombok.extern.log4j.Log4j2;
 
@@ -25,9 +27,11 @@ import java.io.File;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -47,10 +51,13 @@ public class JsonFileCache implements Cache, Agent, Lifecycle, EventFlowService<
     private File redoLogFile;
     private String serviceName;
     private AdminCommandRegistry registry;
-    /** Registry the admin commands were registered with; guards against double registration (#49). */
+    /** Registries the admin commands were registered with, by identity; guards against repeat registration (#49). */
     @Getter(AccessLevel.NONE)
     @Setter(AccessLevel.NONE)
-    private AdminCommandRegistry commandsRegisteredWith;
+    @EqualsAndHashCode.Exclude
+    @ToString.Exclude
+    private final Set<AdminCommandRegistry> commandsRegisteredWith =
+            Collections.newSetFromMap(new IdentityHashMap<>());
     private boolean asyncWrite = false;
     /**
      * Hard cap on entries. {@code 0} (default) means unbounded. When set, the
@@ -119,7 +126,7 @@ public class JsonFileCache implements Cache, Agent, Lifecycle, EventFlowService<
     }
 
     @ServiceRegistered
-    public void register(AdminCommandRegistry registry, String fileName) {
+    public void register(AdminCommandRegistry registry, String registryName) {
         log.info("Registering admin command registry {}", registry);
         this.registry = registry;
         registerAdminCommands();
@@ -139,12 +146,11 @@ public class JsonFileCache implements Cache, Agent, Lifecycle, EventFlowService<
      * and only the one that completes the pair registers. Idempotent per registry.
      */
     private synchronized void registerAdminCommands() {
-        if (registry == null || serviceName == null || commandsRegisteredWith == registry) {
+        if (registry == null || serviceName == null || !commandsRegisteredWith.add(registry)) {
             return;
         }
         registry.registerCommand("cache." + serviceName + ".get", this::getCommand);
         registry.registerCommand("cache." + serviceName + ".keys", this::listKeys);
-        commandsRegisteredWith = registry;
     }
 
     // EventFlowService -> EventSource contract: this cache does not push events

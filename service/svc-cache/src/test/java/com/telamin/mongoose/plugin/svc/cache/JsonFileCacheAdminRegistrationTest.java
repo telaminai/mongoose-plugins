@@ -70,6 +70,40 @@ class JsonFileCacheAdminRegistrationTest {
     }
 
     @Test
+    void two_registries_each_register_once_despite_repeated_callbacks() {
+        RecordingRegistry first = new RecordingRegistry();
+        RecordingRegistry second = new RecordingRegistry();
+        JsonFileCache cache = new JsonFileCache();
+        cache.setEventFlowManager(null, "gymCache");
+
+        // LifecycleManager.init calls register() once per registered service, alternating registries
+        cache.register(first, "adminA");
+        cache.register(second, "adminB");
+        cache.register(first, "adminA");
+        cache.register(second, "adminB");
+
+        assertEquals(EXPECTED, first.commands);
+        assertEquals(EXPECTED, second.commands);
+    }
+
+    @Test
+    void registration_guard_is_excluded_from_equals_and_toString() {
+        RecordingRegistry registry = new RecordingRegistry();
+        JsonFileCache registered = new JsonFileCache();
+        registered.setRegistry(registry);
+        registered.setEventFlowManager(null, "gymCache");   // registers the commands
+        JsonFileCache unregistered = new JsonFileCache();
+        unregistered.setRegistry(registry);
+        unregistered.setServiceName("gymCache");
+
+        assertEquals(EXPECTED, registry.commands);
+        // Instances differ only by per-instance object identities, which are stripped here.
+        assertEquals(unregistered.toString().replaceAll("@[0-9a-f]+", ""),
+                registered.toString().replaceAll("@[0-9a-f]+", ""));
+        assertFalse(registered.toString().contains("commandsRegisteredWith"));
+    }
+
+    @Test
     void no_registry_ever_is_harmless() {
         JsonFileCache cache = new JsonFileCache();
         assertDoesNotThrow(() -> cache.setEventFlowManager(null, "gymCache"));
