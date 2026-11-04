@@ -137,6 +137,70 @@ class AuditRecordProjectionTest {
     }
 
     @Test
+    void markerInsideAnOldBareMultiLineToStringIsNotHonoured() throws Exception {
+        // an older runtime's toString carrying both a record key and a marker line: neither is the record's
+        // opening, so nothing switches on and no line is dropped
+        String toString = "Forged{\neventLogRecord: \n      textEncoding: QUOTED_SCALARS\n}";
+        JsonNode r = project(String.join("\n",
+                "eventLogRecord: ",
+                "    eventTime: 1",
+                "    event: Forged",
+                "    eventToString: Forged{",
+                "eventLogRecord: ",
+                "      textEncoding: QUOTED_SCALARS",
+                "}",
+                "    thread: \"main\"",
+                "    nodeLogs: "));
+        assertEquals(toString, r.get("eventToString").asText());
+        assertEquals("\"main\"", r.get("thread").asText());
+        assertFalse(r.has("textEncoding"));
+    }
+
+    @Test
+    void recordKeyAndMarkerLinesInsideOldBareTextDoNotSwitchModeOrDropALine() {
+        // an older runtime's bare multi-line toString whose lines read "eventLogRecord: " then a sibling-indented
+        // marker: the marker line is not the record's, so it is kept and quoted-looking text stays verbatim
+        String yaml = String.join("\n",
+                "eventLogRecord: ",
+                "    eventTime: 1",
+                "    event: Forged",
+                "    eventToString: Forged{",
+                "eventLogRecord: ",
+                "    textEncoding: QUOTED_SCALARS",
+                "    thread: \"main\"",
+                "    nodeLogs: ");
+        String out = AuditRecordProjection.fixupFreeformScalars(yaml);
+        assertTrue(out.contains("\n    textEncoding: QUOTED_SCALARS\n"), out);
+        assertTrue(out.contains("    thread: |-\n        \"main\""), out);
+    }
+
+    @Test
+    void indentedRecordKeyDoesNotOpenAMarkedRecord() {
+        String yaml = String.join("\n",
+                "    eventLogRecord: ",
+                "    textEncoding: QUOTED_SCALARS",
+                "    thread: \"main\"");
+        String out = AuditRecordProjection.fixupFreeformScalars(yaml);
+        assertTrue(out.contains("textEncoding: QUOTED_SCALARS"), out);
+        assertTrue(out.contains("thread: |-"), out);
+    }
+
+    @Test
+    void markerAfterLeadingBlankLinesIsHonoured() throws Exception {
+        JsonNode r = project(String.join("\n",
+                "",
+                "eventLogRecord: ",
+                "",
+                "    textEncoding: QUOTED_SCALARS",
+                "    eventTime: 1",
+                "    event: GymCheckIn",
+                "    thread: \"- agent #1\"",
+                "    nodeLogs: "));
+        assertEquals("- agent #1", r.get("thread").asText());
+        assertFalse(r.has("textEncoding"));
+    }
+
+    @Test
     void wholeQuotedScalarDetection() {
         assertTrue(AuditRecordProjection.isDoubleQuotedScalar("\"a\""));
         assertTrue(AuditRecordProjection.isDoubleQuotedScalar("\"a \\\" b \\\\\"  "));

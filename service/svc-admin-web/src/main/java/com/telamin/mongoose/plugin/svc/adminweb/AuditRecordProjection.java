@@ -103,8 +103,13 @@ final class AuditRecordProjection {
      * the next sibling field key is seen (matching the surrounding
      * {@code <indent><word>:} pattern).
      *
-     * <p>A record marked {@code textEncoding: QUOTED_SCALARS} (first line
-     * after {@code eventLogRecord:} only, so logged text cannot forge it)
+     * <p>The input is one record. Its marker {@code textEncoding:
+     * QUOTED_SCALARS} is honoured only as the first non-blank line after
+     * the record's opening line, which must be the first non-blank line of
+     * the input and read {@code eventLogRecord:} with no indentation
+     * (trailing space allowed). An older runtime always writes
+     * {@code eventTime} in that position, so a marker-like line inside its
+     * bare text is not honoured. A marked record
      * may carry a free-form field as one whole double-quoted scalar. That
      * line is left as written for SnakeYAML to decode; rewriting it as a
      * block literal would keep the quotes and escapes as text. The marker
@@ -117,12 +122,13 @@ final class AuditRecordProjection {
         String[] lines = yaml.split("\n", -1);
         StringBuilder out = new StringBuilder(yaml.length() + 64);
 
-        boolean quotedScalars = false;
+        // state is per call: one call projects one record
+        int markerLine = textEncodingMarkerLine(lines);
+        boolean quotedScalars = markerLine >= 0;
         int i = 0;
         while (i < lines.length) {
             String line = lines[i];
-            if (i > 0 && isTextEncodingMarker(line) && isRecordKey(lines[i - 1])) {
-                quotedScalars = true;
+            if (i == markerLine) {
                 i++;
                 continue;
             }
@@ -168,8 +174,21 @@ final class AuditRecordProjection {
         return out.toString();
     }
 
-    private static boolean isRecordKey(String line) {
-        return line.strip().equals(RECORD_KEY);
+    /** Index of the record's text-encoding marker line, or -1: the first
+     *  non-blank line after a first non-blank line that is exactly
+     *  {@code eventLogRecord:} (trailing space allowed). */
+    private static int textEncodingMarkerLine(String[] lines) {
+        int k = nextNonBlank(lines, 0);
+        if (k < 0 || !lines[k].stripTrailing().equals(RECORD_KEY)) return -1;
+        int m = nextNonBlank(lines, k + 1);
+        return m >= 0 && isTextEncodingMarker(lines[m]) ? m : -1;
+    }
+
+    private static int nextNonBlank(String[] lines, int from) {
+        for (int k = from; k < lines.length; k++) {
+            if (!lines[k].isBlank()) return k;
+        }
+        return -1;
     }
 
     private static boolean isTextEncodingMarker(String line) {
