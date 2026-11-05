@@ -57,6 +57,12 @@ When the server exposes `MongooseIntrospectionService` (auto-registered by `Mong
 | `GET`  | `/`                                               | _SPA_       | SPA shell (`index.html` + `/app.js` + `/style.css`) |
 | `GET`  | `/api/commands`                                   | yes         | Lists registered admin commands                 |
 | `POST` | `/api/commands/{name}`                            | yes + CSRF  | Invokes an admin command                        |
+
+`POST /api/commands/{name}` takes `{"arguments":["..."]}`, the same field as `svc-admin-rest`. An empty body runs the
+command with no arguments. `{"args":[...]}` is still accepted for compatibility. If both fields are present and
+differ, the request is refused. A body that is not valid JSON, is not an object, has another field, or whose list is
+not an array of strings gets a `400` with `{"command":..., "output":[], "err":["<what is wrong>"]}`, and the command
+is not run. A login body that does not parse gets a `400`, not a `401`.
 | `GET`  | `/api/server`                                     | yes         | Server identity (pid, runtime, startTime)       |
 | `GET`  | `/api/jvm`                                        | yes         | One-shot JVM snapshot                           |
 | `GET`  | `/api/services`                                   | yes         | Service inventory; feeds carry their consumers  |

@@ -88,7 +88,7 @@ public class ChronicleEventSource extends AbstractAgentHostedEventSourceService 
     @Override
     public void startComplete() {
         publishToQueue = true;
-        output.dispatchCachedEventLog();
+        output.startComplete();
     }
 
     @Override

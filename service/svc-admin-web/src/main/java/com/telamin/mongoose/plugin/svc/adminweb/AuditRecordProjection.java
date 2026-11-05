@@ -22,6 +22,15 @@ import java.util.List;
  * runs on the server side (off the processor's agent thread) where
  * SnakeYAML parsing is acceptable cost.
  *
+ * <p>Two runtime text forms are read. An older Fluxtion runtime writes
+ * header text bare; a newer one writes a header or {@code nodeLogs} value
+ * that YAML would misread as a one-line YAML double-quoted scalar
+ * (escapes <code>\\ \x22 \n \r \t \0 &#92;uXXXX</code>) and marks such a record
+ * with {@code textEncoding: QUOTED_SCALARS} as the first line after
+ * {@code eventLogRecord:}. The marker describes the YAML text only: the
+ * projection decodes the quoted scalars and drops the marker, so JSON
+ * consumers (the Replay tab) never see it as a record field.
+ *
  * <p>Static state: one {@link Yaml} loader + one {@link ObjectMapper}.
  * Both are documented as thread-safe for the read/write methods we
  * use. Saves a hot-path allocation per request.
@@ -41,6 +50,11 @@ final class AuditRecordProjection {
             "thread",
             "groupingId"
     };
+
+    /** The record key; the text-encoding marker is honoured only on the line directly after it. */
+    private static final String RECORD_KEY = "eventLogRecord:";
+    /** The runtime's per-record declaration that the record holds YAML double-quoted scalars. */
+    static final String TEXT_ENCODING_MARKER = "textEncoding: QUOTED_SCALARS";
 
     private AuditRecordProjection() {
     }
@@ -88,17 +102,38 @@ final class AuditRecordProjection {
      * Continuation lines are anything at the same or deeper indent until
      * the next sibling field key is seen (matching the surrounding
      * {@code <indent><word>:} pattern).
+     *
+     * <p>The input is one record. Its marker {@code textEncoding:
+     * QUOTED_SCALARS} is honoured only as the first non-blank line after
+     * the record's opening line, which must be the first non-blank line of
+     * the input and read {@code eventLogRecord:} with no indentation
+     * (trailing space allowed). An older runtime always writes
+     * {@code eventTime} in that position, so a marker-like line inside its
+     * bare text is not honoured. A marked record
+     * may carry a free-form field as one whole double-quoted scalar. That
+     * line is left as written for SnakeYAML to decode; rewriting it as a
+     * block literal would keep the quotes and escapes as text. The marker
+     * line itself is dropped. In an unmarked record (an older runtime) the
+     * value is bare text, so a value that merely looks quoted is still
+     * taken verbatim.
      */
     static String fixupFreeformScalars(String yaml) {
         if (yaml == null || yaml.isEmpty()) return yaml;
         String[] lines = yaml.split("\n", -1);
         StringBuilder out = new StringBuilder(yaml.length() + 64);
 
+        // state is per call: one call projects one record
+        int markerLine = textEncodingMarkerLine(lines);
+        boolean quotedScalars = markerLine >= 0;
         int i = 0;
         while (i < lines.length) {
             String line = lines[i];
+            if (i == markerLine) {
+                i++;
+                continue;
+            }
             FieldMatch m = matchFreeformField(line);
-            if (m == null) {
+            if (m == null || (quotedScalars && isDoubleQuotedScalar(m.value))) {
                 out.append(line);
                 if (i < lines.length - 1) out.append('\n');
                 i++;
@@ -137,6 +172,44 @@ final class AuditRecordProjection {
             i = j;
         }
         return out.toString();
+    }
+
+    /** Index of the record's text-encoding marker line, or -1: the first
+     *  non-blank line after a first non-blank line that is exactly
+     *  {@code eventLogRecord:} (trailing space allowed). */
+    private static int textEncodingMarkerLine(String[] lines) {
+        int k = nextNonBlank(lines, 0);
+        if (k < 0 || !lines[k].stripTrailing().equals(RECORD_KEY)) return -1;
+        int m = nextNonBlank(lines, k + 1);
+        return m >= 0 && isTextEncodingMarker(lines[m]) ? m : -1;
+    }
+
+    private static int nextNonBlank(String[] lines, int from) {
+        for (int k = from; k < lines.length; k++) {
+            if (!lines[k].isBlank()) return k;
+        }
+        return -1;
+    }
+
+    private static boolean isTextEncodingMarker(String line) {
+        return line.startsWith(" ") && line.strip().equals(TEXT_ENCODING_MARKER);
+    }
+
+    /** True when {@code value} is exactly one YAML double-quoted scalar: an
+     *  opening quote, escaped content, and the closing quote as its last
+     *  non-blank character. */
+    static boolean isDoubleQuotedScalar(String value) {
+        String v = value.stripTrailing();
+        if (v.length() < 2 || v.charAt(0) != '"') return false;
+        for (int k = 1; k < v.length(); k++) {
+            char c = v.charAt(k);
+            if (c == '\\') {
+                k++;
+            } else if (c == '"') {
+                return k == v.length() - 1;
+            }
+        }
+        return false;
     }
 
     /** Look for `<indent><freeformField>: <value>` at the start of `line`.

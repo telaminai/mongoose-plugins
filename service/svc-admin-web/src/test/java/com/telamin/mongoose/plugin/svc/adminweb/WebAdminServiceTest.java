@@ -346,6 +346,126 @@ class WebAdminServiceTest {
         Assertions.assertEquals(401, r.statusCode());
     }
 
+    // ---------- request contract: bad bodies are 400s, "arguments" and "args" both accepted ----------
+
+    /** NONE auth, an echo command wired; returns the CSRF token of a bootstrapped session held in {@code cm}. */
+    private String startEcho(FakeRegistry registry, CookieManager cm) throws Exception {
+        port = freePort();
+        registry.register("echo", (args, out, err) -> args.forEach(out::accept));
+        svc = new WebAdminService();
+        svc.setListenPort(port);
+        svc.setHost("127.0.0.1");
+        svc.adminRegistry(registry, "test");
+        svc.init();
+        svc.start();
+        return extractCsrf(post("/api/session/login", "{}", null, null, cm).body());
+    }
+
+    @Test
+    void invoke_command_with_a_malformed_body_is_a_400_and_nothing_runs() throws Exception {
+        FakeRegistry registry = new FakeRegistry();
+        CookieManager cm = new CookieManager();
+        String csrf = startEcho(registry, cm);
+
+        HttpResponse<String> r = post("/api/commands/echo", "{\"args\":[\"x\"", null, csrf, cm);
+
+        Assertions.assertEquals(400, r.statusCode(), r.body());
+        Assertions.assertTrue(r.body().contains("\"err\""), r.body());
+        Assertions.assertTrue(r.body().contains("not valid JSON"), r.body());
+        Assertions.assertFalse(r.body().contains("com.fasterxml"), r.body());
+        Assertions.assertNull(registry.last("echo"), "command must not run");
+    }
+
+    @Test
+    void invoke_command_accepts_arguments() throws Exception {
+        FakeRegistry registry = new FakeRegistry();
+        CookieManager cm = new CookieManager();
+        String csrf = startEcho(registry, cm);
+
+        HttpResponse<String> r = post("/api/commands/echo", "{\"arguments\":[\"a\",\"b\"]}", null, csrf, cm);
+
+        Assertions.assertEquals(200, r.statusCode(), r.body());
+        Assertions.assertEquals(List.of("a", "b"), registry.last("echo"));
+    }
+
+    @Test
+    void invoke_command_with_arguments_and_args_that_agree_runs() throws Exception {
+        FakeRegistry registry = new FakeRegistry();
+        CookieManager cm = new CookieManager();
+        String csrf = startEcho(registry, cm);
+
+        HttpResponse<String> r = post("/api/commands/echo",
+                "{\"arguments\":[\"a\"],\"args\":[\"a\"]}", null, csrf, cm);
+
+        Assertions.assertEquals(200, r.statusCode(), r.body());
+        Assertions.assertEquals(List.of("a"), registry.last("echo"));
+    }
+
+    @Test
+    void invoke_command_with_arguments_and_args_that_differ_is_a_400() throws Exception {
+        FakeRegistry registry = new FakeRegistry();
+        CookieManager cm = new CookieManager();
+        String csrf = startEcho(registry, cm);
+
+        HttpResponse<String> r = post("/api/commands/echo",
+                "{\"arguments\":[\"a\"],\"args\":[\"b\"]}", null, csrf, cm);
+
+        Assertions.assertEquals(400, r.statusCode(), r.body());
+        Assertions.assertTrue(r.body().contains("arguments") && r.body().contains("args"), r.body());
+        Assertions.assertNull(registry.last("echo"), "command must not run");
+    }
+
+    @Test
+    void invoke_command_with_non_array_arguments_is_a_400() throws Exception {
+        FakeRegistry registry = new FakeRegistry();
+        CookieManager cm = new CookieManager();
+        String csrf = startEcho(registry, cm);
+
+        HttpResponse<String> r = post("/api/commands/echo", "{\"arguments\":\"a b\"}", null, csrf, cm);
+
+        Assertions.assertEquals(400, r.statusCode(), r.body());
+        Assertions.assertNull(registry.last("echo"), "command must not run");
+    }
+
+    @Test
+    void invoke_command_with_no_body_runs_without_arguments() throws Exception {
+        FakeRegistry registry = new FakeRegistry();
+        CookieManager cm = new CookieManager();
+        String csrf = startEcho(registry, cm);
+
+        HttpResponse<String> r = post("/api/commands/echo", null, null, csrf, cm);
+
+        Assertions.assertEquals(200, r.statusCode(), r.body());
+        Assertions.assertEquals(List.of(), registry.last("echo"));
+    }
+
+    @Test
+    void login_with_a_malformed_body_is_a_400() throws Exception {
+        port = freePort();
+        svc = newBasicAuthService(port);
+        svc.init();
+        svc.start();
+
+        HttpResponse<String> r = post("/api/session/login", "{\"username\":", null, null, null);
+
+        Assertions.assertEquals(400, r.statusCode(), r.body());
+        Assertions.assertFalse(r.body().contains("com.fasterxml"), r.body());
+    }
+
+    @Test
+    void login_with_empty_credentials_object_is_still_a_401_challenge() throws Exception {
+        // the UI probes the auth mode by POSTing {} and reading WWW-Authenticate
+        port = freePort();
+        svc = newBasicAuthService(port);
+        svc.init();
+        svc.start();
+
+        HttpResponse<String> r = post("/api/session/login", "{}", null, null, null);
+
+        Assertions.assertEquals(401, r.statusCode(), r.body());
+        Assertions.assertTrue(r.headers().firstValue("WWW-Authenticate").orElse("").startsWith("Basic"));
+    }
+
     // ---------- M4 dashboard endpoints ----------
 
     @Test

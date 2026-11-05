@@ -1,5 +1,7 @@
 # svc-admin-web
 
+Current release: **plugins 1.1.0 / Mongoose 1.1.0**. The 1.0.33 sections below describe the original milestone-1 design and evidence. Current compatibility, implemented state visibility, commands and remaining milestone-2 limits are in [the 1.1.0 release notes](../../docs/release/1.1.0.md).
+
 Browser-based admin & monitoring console for a running Mongoose server. Presentation layer over `AdminCommandRegistry` — the same command surface that `svc-admin-telnet` and `svc-admin-rest` drive — plus a dashboard, live JVM monitor, and log tail.
 
 Built against `io.javalin:javalin:6.3.0`. Frontend is plain HTML/CSS/JS with [htmx 2.0.4](https://htmx.org) + [Alpine.js 3.14.8](https://alpinejs.dev) vendored under `/vendor/` (single JAR, no Node toolchain, works offline).
@@ -77,18 +79,28 @@ Then point a browser at `http://127.0.0.1:8181/`.
 | `GET`  | `/`                                               | _via SPA_   | SPA shell (`index.html` + `/app.js` + `/style.css`) |
 | `GET`  | `/api/commands`                                   | yes         | Lists registered admin commands                 |
 | `POST` | `/api/commands/{name}`                            | yes + CSRF  | Invokes an admin command                        |
-| `GET`  | `/api/server`                                     | yes         | Server identity (pid, runtime, startTime)       |
+
+| `GET`  | `/api/server`                                     | yes         | Server identity (pid, runtime, startTime, uptimeMs); with a `MongooseServer`, also `lifecycle` (`STARTED`, `STOPPING`, `STOPPED`, `UNKNOWN`) and `lastStopResult` (`complete`, `handedOff`, `blockedStartup`, `groupsRunning`, `servicesLeftRunning`) |
+| `GET`  | `/api/issues`                                     | yes         | Failure facts as issues: `{worst, counts, unacknowledged, issues[], notAvailable[], liveGaps, mongooseVersion}` (see `docs/failure-ux-proposal.md` §8) |
+| `POST` | `/api/issues/ack`                                 | yes + CSRF  | `{"id":"<issue id>"}`; moves an open issue to Acknowledged, never closes it. `400` bad body, `404` not open |
+| `GET`  | `/api/health`                                     | yes         | Every Mongoose health check: `{available, checks[{component, check, verdict, reason, asOfEpochMs}]}` |
 | `GET`  | `/api/jvm`                                        | yes         | One-shot JVM snapshot                           |
 | `GET`  | `/api/services`                                   | yes         | Service inventory; feeds carry `consumers`. `404` when no controller is wired. |
 | `GET`  | `/api/services/{name}/config`                     | yes         | Reflective public-getter view of a service, sensitive-named values masked |
-| `GET`  | `/api/agents`                                     | yes         | Agent groups + processors. Enriched with thread / idle strategy / per-processor subscriptions when introspection is wired. |
-| `GET`  | `/api/queues`                                     | yes         | Per-feed read-queue topology from `EventFlowManager` |
+| `GET`  | `/api/agents`                                     | yes         | Agent groups + processors. Enriched with thread / idle strategy / per-processor subscriptions when introspection is wired; with a `MongooseServer`, `controlState` per group, `state` per processor, and quarantined processors kept (`state: QUARANTINED`, `stateReason`). |
+| `GET`  | `/api/queues`                                     | yes         | Per-feed read-queue topology from `EventFlowManager`; per queue `dropped`, `health`, `healthReason` when counters and health are available |
 | `GET`  | `/api/processors/{group}/{name}/graphml`          | yes         | Compiled Fluxtion graphml for a registered event processor; structured `404` with `expectedResource` + `hint` when the resource isn't shipped |
 | `GET`  | `/api/files`                                      | yes         | File-picker entries under `loaderBaseDir`; `404` when feature unconfigured |
 | `POST` | `/api/session/login`                              | _per mode_  | Exchanges credentials for an HMAC-signed cookie + CSRF token |
 | `POST` | `/api/session/logout`                             | yes + CSRF  | Invalidates the session cookie                  |
 | `WS`   | `/ws/monitor`                                     | yes + CSRF  | Pushes JVM snapshots; client controls rate via `{"op":"rate","ms":<n>}` (0 = Off). Server-effective period = `min(client-rates)`, sampler stops when every client is Off. When the mongoose server's `MongooseCountersService` is operational, each frame also carries a `throughput` block: `{feeds, groups, processors, nodes, queues}` with per-counter `{name, rate, total}` (rate = delta / windowMs × 1000). `throughput` is `null` when performance monitoring is disabled. |
 | `WS`   | `/ws/logs`                                        | yes + CSRF  | Replays buffered log records on connect, then pushes per-record live |
+
+`POST /api/commands/{name}` takes `{"arguments":["..."]}`, the same field as `svc-admin-rest`. An empty body runs the
+command with no arguments. `{"args":[...]}` is still accepted for compatibility. If both fields are present and
+differ, the request is refused. A body that is not valid JSON, is not an object, has another field, or whose list is
+not an array of strings gets a `400` with `{"command":..., "output":[], "err":["<what is wrong>"]}`, and the command
+is not run. A login body that does not parse gets a `400`, not a `401`.
 
 CSRF on WebSocket upgrades is carried as `?csrf=...` query param (browsers cannot add headers to the WS handshake).
 
@@ -124,6 +136,7 @@ CSRF on WebSocket upgrades is carried as `?csrf=...` query param (browsers canno
 | `realm`             | `mongoose-admin`   | `WWW-Authenticate` realm                                       |
 | `sessionSecret`     | _random per-JVM_   | HMAC key (`$ENV.` resolvable). Pin to survive restarts.        |
 | `sessionMinutes`    | `60`               | Cookie lifetime                                                |
+| `allowedHosts`      | _empty_            | Extra `Host` names accepted (proxy or DNS name). Empty + loopback bind = only `localhost`, `127.x.x.x`, `::1` |
 | `metricsIntervalMs` | `1000`             | Sampler period (clamped ≥ 250 ms)                              |
 | `logTailBuffer`     | `500`              | Max retained log records                                       |
 | `loaderBaseDir`     | _unset_            | Root for the file picker. Unset → `/api/files` returns `404` and the "browse…" button hides. |
@@ -149,7 +162,18 @@ services:
 ## Security model
 
 - **Auth** — covered above.
-- **CSRF** — every state-changing request (`POST`/`PUT`/`PATCH`/`DELETE`) must carry `X-CSRF-Token` matching the token in the session cookie. WS upgrades carry it as `?csrf=...`.
+- **CSRF** — every state-changing request (`POST`/`PUT`/`PATCH`/`DELETE`) must carry `X-CSRF-Token` matching the token in the session cookie, **in every auth mode, including `NONE`**. WS upgrades carry it as `?csrf=...`. Only BASIC/BEARER clients that authenticate with an `Authorization` header and send no cookie are exempt.
+- **Same origin** — a state-changing request whose `Origin` header does not equal its `Host` (or is `null`) is refused with 403. Non-browser clients send no `Origin` and are not affected.
+- **Host check (DNS rebinding)** — with a loopback bind, any request whose `Host` is not `localhost`, `127.x.x.x` or `::1` (or a name in `allowedHosts`) is refused with 403, so a foreign page rebound onto 127.0.0.1 cannot reach the API. The name is never resolved.
+- **Scripts with `authMode: NONE`** — first `POST /api/session/login` with body `{}`, keep the `mongoose_admin_session` cookie, and send it with `X-CSRF-Token: <csrfToken from the login reply>` on every POST:
+
+  ```sh
+  curl -s -c jar -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:8181/api/session/login   # -> {"csrfToken":"..."}
+  curl -s -b jar -H 'Content-Type: application/json' -H "X-CSRF-Token: $TOKEN" \
+       -d '{"arguments":["group/processor"]}' http://127.0.0.1:8181/api/commands/server.processors.stop
+  ```
+
+  Before this change `NONE` skipped the token, so any web page open in the operator's browser could POST commands.
 - **Origin allow-list** — WS upgrades reject `Origin` headers that don't match the configured bind host:port. Use a reverse proxy if you need a different external origin.
 - **Path traversal** — `/api/files` rejects absolute paths and `..` segments at the front gate; after `resolve` it re-checks with `toRealPath()` + `startsWith(base)` to catch symlink escapes.
 
@@ -169,7 +193,7 @@ Asset load order matters: `app.js` loads **eagerly** (no `defer`) so the `alpine
 ## Operational notes
 
 - Implements `EventFlowService<Object>` to fit the Mongoose service-injection model, but it does not push events into the dispatch pipeline — `subscribe`/`unSubscribe`/`setEventToQueuePublisher` are intentional no-ops.
-- Default `host` is `127.0.0.1` (loopback). For multi-host access, change explicitly and front with TLS.
+- Default `host` is `127.0.0.1` (loopback). **Off-box access** is one setting: set `host: 0.0.0.0` (or a specific interface address) and an `authMode` (`BASIC` or `BEARER`). With `authMode: NONE` on a non-loopback host, `init()` logs a warning naming the host and port. Front an off-box UI with TLS; the WebSocket `Origin` allow-list follows the bind host:port, so use a reverse proxy for a different external origin.
 - Javalin uses SLF4J; without a binding you'll see "no logger" notices. Add `org.apache.logging.log4j:log4j-slf4j2-impl` in production.
 
 ## Performance monitoring
@@ -182,12 +206,15 @@ Pre-requisite: mongoose-core ≥ 1.0.13 (counters service introduced in that rel
 
 ## Tests
 
-79 tests across three suites:
+`mvn test` runs 165 unit tests in 22 classes, among them:
 
-- `WebAdminServiceTest` (63) — auth fail-fast + BASIC/BEARER, session + CSRF, command list / invoke, `/api/server`, `/api/jvm`, `/api/services` (controller-driven + introspection-driven), `/api/services/{name}/config` (reflection helper + endpoint), `/api/agents` (with introspection-stub thread/idle/subscription enrichment), `/api/queues`, `/api/processors/{group}/{name}/graphml` (hit on classpath, structured 404, unknown group, unknown processor, no controller), `/api/files` (404, list, traversal, absolute, unauth), WS auth gate, `MonitoringSampler` (dynamic interval, paused = zero allocations), log-tail lifecycle.
-- `MonitoringSamplerThroughputTest` (5) — no-op service leaves throughput null; label routing into feeds/groups/processors/nodes/queues; rate computes against previous tick delta; counters added mid-life appear on the next tick; legacy `(intervalMs)`-only constructor.
-- `LogTailTest` (5) — ring-buffer cap, subscriber fan-out, capacity validation, root-logger capture, package self-filter.
-- `SessionTokenTest` (6) — round-trip, tampered signature, wrong secret, expired, malformed, pipe-in-input.
+- `WebAdminServiceTest` (78) — auth fail-fast + BASIC/BEARER, session + CSRF, command list / invoke, `/api/server`, `/api/jvm`, `/api/services`, `/api/services/{name}/config`, `/api/agents`, `/api/queues`, graphml, `/api/files`, WS auth gate, `MonitoringSampler`, log-tail lifecycle.
+- `FailureIssuesTest` (11) — request issues from admin replies, acknowledgement never closes an issue, live blind spots (counters disabled, no health service), UNKNOWN checks as INFO, a failing health walk reported as `READ_FAILED`.
+- `CrossOriginRequestTest` (6) — `authMode: NONE`: cross-origin and token-less POSTs refused, same-origin with session + token accepted, `Origin: null` refused, DNS-rebinding `Host` refused, `allowedHosts`.
+- `AuditRefusalStatusTest`, `BindHostDefaultTest`, `SessionTokenTest`, `LogTailTest`, `MonitoringSamplerThroughputTest`, the audit-tail and capture suites.
+
+The failure-scenario packs (REST 9, UI 8, against a real Mongoose 1.1.0) run with `-Padmin-web-it`; see
+`docs/testing-admin-web-it.md`.
 
 ## Related
 

@@ -20,6 +20,10 @@ import com.telamin.mongoose.service.admin.AdminCommandRequest;
 import com.telamin.mongoose.service.introspection.MongooseIntrospectionService;
 import com.telamin.mongoose.service.servercontrol.MongooseServerController;
 import io.javalin.Javalin;
+import com.fasterxml.jackson.core.JsonLocation;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.javalin.http.Context;
 import io.javalin.http.Cookie;
 import io.javalin.http.HandlerType;
@@ -71,6 +75,29 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
     private com.telamin.mongoose.service.counters.MongooseLatencyService latencyService;
     private com.telamin.mongoose.service.audit.MongooseAuditCaptureService auditCapture;
     private com.telamin.mongoose.service.audit.MongooseAuditIntrospectionService auditIntrospection;
+    private com.telamin.mongoose.service.health.MongooseHealthService healthService;
+    /** Failure facts as operator issues (docs/failure-ux-proposal.md); reads the services above on demand. */
+    private final FailureIssues issues = new FailureIssues(new FailureIssues.Sources() {
+        @Override public com.telamin.mongoose.MongooseServer server() { return mongooseServer(); }
+        @Override public Map<String, com.telamin.mongoose.service.introspection.AgentGroupSnapshot> agentGroups() {
+            if (introspection == null) return Collections.emptyMap();
+            try {
+                return introspection.agentGroups();
+            } catch (RuntimeException e) {
+                return Collections.emptyMap();
+            }
+        }
+        @Override public com.telamin.mongoose.service.health.MongooseHealthService health() { return healthService; }
+        @Override public com.telamin.mongoose.service.counters.MongooseCountersService counters() { return countersService; }
+        @Override public List<com.telamin.mongoose.service.audit.AuditSinkHandle> captures() {
+            if (auditIntrospection == null) return List.of();
+            try {
+                return auditIntrospection.listAvailable();
+            } catch (RuntimeException e) {
+                return List.of();
+            }
+        }
+    });
     private byte[] resolvedSessionSecret;
     private final SecureRandom random = new SecureRandom();
     private MonitoringSampler monitoringSampler;
@@ -89,6 +116,13 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
     @Getter @Setter private int    listenPort = 8181;
     @Getter @Setter private String host       = "127.0.0.1";
     @Getter @Setter private String basePath   = "/";
+    /**
+     * Host names (the Host header, without port) accepted besides loopback names. Empty (the default) with a
+     * loopback bind accepts only {@code localhost}, {@code 127.x.x.x} and {@code ::1}, which defeats DNS rebinding
+     * of a browser onto the console. Set it when the console is reached through another name (a proxy, an
+     * off-box bind). With an off-box bind and an empty list, the Host header is not checked.
+     */
+    @Getter @Setter private List<String> allowedHosts = new ArrayList<>();
 
     // auth config
     @Getter @Setter private AuthMode authMode = AuthMode.NONE;
@@ -180,6 +214,29 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
     }
 
     @ServiceRegistered
+    public void healthService(com.telamin.mongoose.service.health.MongooseHealthService svc, String name) {
+        log.info("Health service: '{}' name: '{}'", svc, name);
+        this.healthService = svc;
+    }
+
+    private volatile String mongooseVersion;
+
+    private String mongooseVersion() {
+        String v = mongooseVersion;
+        if (v == null) {
+            v = resolveDependencyVersion("com.telamin", "mongoose");
+            if (v.equals("absent") || v.equals("unknown")) v = "";
+            mongooseVersion = v;
+        }
+        return v;
+    }
+
+    /** The typed control-plane view (group status, last StopResult); null when the controller is not a MongooseServer. */
+    private com.telamin.mongoose.MongooseServer mongooseServer() {
+        return serverController instanceof com.telamin.mongoose.MongooseServer server ? server : null;
+    }
+
+    @ServiceRegistered
     public void auditIntrospectionService(com.telamin.mongoose.service.audit.MongooseAuditIntrospectionService svc, String name) {
         log.info("Audit introspection service: '{}' name: '{}'", svc, name);
         this.auditIntrospection = svc;
@@ -213,6 +270,11 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         }
         if (authMode == AuthMode.BEARER && (resolvedBearerToken() == null || resolvedBearerToken().isEmpty())) {
             throw new IllegalStateException("BEARER auth selected but bearerToken not configured");
+        }
+        loopbackBound = isLoopbackBind(host);
+        if (exposedWithoutAuth(host, authMode)) {
+            log.warn("web admin is reachable off-box on {}:{} with no authentication; set authMode BASIC or BEARER"
+                    + " (and front it with TLS), or bind host 127.0.0.1", host, listenPort);
         }
 
         String resolvedSecret = resolveEnv(sessionSecret);
@@ -267,6 +329,30 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
 
         // Dashboard endpoints.
         javalin.get("/api/server", this::handleServer);
+        // Failure facts as issues, and the health checks behind some of them (docs/failure-ux-proposal.md).
+        javalin.get("/api/issues", ctx -> {
+            Map<String, Object> report;
+            try {
+                report = issues.report();
+            } catch (RuntimeException e) {
+                // never a bare 500 for the whole list: say that the list could not be built
+                log.warn("building the issue list failed", e);
+                Map<String, Object> failed = FailureIssues.readFailed("console", "the issue list", e);
+                failed.put("since", System.currentTimeMillis());
+                failed.put("acknowledged", false);
+                report = new LinkedHashMap<>();
+                report.put("worst", "DEGRADED");
+                report.put("counts", Map.of("CRITICAL", 0, "DEGRADED", 1, "INFO", 0));
+                report.put("unacknowledged", 1);
+                report.put("issues", List.of(failed));
+                report.put("notAvailable", FailureIssues.notAvailable(mongooseServer() != null));
+                report.put("liveGaps", 0);
+            }
+            report.put("mongooseVersion", mongooseVersion());
+            ctx.json(report);
+        });
+        javalin.post("/api/issues/ack", this::handleIssueAck);
+        javalin.get("/api/health", this::handleHealth);
         javalin.get("/api/jvm", this::handleJvm);
         javalin.get("/api/config", this::handleConfig);
         // Versions of the deployed artefacts — read from each component's
@@ -496,12 +582,27 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
 
     // -------- auth filter --------
 
+    /** Whether the configured bind address resolves to loopback; computed once at startup. */
+    private boolean loopbackBound;
+
     private void enforceAuthAndCsrf(Context ctx) {
         String path = ctx.path();
         // The login endpoint itself is the auth bootstrap — it validates
         // credentials inline. Logout is auth-gated (you must be in a session
         // to log out of it).
         boolean isLogin = "/api/session/login".equals(path);
+
+        // DNS rebinding: a page on another name resolved to this address is same-origin to the browser, so the
+        // Host header is the only thing that tells it apart. Checked on every request, including login.
+        if (!hostAllowed(ctx.header("Host"), loopbackBound, allowedHosts)) {
+            throw new io.javalin.http.ForbiddenResponse("host not allowed: " + ctx.header("Host")
+                    + " (add it to allowedHosts)", Map.of());
+        }
+        // A browser names the page that sent a state-changing request; one from another origin is refused,
+        // whatever the auth mode (SameSite cookies do not protect the NONE mode, which has no credentials).
+        if (requiresCsrf(ctx) && !originMatchesHost(ctx.header("Origin"), ctx.header("Host"))) {
+            throw new io.javalin.http.ForbiddenResponse("cross-origin request refused: " + ctx.header("Origin"), Map.of());
+        }
 
         if (!isLogin && authMode != AuthMode.NONE) {
             boolean authed = hasValidSessionCookie(ctx) || hasValidAuthHeader(ctx);
@@ -511,12 +612,18 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
             }
         }
 
-        // CSRF: every state-changing request needs the token. Login is exempt
+        // CSRF: every state-changing request needs the token, in every auth mode. Login is exempt
         // because it doesn't have a session yet. GET/HEAD requests don't need
         // CSRF protection per the standard cookie-based threat model.
-        if (!isLogin && requiresCsrf(ctx) && authMode != AuthMode.NONE) {
+        // With authMode NONE a client first POSTs /api/session/login (empty body) and then sends the
+        // session cookie and the returned csrfToken as X-CSRF-Token.
+        if (!isLogin && requiresCsrf(ctx)) {
             SessionToken session = currentSession(ctx);
             if (session == null) {
+                if (authMode == AuthMode.NONE) {
+                    throw new UnauthorizedResponse("missing session: POST /api/session/login first, then send its"
+                            + " cookie and csrfToken (X-CSRF-Token)", Map.of());
+                }
                 // Auth header alone (no cookie) is treated as a script client;
                 // CSRF doesn't apply because there's no ambient cookie auth to
                 // exploit. Skip the check in that case.
@@ -526,6 +633,66 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
             if (presented == null || !constantTimeEquals(presented, session.csrfToken)) {
                 throw new UnauthorizedResponse("missing or invalid CSRF token", Map.of());
             }
+        }
+    }
+
+    /**
+     * Whether the Host header names this console: any name in {@code allowed}, a loopback literal, or anything
+     * when the bind is off-box and no allow-list is set. Never resolves the name (that is what rebinding abuses).
+     */
+    static boolean hostAllowed(String hostHeader, String boundHost, List<String> allowed) {
+        return hostAllowed(hostHeader, isLoopbackBind(boundHost), allowed);
+    }
+
+    private static boolean hostAllowed(String hostHeader, boolean loopbackBind, java.util.List<String> allowed) {
+        String name = hostName(hostHeader);
+        if (name == null) return false;
+        if (isLoopbackName(name)) return true;
+        if (allowed != null && !allowed.isEmpty()) {
+            return allowed.stream().anyMatch(a -> a != null && a.equalsIgnoreCase(name));
+        }
+        return !loopbackBind;
+    }
+
+    /** Resolve only operator configuration, never an incoming Host header. */
+    private static boolean isLoopbackBind(String boundHost) {
+        if (boundHost == null || boundHost.isBlank()) return false;
+        try {
+            return java.net.InetAddress.getByName(boundHost).isLoopbackAddress();
+        } catch (java.net.UnknownHostException e) {
+            return false; // the server's bind fails separately for an unresolvable configuration
+        }
+    }
+
+    /** The name part of a Host header ({@code name}, {@code name:port}, {@code [v6]:port}), lower case. */
+    static String hostName(String hostHeader) {
+        if (hostHeader == null || hostHeader.isBlank()) return null;
+        String h = hostHeader.trim().toLowerCase(java.util.Locale.ROOT);
+        if (h.startsWith("[")) {
+            int end = h.indexOf(']');
+            return end < 0 ? null : h.substring(1, end);
+        }
+        int colon = h.indexOf(':');
+        if (colon >= 0 && h.indexOf(':', colon + 1) < 0) h = h.substring(0, colon);
+        return h;
+    }
+
+    static boolean isLoopbackName(String name) {
+        return name.equals("localhost") || name.equals("::1") || name.equals("0:0:0:0:0:0:0:1")
+                || name.matches("127\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}");
+    }
+
+    /** No Origin (a non-browser client) passes; otherwise its host:port must equal the Host header. */
+    static boolean originMatchesHost(String origin, String hostHeader) {
+        if (origin == null) return true;
+        if (hostHeader == null) return false;
+        try {
+            java.net.URI uri = java.net.URI.create(origin.trim());
+            if (uri.getHost() == null) return false; // includes Origin: null
+            String authority = uri.getRawAuthority();
+            return authority != null && authority.equalsIgnoreCase(hostHeader.trim());
+        } catch (IllegalArgumentException e) {
+            return false;
         }
     }
 
@@ -593,7 +760,11 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         try {
             body = ctx.bodyAsClass(LoginRequest.class);
         } catch (Exception e) {
-            throw new UnauthorizedResponse("invalid login body", Map.of());
+            // a body that does not parse is a malformed request (400), not a failed credential check (401)
+            ctx.status(HttpStatus.BAD_REQUEST);
+            ctx.json(Map.of("err", "invalid login body; expected {\"username\":\"...\",\"password\":\"...\"} "
+                    + "(BASIC) or {\"token\":\"...\"} (BEARER)"));
+            return;
         }
 
         boolean ok = false;
@@ -667,18 +838,22 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         }
 
         String name = ctx.pathParam("name");
-        InvokeRequest body;
+        List<String> arguments;
         try {
-            body = ctx.bodyAsClass(InvokeRequest.class);
-        } catch (Exception e) {
-            body = null;
+            arguments = parseInvokeArguments(ctx.body());
+        } catch (IllegalArgumentException e) {
+            // a body that does not parse must not run the command with no arguments
+            ctx.status(HttpStatus.BAD_REQUEST);
+            ctx.json(Map.of(
+                    "command", name,
+                    "output", List.of(),
+                    "err", List.of(e.getMessage())));
+            return;
         }
 
         AdminCommandRequest req = new AdminCommandRequest();
         req.setCommand(name);
-        if (body != null && body.args != null) {
-            req.setArguments(new ArrayList<>(body.args));
-        }
+        req.setArguments(arguments);
 
         // output / errOutput may be called multiple times — buffer all into
         // lists. v1: cancellation and streaming are deferred (§10.1).
@@ -694,10 +869,59 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
             errBuffer.add("exception: " + e.getMessage());
         }
 
+        try {
+            issues.recordCommand(name, arguments, new ArrayList<>(outBuffer), new ArrayList<>(errBuffer));
+        } catch (RuntimeException e) {
+            log.warn("could not record the outcome of admin command '{}'", name, e);
+        }
+
         ctx.json(Map.of(
                 "command", name,
                 "output", new ArrayList<>(outBuffer),
                 "err", new ArrayList<>(errBuffer)));
+    }
+
+    private void handleIssueAck(Context ctx) {
+        String id;
+        try {
+            JsonNode body = INVOKE_JSON.readTree(ctx.body());
+            id = body == null || body.get("id") == null || !body.get("id").isTextual() ? null : body.get("id").asText();
+        } catch (JsonProcessingException e) {
+            id = null;
+        }
+        if (id == null) {
+            ctx.status(HttpStatus.BAD_REQUEST);
+            ctx.json(Map.of("err", "expected {\"id\":\"<issue id>\"}"));
+            return;
+        }
+        if (!issues.acknowledge(id)) {
+            ctx.status(HttpStatus.NOT_FOUND);
+            ctx.json(Map.of("err", "no open issue " + id + " (refresh the issue list)"));
+            return;
+        }
+        ctx.json(Map.of("id", id, "acknowledged", true));
+    }
+
+    /** Every Mongoose health check with its verdict; empty when the health service is not bound. */
+    private void handleHealth(Context ctx) {
+        List<Map<String, Object>> checks = new ArrayList<>();
+        if (healthService != null) {
+            healthService.forEachStatus((component, check, status) -> {
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("component", component);
+                m.put("check", check);
+                m.put("verdict", status == null ? null : String.valueOf(status.verdict()));
+                m.put("reason", status == null ? null : status.reason());
+                m.put("asOfEpochMs", status == null ? null : status.asOfEpochMs());
+                checks.add(m);
+            });
+        }
+        checks.sort(java.util.Comparator.comparing((Map<String, Object> m) -> String.valueOf(m.get("component")))
+                .thenComparing(m -> String.valueOf(m.get("check"))));
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("available", healthService != null);
+        out.put("checks", checks);
+        ctx.json(out);
     }
 
     // -------- dashboard --------
@@ -707,7 +931,41 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         // service start (runtime loaders) fold into the discovery file without a timer.
         // ServerRegistryFile.publish is a no-op when nothing changed.
         refreshRegistry();
-        ctx.json(MonitoringSampler.serverInfo());
+        MonitoringSampler.ServerInfo info = MonitoringSampler.serverInfo();
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("pid", info.pid());
+        out.put("runtime", info.runtime());
+        out.put("startTime", info.startTime());
+        out.put("uptimeMs", info.uptimeMs());
+        com.telamin.mongoose.MongooseServer server = mongooseServer();
+        if (server != null) {
+            com.telamin.mongoose.StopResult stop = server.lastStopResult();
+            out.put("lifecycle", lifecycle(server.isStarted(), stop));
+            out.put("lastStopResult", stopResultJson(stop));
+        }
+        ctx.json(out);
+    }
+
+    /**
+     * The server lifecycle as far as Mongoose 1.1.0 exposes it ({@code isStarted}, {@code lastStopResult}): an
+     * incomplete stop leaves the server STOPPING; {@code UNKNOWN} covers starting and a stop in progress.
+     */
+    static String lifecycle(boolean started, com.telamin.mongoose.StopResult stop) {
+        if (stop != null) return stop.complete() ? "STOPPED" : "STOPPING";
+        return started ? "STARTED" : "UNKNOWN";
+    }
+
+    static Map<String, Object> stopResultJson(com.telamin.mongoose.StopResult stop) {
+        if (stop == null) return null;
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("complete", stop.complete());
+        m.put("handedOff", stop.handedOff());
+        m.put("blockedStartup", stop.blockedStartup());
+        m.put("groupsRunning", stop.groupsRunning());
+        m.put("servicesLeftRunning", stop.servicesLeftRunning());
+        m.put("heldNames", stop.heldNames());
+        m.put("failureKind", stop.failureKind().name());
+        return m;
     }
 
     private void handleJvm(Context ctx) {
@@ -776,14 +1034,32 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         String processor = ctx.pathParam("processor");
         try {
             auditCapture.start(processor);
-        } catch (IllegalArgumentException e) {
-            ctx.status(HttpStatus.NOT_FOUND);
-            ctx.json(Map.of("err", e.getMessage()));
+        } catch (RuntimeException e) {
+            auditRefused(ctx, e);
+            issues.recordCaptureRefusal("start", processor, e);
             return;
         }
         ctx.json(Map.of(
                 "processor", processor,
                 "recording", auditCapture.isRecording(processor)));
+    }
+
+    /**
+     * Mongoose 1.1.0 refuses capture changes with a reason: an unknown or ambiguous name
+     * ({@code IllegalArgumentException}, 404, the message names the qualified selectors to use) or a
+     * start/stop that was not applied - open/resource limit, open failed or timed out, group closed,
+     * request cancelled before the group took it ({@code IllegalStateException}, 409). Either way the
+     * UI reads {@code err}; anything else is still a 500.
+     */
+    private static void auditRefused(Context ctx, RuntimeException e) {
+        if (e instanceof IllegalArgumentException) {
+            ctx.status(HttpStatus.NOT_FOUND);
+        } else if (e instanceof IllegalStateException) {
+            ctx.status(HttpStatus.CONFLICT);
+        } else {
+            throw e;
+        }
+        ctx.json(Map.of("err", String.valueOf(e.getMessage())));
     }
 
     private void handleAuditStop(Context ctx) {
@@ -793,7 +1069,13 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
             return;
         }
         String processor = ctx.pathParam("processor");
-        auditCapture.stop(processor);
+        try {
+            auditCapture.stop(processor);
+        } catch (RuntimeException e) {
+            auditRefused(ctx, e);
+            issues.recordCaptureRefusal("stop", processor, e);
+            return;
+        }
         ctx.json(Map.of(
                 "processor", processor,
                 "recording", auditCapture.isRecording(processor)));
@@ -1933,8 +2215,57 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
                 log.warn("introspection.agentGroups() failed; reporting raw registry view", e);
             }
         }
+        applyControlState(agents);
 
         ctx.json(Map.of("agents", agents));
+    }
+
+    /**
+     * Adds the control-plane state Mongoose 1.1.0 keeps per processor group: {@code controlState} on the group,
+     * a {@code state} on each member, and the group's quarantined processors, which the registry no longer lists
+     * (they are fenced, not gone: Mongoose keeps their name and instance until shutdown).
+     */
+    private void applyControlState(List<Map<String, Object>> agents) {
+        com.telamin.mongoose.MongooseServer server = mongooseServer();
+        if (server == null) return;
+        for (Map<String, Object> g : agents) {
+            com.telamin.mongoose.MongooseServer.ControlGroupStatus st;
+            try {
+                st = server.controlGroupStatus(String.valueOf(g.get("group")));
+            } catch (RuntimeException notAProcessorGroup) {
+                continue;
+            }
+            applyControlState(g, st);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    static void applyControlState(Map<String, Object> group, com.telamin.mongoose.MongooseServer.ControlGroupStatus st) {
+        String state = String.valueOf(st.state());
+        group.put("controlState", state);
+        group.put("controlStatus", st);
+        group.put("overloadStates", st.overloadStates());
+        String memberState = switch (st.state()) {
+            case RUNNING -> "RUNNING";
+            case DEAD -> "NOT_RUNNING_GROUP_DEAD";
+            case CLOSING, CLOSED -> "NOT_RUNNING_GROUP_" + state;
+            default -> state;
+        };
+        List<Map<String, Object>> members = new ArrayList<>((List<Map<String, Object>>) group.getOrDefault("members", List.of()));
+        for (Map<String, Object> m : members) {
+            m.put("state", memberState);
+        }
+        st.quarantinedProcessors().forEach((name, reason) -> {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("name", name);
+            m.put("kind", "processor");
+            m.put("className", "");
+            m.put("subscriptions", List.of());
+            m.put("state", "QUARANTINED");
+            m.put("stateReason", reason);
+            members.add(m);
+        });
+        group.put("members", members);
     }
 
     /**
@@ -2755,7 +3086,40 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
             ctx.json(Map.of("err", "queue introspection failed: " + e.getMessage()));
             return;
         }
-        ctx.json(Map.of("sources", parseEventSources(sb.toString())));
+        List<Map<String, Object>> sources = parseEventSources(sb.toString());
+        applyQueueLoss(sources, issues.dropCounts(), issues.queueHealth());
+        ctx.json(Map.of("sources", sources));
+    }
+
+    /**
+     * Adds {@code dropped} and {@code health} to each queue from the per-queue drop counters and
+     * {@code queue-drops:<path>} health checks, matched on (feed, agent group): Mongoose 1.1.0 names a
+     * data-path queue {@code /feed/<feed>/group/<group>/subscriber/<ref>}. The first loss is not live on 1.0.33
+     * (it is a control-audit record), so it is not reported here.
+     */
+    @SuppressWarnings("unchecked")
+    static void applyQueueLoss(List<Map<String, Object>> sources, Map<String, Long> drops,
+                               Map<String, com.telamin.mongoose.service.health.HealthStatus> health) {
+        Map<String, String> pathByFeedGroup = new java.util.HashMap<>();
+        java.util.Set<String> paths = new java.util.HashSet<>(drops.keySet());
+        paths.addAll(health.keySet());
+        for (String path : paths) {
+            java.util.regex.Matcher m = FailureIssues.QUEUE_PATH.matcher(path);
+            if (m.matches()) pathByFeedGroup.put(m.group(1) + "\u0000" + m.group(2), path);
+        }
+        for (Map<String, Object> source : sources) {
+            for (Map<String, Object> q : (List<Map<String, Object>>) source.get("queues")) {
+                String path = pathByFeedGroup.get(source.get("source") + "\u0000" + q.get("agentGroup"));
+                if (path == null) continue;
+                q.put("dropPath", path);
+                if (drops.containsKey(path)) q.put("dropped", drops.get(path));
+                var h = health.get(path);
+                if (h != null) {
+                    q.put("health", String.valueOf(h.verdict()));
+                    q.put("healthReason", h.reason());
+                }
+            }
+        }
     }
 
     /**
@@ -3048,6 +3412,9 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         // Auth: same as /api/*. Origin allow-list: same-origin only by default
         // (browser cookies aren't sent on cross-origin WS upgrade anyway, but
         // belt+braces). CSRF on WS comes through ?csrf=... query param.
+        if (!hostAllowed(ctx.header("Host"), loopbackBound, allowedHosts)) {
+            throw new io.javalin.http.ForbiddenResponse("host not allowed: " + ctx.header("Host"), Map.of());
+        }
         if (authMode != AuthMode.NONE) {
             boolean authed = hasValidSessionCookie(ctx) || hasValidAuthHeader(ctx);
             if (!authed) {
@@ -3301,8 +3668,86 @@ public class WebAdminService implements EventFlowService<Object>, Lifecycle {
         public String token;
     }
 
-    /** POST /api/commands/{name} body. */
+    /**
+     * POST /api/commands/{name} body: {@code {"arguments":[...]}}, the field svc-admin-rest uses. {@code args} is
+     * still accepted for compatibility.
+     */
     public static class InvokeRequest {
+        public List<String> arguments;
         public List<String> args;
+    }
+
+    /**
+     * Whether the admin endpoint would be reachable from another host with no authentication: bound to anything other
+     * than a loopback address while {@code authMode} is {@code NONE}. A host that cannot be resolved counts as exposed.
+     */
+    static boolean exposedWithoutAuth(String host, AuthMode authMode) {
+        if (authMode != AuthMode.NONE) {
+            return false;
+        }
+        try {
+            return !java.net.InetAddress.getByName(host).isLoopbackAddress();
+        } catch (java.net.UnknownHostException e) {
+            return true;
+        }
+    }
+
+    private static final ObjectMapper INVOKE_JSON = new ObjectMapper();
+    private static final String INVOKE_SHAPE = "expected {\"arguments\":[\"...\"]}";
+
+    /**
+     * Reads the argument list of a POST /api/commands/{name} body. An empty body means no arguments. The list is
+     * read from {@code arguments} or, for compatibility, {@code args}; both present and different is an error.
+     *
+     * @throws IllegalArgumentException with a message safe to show the caller, for a body that is not valid
+     */
+    static List<String> parseInvokeArguments(String body) {
+        if (body == null || body.isBlank()) {
+            return new ArrayList<>();
+        }
+        JsonNode root;
+        try {
+            root = INVOKE_JSON.readTree(body);
+        } catch (JsonProcessingException e) {
+            JsonLocation at = e.getLocation();
+            throw new IllegalArgumentException("request body is not valid JSON"
+                    + (at == null ? "" : " (line " + at.getLineNr() + ", column " + at.getColumnNr() + ")")
+                    + "; " + INVOKE_SHAPE);
+        }
+        if (root == null || !root.isObject()) {
+            throw new IllegalArgumentException("request body must be a JSON object; " + INVOKE_SHAPE);
+        }
+        root.fieldNames().forEachRemaining(field -> {
+            if (!field.equals("arguments") && !field.equals("args")) {
+                throw new IllegalArgumentException("unexpected field '" + field + "'; " + INVOKE_SHAPE);
+            }
+        });
+        List<String> arguments = stringList(root, "arguments");
+        List<String> args = stringList(root, "args");
+        if (arguments != null && args != null && !arguments.equals(args)) {
+            throw new IllegalArgumentException(
+                    "'arguments' and 'args' are both present and differ; send 'arguments' only");
+        }
+        List<String> chosen = arguments != null ? arguments : args;
+        return chosen != null ? chosen : new ArrayList<>();
+    }
+
+    private static List<String> stringList(JsonNode root, String field) {
+        JsonNode node = root.get(field);
+        if (node == null || node.isNull()) {
+            return null;
+        }
+        if (!node.isArray()) {
+            throw new IllegalArgumentException("'" + field + "' must be an array of strings; " + INVOKE_SHAPE);
+        }
+        List<String> values = new ArrayList<>();
+        for (int i = 0; i < node.size(); i++) {
+            JsonNode value = node.get(i);
+            if (!value.isValueNode() || value.isNull()) {
+                throw new IllegalArgumentException("'" + field + "[" + i + "]' must be a string; " + INVOKE_SHAPE);
+            }
+            values.add(value.asText());
+        }
+        return values;
     }
 }

@@ -165,7 +165,7 @@ public class AeronArchiveEventSource extends AbstractAgentHostedEventSourceServi
     @Override
     public void startComplete() {
         publishToQueue = true;
-        output.dispatchCachedEventLog();
+        output.startComplete();
     }
 
     @Override
