@@ -6,7 +6,7 @@
     machine-readable, is at [`schema.json`](../schema/schema.json)
     (consumed by the Fluxtion project starter).
 
-Plugins release **`1.1.0`**. Feeds bind under `eventFeeds:` / sinks under `eventSinks:` (key `instance:`); services under `services:` (key `service:`).
+Plugins release **`1.1.1`**. Feeds bind under `eventFeeds:` / sinks under `eventSinks:` (key `instance:`); services under `services:` (key `service:`).
 
 ## Connectors
 
@@ -16,7 +16,7 @@ Built-in (mongoose-core): tail a file as an event source.
 
 - **Class**: `com.telamin.mongoose.connector.file.FileEventSource`
 - **YAML**: `eventFeeds:` → `instance:`
-- **From**: mongoose-core `1.1.0`
+- **From**: mongoose-core `1.1.2`
 
 | Field | Type | Required | Default | Allowed / notes |
 |---|---|:--:|---|---|
@@ -30,7 +30,7 @@ Built-in (mongoose-core): append messages to a file.
 
 - **Class**: `com.telamin.mongoose.connector.file.FileMessageSink`
 - **YAML**: `eventSinks:` → `instance:`
-- **From**: mongoose-core `1.1.0`
+- **From**: mongoose-core `1.1.2`
 
 | Field | Type | Required | Default | Allowed / notes |
 |---|---|:--:|---|---|
@@ -42,7 +42,7 @@ Built-in (mongoose-core): in-memory event source (tests / in-process).
 
 - **Class**: `com.telamin.mongoose.connector.memory.InMemoryEventSource`
 - **YAML**: `eventFeeds:` → `instance:`
-- **From**: mongoose-core `1.1.0`
+- **From**: mongoose-core `1.1.2`
 
 | Field | Type | Required | Default | Allowed / notes |
 |---|---|:--:|---|---|
@@ -55,7 +55,7 @@ Built-in (mongoose-core): in-memory message sink.
 
 - **Class**: `com.telamin.mongoose.connector.memory.InMemoryMessageSink`
 - **YAML**: `eventSinks:` → `instance:`
-- **From**: mongoose-core `1.1.0`
+- **From**: mongoose-core `1.1.2`
 
 _No configurable fields._
 
