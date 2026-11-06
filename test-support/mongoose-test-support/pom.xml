@@ -26,6 +26,13 @@
     </properties>
 
     <dependencies>
+        <!-- FixtureRunner: JsonFileCache for cache options, StateJson (via svc-cache -> lib-jsonserialiser) to format sink
+             values as JsonLineSink does. Not connector-file: connector-file tests depend on this module. -->
+        <dependency>
+            <groupId>com.telamin</groupId>
+            <artifactId>svc-cache</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <!-- mongoose is inherited as compile from the parent (transitive to consumers).
 
              We intentionally do NOT pull a junit-jupiter dep here. The harness API

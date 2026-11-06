@@ -26,6 +26,13 @@
       "rotateOnIntervalMillis": { "format": "millis", "doc": "Rotate on this interval; 0 = never." },
       "maxBackupFiles":         { "doc": "Number of rotated backups to retain." }
     },
+    "connector-file-jsonline:sink": {
+      "filename":               { "required": true, "format": "path", "doc": "Path of the output file." },
+      "firstLineSupplier":      { "hide": true },
+      "rotateOnSizeBytes":      { "doc": "Rotate when the file exceeds this many bytes; 0 = never." },
+      "rotateOnIntervalMillis": { "format": "millis", "doc": "Rotate on this interval; 0 = never." },
+      "maxBackupFiles":         { "doc": "Number of rotated backups to retain." }
+    },
 
     "connector-kafka:source": {
       "topics":        { "required": true, "doc": "Kafka topics to subscribe to." },

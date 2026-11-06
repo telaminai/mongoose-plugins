@@ -17,6 +17,12 @@
     </properties>
 
     <dependencies>
+        <!-- StateJson: the JSON of PersistentNode state (java.time as ISO strings), shared with connector-file. -->
+        <dependency>
+            <groupId>com.telamin</groupId>
+            <artifactId>lib-jsonserialiser</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <dependency>
             <groupId>com.fasterxml.jackson.dataformat</groupId>
             <artifactId>jackson-dataformat-yaml</artifactId>
