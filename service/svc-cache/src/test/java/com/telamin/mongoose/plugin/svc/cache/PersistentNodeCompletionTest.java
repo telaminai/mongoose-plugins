@@ -364,4 +364,22 @@ class PersistentNodeCompletionTest {
         assertEquals(10, a.balance);
         assertEquals(10, saved(cache).at("/state/balance").asInt());
     }
+
+    /** A retry (attempt grew) is not a supported configuration: the node warns, once per node, and delivers on. */
+    @Test
+    void a_retry_logs_the_unsupported_configuration_warning_once_per_node() throws Exception {
+        CountingCache cache = new CountingCache();
+        Account a = account(cache);
+        FakeHookDeliveryContext.enter("feed", 1, 7, 100L);
+        a.cycle(1);
+        assertFalse(a.retryWarningLogged(), "no retry yet");
+        FakeHookDeliveryContext.dispatchFailed();
+        assertTrue(a.cycle(1), "delivery is not changed");
+        assertTrue(a.retryWarningLogged());
+        FakeHookDeliveryContext.dispatchFailed();
+        a.cycle(1);
+        FakeHookDeliveryContext.complete();
+        assertTrue(a.retryWarningLogged(), "still once: the flag stays set, nothing is logged again");
+        assertEquals(1, saved(cache).at("/state/balance").asInt());
+    }
 }

@@ -126,16 +126,15 @@ the delivery's position, once. So:
 - a queued event is new work and is applied (`replayed()` is false for it);
 - a crash before the callback leaves nothing of the delivery saved: the line was not acknowledged, the restart
   re-delivers it, and the whole delivery, queued events included, is applied again;
-- a server retry of a delivery (`DeliveryContext.attempt()` grew; only a handwritten processor around a generated one
-  is retried, a generated one that throws is quarantined) **rolls back, then applies the whole delivery again**: the
-  node saves only at completion, so its last saved record is its state before the delivery; at the retry's first
-  cycle it restores that state and its positions (audited `retryRollback`), and every cycle of the retry is applied
-  as new work. Nothing is skipped by matching cycles, so an event the delivery queues, a synthetic-clock cycle and
-  work the failed attempt never reached are each applied once, and the retry's completion saves once. Each
-  PersistentNode of the processor rolls back on its own, and a processor that handled the item and is not retried
-  keeps its state and its save. Outputs are not rolled back: what the failed attempt published is published again by
-  the retry (at-least-once outputs). Requirements: start every state-changing handler with `replayed()`, and make
-  `restore` replace the node's state wholly (it is also called on a live node for a rollback);
+- **supported processors: generated or interpreted.** Such a processor that throws is quarantined by the server, never
+  retried; quarantine is the supported failure path, and nothing of the failed delivery is saved. A **handwritten**
+  processor (an adapter around a generated one) that throws part-way through a positioned delivery is retried, and
+  that is **not supported**: the node's state saved after the retry is not guaranteed, because code that reads the
+  node's state before a guarded handler runs (an adapter computing an argument or choosing a branch) sees the failed
+  attempt's state. The node logs a WARN once per node the first time it sees such a retry
+  (`DeliveryContext.attempt()` grew) and does not change delivery; as a best effort for that case only it restores its
+  last saved record at the retry's first guarded handler and applies the retry's cycles as new work (audited
+  `retryRollback`);
 - a `ReplayRecord`'s synthetic-clock cycle is just another cycle of the delivery;
 - a save that fails in the callback throws; the reader retries it under the feed group's retry policy, and if the
   policy gives up the error is reported and the line is acknowledged, as any failed item is;

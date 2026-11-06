@@ -11,6 +11,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.telamin.fluxtion.runtime.annotations.AfterEvent;
 import com.telamin.fluxtion.runtime.audit.EventLogNode;
 import com.telamin.mongoose.plugin.lib.json.StateJson;
+import lombok.extern.log4j.Log4j2;
 
 import java.io.IOException;
 import java.lang.reflect.ParameterizedType;
@@ -56,19 +57,16 @@ import java.util.Map;
  * callback throws, and the reader retries it under its retry policy; if the policy gives up, the feed reports the loss
  * ({@code completionFailures}, {@code lossless:false}).
  *
- * <p><b>A retry rolls back, then applies the whole delivery again.</b> A server retries a delivery
- * ({@code DeliveryContext.attempt()} grows) when a handwritten processor around a generated one fails after some of
- * the generated cycles ran; a generated processor that throws is quarantined, never retried. Because the node saves
- * only at completion, its last saved record is exactly its state before the delivery began. At the first cycle of a
- * retry the node restores that state and its positions (audited {@code retryRollback}), and every cycle of the retry is
- * applied as new work: nothing is skipped, so an event the delivery queues, a synthetic-clock cycle, or work the failed
- * attempt never reached is applied exactly once. The completion saves once, as for any delivery. Each PersistentNode of
- * the processor rolls back on its own; a processor that handled the item and is not retried keeps its state and its
- * save. Requirements: every handler that changes state starts with {@code if (replayed()) return false;} (it is where
- * the rollback happens before any change; a cycle in which no handler of the node runs rolls back at
- * {@code @AfterEvent}), and {@link #restore} replaces the node's state wholly, since it is also called on a live node
- * for a rollback. Not rolled back: state outside {@link #state()} (other nodes, caches, services), and outputs: what the
- * failed attempt published (alerts, sink messages) is published again by the retry, the at-least-once output rule.
+ * <p><b>Supported processors: generated or interpreted.</b> A PersistentNode is supported in a generated or
+ * interpreted processor. Such a processor that throws is quarantined by the server, never retried: quarantine is the
+ * supported failure path, and nothing of the failed delivery is saved. A <b>handwritten</b> processor (an adapter
+ * around a generated one) that throws part-way through a positioned delivery is retried by the server, and that is
+ * <b>not supported</b>: the node's state saved after the retry is not guaranteed, because code that reads the node's
+ * state before a guarded handler runs (an adapter computing an argument or choosing a branch) sees the failed
+ * attempt's state. The node logs a WARN, once per node, the first time it sees such a retry
+ * ({@code DeliveryContext.attempt()} grew); delivery is not changed. As a best effort for that case only, the node
+ * restores its last saved record at the retry's first guarded handler (or {@code @AfterEvent}) and applies the
+ * retry's cycles as new work, audited {@code retryRollback}.
  *
  * <p>On a Mongoose with {@code DeliveryContext} but without the hook (an intermediate 1.1.3 snapshot), a further cycle
  * under a delivery whose position this node already saved cannot be made crash-safe and is <b>refused</b>:
@@ -86,6 +84,7 @@ import java.util.Map;
  *
  * @param <S> the state type
  */
+@Log4j2
 public abstract class PersistentNode<S> extends EventLogNode {
 
     private static final ObjectMapper JSON = StateJson.mapper();
@@ -234,9 +233,32 @@ public abstract class PersistentNode<S> extends EventLogNode {
             pendingDelivery = d;
             cycleAttempt = attempt;
         } else if (attempt > cycleAttempt) {
+            warnUnsupportedRetry(d);
             rollback();
             cycleAttempt = attempt;
         }
+    }
+
+    /** The unsupported-retry warning was logged for this node (once per node). */
+    private transient boolean retryWarned;
+
+    /** Once per node: a handwritten processor was retried part-way through a positioned delivery (not supported). */
+    private void warnUnsupportedRetry(Object d) {
+        if (retryWarned) {
+            return;
+        }
+        retryWarned = true;
+        log.warn("PersistentNode '{}': delivery {} is being retried (DeliveryContext.attempt() grew), so a handwritten"
+                + " processor threw part-way through it and the server retries it. That is not a supported"
+                + " configuration: the state saved after the retry is not guaranteed, because code that reads this"
+                + " node's state before a guarded handler sees the failed attempt's state. Host PersistentNodes in"
+                + " generated or interpreted processors, whose failures are quarantined, not retried. Logged once per"
+                + " node", stateKey(), d);
+    }
+
+    /** For tests: whether the unsupported-retry warning was logged. */
+    boolean retryWarningLogged() {
+        return retryWarned;
     }
 
     /** Restore the state and positions of {@link #baseline}: the node as it was before the pending delivery. */

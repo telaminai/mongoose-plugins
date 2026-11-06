@@ -25,6 +25,7 @@ import com.telamin.mongoose.service.error.ErrorReporting;
 import org.agrona.concurrent.OneToOneConcurrentArrayQueue;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -528,5 +529,62 @@ class DeliveryCompletionPersistenceTest {
         } finally {
             reader.tearDown();
         }
+    }
+
+    // ---- UNSUPPORTED: a retried handwritten processor (owner decision after hook recheck 2) -------------------------
+    // A PersistentNode is supported in generated or interpreted processors, which are quarantined on failure, never
+    // retried. A handwritten adapter that throws part-way through a delivery is retried, and the state it saves then is
+    // not guaranteed: these two repros (hook recheck 2, F1) show code reading state before a guarded handler sees the
+    // failed attempt's state. They document the limit and are disabled; they are not guarantees.
+
+    @Disabled("unsupported: retried handwritten processor (an argument computed from the failed attempt's state)")
+    @Test
+    void unsupported_a_retry_computes_its_argument_from_rolled_back_state() throws Exception {
+        Path state = dir.resolve("argument-retry.json");
+        GymProcessor flow = start(state, new ArrayList<>(), null);
+        flow.onEvent(new Join("m1", "Ada", "MONTHLY"));
+        DataFlow adapter = new DataFlow() {
+            int failures = 1;
+
+            @Override
+            public void onEvent(Object event) {
+                flow.onEvent(new Payment("m1", flow.membership.due("m1") * 0.4, "cash"));
+                if (failures-- > 0) throw new IllegalStateException("DEMO after the payment");
+            }
+
+            @Override
+            public void setClockStrategy(ClockStrategy strategy) {
+            }
+        };
+        OneToOneConcurrentArrayQueue<Object> queue = new OneToOneConcurrentArrayQueue<>(16);
+        queue.offer(positioned(1, 100, "pay forty percent"));
+        reader(queue, adapter).doWork();
+        assertEquals(20.0, membership(state).at("/state/members/m1/paid").asDouble(), "40% of 50, computed once");
+    }
+
+    @Disabled("unsupported: retried handwritten processor (a branch chosen on the failed attempt's state)")
+    @Test
+    void unsupported_a_retry_routes_on_rolled_back_state() throws Exception {
+        Path state = dir.resolve("routing-retry.json");
+        GymProcessor flow = start(state, new ArrayList<>(), null);
+        flow.onEvent(new Join("m1", "Ada", "MONTHLY"));
+        DataFlow adapter = new DataFlow() {
+            int failures = 1;
+
+            @Override
+            public void onEvent(Object event) {
+                if (flow.membership.due("m1") == 50) flow.onEvent(new Payment("m1", 20, "cash"));
+                else flow.setClockStrategy(() -> 123L);
+                if (failures-- > 0) throw new IllegalStateException("DEMO after the decision and the cycle");
+            }
+
+            @Override
+            public void setClockStrategy(ClockStrategy strategy) {
+            }
+        };
+        OneToOneConcurrentArrayQueue<Object> queue = new OneToOneConcurrentArrayQueue<>(16);
+        queue.offer(positioned(1, 100, "conditional payment"));
+        reader(queue, adapter).doWork();
+        assertEquals(20.0, membership(state).at("/state/members/m1/paid").asDouble(), "routing must use baseline state");
     }
 }
