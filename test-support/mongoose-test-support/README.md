@@ -107,7 +107,9 @@ try (MongooseTestHarness h = MongooseTestHarness.builder()
 ## FixtureRunner: in-process fixtures
 
 `FixtureRunner` runs a generated processor over feed lines in process, with no server, and collects what it publishes
-to one sink. Each feed runs in a fresh processor instance (init, services, start, lines, stop, tearDown); a restart feed
+to one sink. Each feed runs in a fresh processor instance through the server's lifecycle: init, services, start,
+`startComplete` (anything it publishes is collected, before the first line's output), the feed lines, stop, tearDown.
+A failure anywhere, `startComplete` included, still stops and tears the processor down. A restart feed
 runs a new instance on the same cache files over its lines only, as a server restart that resumes the feed does. Each
 `--cache` is a `JsonFileCache` (svc-cache) registered as a `Cache` service; its file is deleted before the first run.
 Sink values are formatted as connector-file's `JsonLineSink` writes them (a String as is, anything else as one JSON

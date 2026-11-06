@@ -33,7 +33,8 @@ import java.util.function.Supplier;
  * Runs a generated processor over feed lines in process, with no server, collecting what it publishes to one sink.
  * Usable from JUnit (or any code) through {@link #builder()}, and from the command line through {@link #main}.
  *
- * <p>Each feed runs in a fresh processor instance (init, services, start, lines, stop, tearDown); a second feed
+ * <p>Each feed runs in a fresh processor instance, through the lifecycle a Mongoose server gives it: init, services,
+ * start, startComplete (output it publishes is collected), the feed lines, stop, tearDown. A second feed
  * ({@link Builder#restart}) runs a new instance on the same cache files over its lines only, as a server restart that
  * resumes the feed does. Each cache file is deleted before the first run. Sink values are formatted as the
  * connector-file {@code JsonLineSink} writes them ({@link StateJson#line}): a String as is, anything else as one JSON
@@ -274,6 +275,7 @@ public final class FixtureRunner {
                 MessageSink<Object> collect = o -> out.add(StateJson.line(o));
                 flow.registerService(new Service<>(collect, MessageSink.class, sink));
                 flow.start();
+                flow.startComplete();   // as the server does, before the first event; its output is collected
                 for (String line : lines) {
                     if (line.startsWith("#admin ")) {
                         admin(flow, line.substring(7).trim(), reply);
