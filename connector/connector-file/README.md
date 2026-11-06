@@ -1,13 +1,15 @@
 # connector-file
 
-File-tailing event source and append-only file message sink for Mongoose.
+File-tailing event source, append-only file message sinks and a table-driven line mapper for Mongoose.
 
-Two components:
+Components:
 
 | Class | Role |
 |---|---|
-| [`FileEventSource`](src/main/java/com/fluxtion/dataflow/serverplugin/connector/file/FileEventSource.java) | Tails a line-oriented file (typically JSONL), publishes each new line as a `String` event. Supports `COMMITED` (durable read pointer), `EARLIEST`, `LATEST`, `ONCE_EARLIEST`, `ONCE_LATEST` read strategies. |
-| [`FileMessageSink`](src/main/java/com/fluxtion/dataflow/serverplugin/connector/file/FileMessageSink.java) | Appends each delivered message as a line to a file. Auto-creates parent directories. Optional `firstLineSupplier` to seed CSV headers when the file is created. |
+| [`FileEventSource`](src/main/java/com/telamin/mongoose/plugin/connector/file/FileEventSource.java) | Tails a line-oriented file (typically JSONL), publishes each new line as a `String` event. Supports `COMMITED` (durable read pointer), `EARLIEST`, `LATEST`, `ONCE_EARLIEST`, `ONCE_LATEST` read strategies. |
+| [`FileMessageSink`](src/main/java/com/telamin/mongoose/plugin/connector/file/FileMessageSink.java) | Appends each delivered message as a line to a file. Auto-creates parent directories. Optional `firstLineSupplier` to seed CSV headers when the file is created. |
+| [`JsonLineSink`](src/main/java/com/telamin/mongoose/plugin/connector/file/JsonLineSink.java) | A `FileMessageSink` writing a String as it is and any other value (record, map, list) as one line of JSON (`java.time` as ISO strings). |
+| [`LineMapper`](src/main/java/com/telamin/mongoose/plugin/connector/file/LineMapper.java) | A feed `valueMapper` driven by a table: space-separated text lines by record type and field count, JSON lines by a type field. A line it cannot map becomes [`Rejected`](src/main/java/com/telamin/mongoose/plugin/connector/file/Rejected.java)`(line)`. |
 
 ## When to use
 
@@ -23,9 +25,12 @@ For non-durable transport, prefer `connector-multicast` or `connector-kafka`.
 <dependency>
     <groupId>com.telamin</groupId>
     <artifactId>connector-file</artifactId>
-    <version>0.2.8-SNAPSHOT</version>
+    <version>${mongoose-plugins.version}</version>   <!-- 1.1.2 or later for LineMapper and JsonLineSink -->
 </dependency>
 ```
+
+Gradle: `implementation "com.telamin:connector-file:$mongoosePluginsVersion"`. jbang: `//DEPS com.telamin:connector-file:<version>`.
+connector-file brings `lib-jsonserialiser` (for `StateJson`) and Jackson.
 
 ## Usage — Java config
 
@@ -73,6 +78,51 @@ eventSinks:
 
 > Use `SleepingMillisIdleStrategy` not `BackoffIdleStrategy` for file agents unless you've measured the per-call allocation. See the mongoose [DeadWheelScheduler fix](https://github.com/telaminai/mongoose/blob/develop/mongoose/src/main/java/com/telamin/mongoose/service/scheduler/DeadWheelScheduler.java) and its accompanying regression test for the rationale.
 
+## LineMapper and JsonLineSink
+
+```java
+public class AppLineMapper extends LineMapper {
+    public AppLineMapper() {
+        record("ITEM", 4, f -> new ItemAdded(f[1], f[2], at(f[3])));   // ITEM sku-1 Widget 2026-01-05T09:00
+        json("PICKUP", PickupRequest.class);                          // {"type":"PICKUP","id":"p1",...}
+    }
+}
+```
+
+Fields are split on single spaces and `f[0]` is the record type. An unknown type, a wrong field count, an empty field,
+an exception or a `null` result gives `Rejected(line)`, an event a node can handle. A line starting with `{` is JSON:
+`json(type, cls)` picks the class by the `typeField()` (`"type"` by default), `json(cls)` is for lines with no type
+field; fields fill the record's components by name, unknown fields are ignored. Parsers: `at` (LocalDateTime), `date`,
+`i`, `l`, `d`. Non-text input passes through unchanged.
+
+```yaml
+eventFeeds:
+  - name: input
+    instance: !!com.telamin.mongoose.plugin.connector.file.FileEventSource   # or any line source
+      filename: data/input.txt
+      readStrategy: COMMITED
+    valueMapper: !!com.example.AppLineMapper {}
+eventSinks:
+  - name: output
+    instance: !!com.telamin.mongoose.plugin.connector.file.JsonLineSink
+      filename: data/run/output.txt
+```
+
+`JsonLineSink.format(value)` is the line a value is written as; mongoose-test-support's `FixtureRunner` formats sink
+values the same way, so in-process and server runs compare alike. `JsonLineSink` takes the rotation options of
+`FileMessageSink`.
+
+## Migration from `com.telamin:fluxtion-app-support`
+
+| Old | New (artifact `com.telamin:connector-file`) |
+|---|---|
+| `com.telamin.support.LineMapper` | `com.telamin.mongoose.plugin.connector.file.LineMapper` |
+| `com.telamin.support.Rejected` | `com.telamin.mongoose.plugin.connector.file.Rejected` |
+| `com.telamin.support.JsonLineSink` | `com.telamin.mongoose.plugin.connector.file.JsonLineSink` |
+
+The API is unchanged. `JsonLineSink` now extends this module's `FileMessageSink` (same `filename` key, plus rotation)
+instead of Mongoose core's.
+
 ## Read strategies
 
 | Strategy | Tailing | Replays existing content | Persists offset |
@@ -92,8 +142,10 @@ eventSinks:
 
 ## Tests
 
-- [`FileEventSourceTest`](src/test/java/com/fluxtion/dataflow/serverplugin/connector/file/FileEventSourceTest.java) — parent-dir creation, null/empty-filename guard.
-- [`FileMessageSinkTest`](src/test/java/com/fluxtion/dataflow/serverplugin/connector/file/FileMessageSinkTest.java) — basic write, bare-basename, null/empty-filename guard.
+- [`FileEventSourceTest`](src/test/java/com/telamin/mongoose/plugin/connector/file/FileEventSourceTest.java) — parent-dir creation, null/empty-filename guard.
+- [`FileMessageSinkTest`](src/test/java/com/telamin/mongoose/plugin/connector/file/FileMessageSinkTest.java) — basic write, bare-basename, null/empty-filename guard.
+- [`LineMapperTest`](src/test/java/com/telamin/mongoose/plugin/connector/file/LineMapperTest.java) — text and JSON lines, rejections, pass-through.
+- [`JsonLineSinkTest`](src/test/java/com/telamin/mongoose/plugin/connector/file/JsonLineSinkTest.java) — Strings as is, records as one JSON line.
 
 ## Related
 

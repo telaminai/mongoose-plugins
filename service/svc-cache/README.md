@@ -1,13 +1,14 @@
 # svc-cache
 
-Key/value lookup service for Mongoose with two implementations:
+Key/value lookup service for Mongoose with two implementations, plus `PersistentNode` and `Seed` for node state that
+survives a restart:
 
 | Class | Storage | Use case |
 |---|---|---|
-| [`InMemoryCache`](src/main/java/com/fluxtion/dataflow/serverplugin/svc/cache/InMemoryCache.java) | `ConcurrentHashMap` | Reference data shared across processors; lost on restart. |
-| [`JsonFileCache`](src/main/java/com/fluxtion/dataflow/serverplugin/svc/cache/JsonFileCache.java) | `ConcurrentHashMap` mirrored to a JSON file on disk | Reference data that needs to survive restarts; survives via Jackson serialisation. Type information is preserved per-entry. |
+| [`InMemoryCache`](src/main/java/com/telamin/mongoose/plugin/svc/cache/InMemoryCache.java) | `ConcurrentHashMap` | Reference data shared across processors; lost on restart. |
+| [`JsonFileCache`](src/main/java/com/telamin/mongoose/plugin/svc/cache/JsonFileCache.java) | `ConcurrentHashMap` mirrored to a JSON file on disk | Reference data that needs to survive restarts; survives via Jackson serialisation. Type information is preserved per-entry. |
 
-Both implement the [`Cache`](src/main/java/com/fluxtion/dataflow/serverplugin/svc/cache/Cache.java) interface:
+Both implement the [`Cache`](src/main/java/com/telamin/mongoose/plugin/svc/cache/Cache.java) interface:
 
 ```java
 Collection<String> keys();
@@ -25,9 +26,12 @@ void remove(String key);
 <dependency>
     <groupId>com.telamin</groupId>
     <artifactId>svc-cache</artifactId>
-    <version>0.2.8-SNAPSHOT</version>
+    <version>${mongoose-plugins.version}</version>   <!-- 1.1.2 or later for the classes below -->
 </dependency>
 ```
+
+Gradle: `implementation "com.telamin:svc-cache:$mongoosePluginsVersion"`. jbang: `//DEPS com.telamin:svc-cache:<version>`.
+svc-cache brings `lib-jsonserialiser` (for `StateJson`) and Jackson.
 
 ## Usage — Java config
 
@@ -58,6 +62,64 @@ public class MyHandler extends ObjectEventHandlerNode {
 }
 ```
 
+## Crash-safe writes
+
+`JsonFileCache` never writes its file in place. Each write serialises the whole cache as compact JSON to a sibling
+`<fileName>.tmp` and moves it over `fileName` with `ATOMIC_MOVE`, so a process killed mid-write (or a write that fails
+part way) leaves the previous complete file. A stale `.tmp` left by a crash is deleted on `init()`. A failed write keeps
+the cache dirty so the next `doWork()` retries. `tearDown()` writes the same way. Writes are logged at debug level only.
+This survives a process kill; surviving power loss would also need an fsync, which is not done.
+
+## PersistentNode and Seed: node state that survives a restart
+
+`PersistentNode<S>` is a Fluxtion node base class whose state is one record (or any Jackson-serialisable object),
+saved to a `Cache` service after every event (`@AfterEvent`) and handed back to `restore` when the cache registers on
+the next start. JSON is `StateJson` from lib-jsonserialiser: records, collections, enums, `java.time` as ISO strings.
+
+```java
+public class Basket extends PersistentNode<Basket.State> {
+    public record State(Map<String, Integer> items) {}
+    private transient Map<String, Integer> items = new HashMap<>();
+
+    @ServiceRegistered("appState") @Override public void cacheRegistered(Cache c) { super.cacheRegistered(c); }
+    @Override protected String stateKey() { return "basket"; }
+    @Override protected State state() { return new State(items); }
+    @Override protected void restore(State s) { items = new HashMap<>(s.items()); }
+    @Override protected void onCache(Cache cache) { Seed.properties(cache, "config/basket.properties", "basket."); }
+
+    @OnEventHandler
+    public boolean onAdd(AddItem e) {
+        if (replayed()) return false;   // re-delivered after a crash: already in the saved state
+        items.merge(e.sku(), e.qty(), Integer::sum);
+        return true;
+    }
+}
+```
+
+The saved record is `{"_v":3,"state":{...},"positions":{"<feed>":{"epoch":e,"position":p}}}`; older records (the bare
+state, or `_v:2`) still restore, without trusting their positions.
+
+**Replay guard.** With a Mongoose that provides `com.telamin.mongoose.service.delivery.DeliveryContext` (at-least-once
+file feed delivery), the node stores each feed's source epoch and position in the same write as its state, and
+`replayed()` is true for an event whose effect is already saved; a skipped event is audited as `replayedSkip`. Use a
+`JsonFileCache` with `asyncWrite: false` and no agent group, so the state is written in the event cycle that changed it.
+`DeliveryContext` is looked up once through method handles: on a Mongoose without it (1.1.2 and earlier) the guard is
+off and `replayed()` is always false; nothing else changes.
+
+`Seed` writes configuration into a cache only where a key is absent, so a restart keeps what is stored:
+`Seed.properties(cache, file, prefix)`, `Seed.file(cache, file, key)` (the file's text), `Seed.value(cache, key, v)`.
+
+## Migration from `com.telamin:fluxtion-app-support`
+
+| Old | New (artifact `com.telamin:svc-cache`) |
+|---|---|
+| `com.telamin.support.PersistentNode` | `com.telamin.mongoose.plugin.svc.cache.PersistentNode` |
+| `com.telamin.support.Seed` | `com.telamin.mongoose.plugin.svc.cache.Seed` |
+| `com.telamin.support.AtomicJsonFileCache` | `com.telamin.mongoose.plugin.svc.cache.JsonFileCache` (now atomic itself) |
+| `com.telamin.support.StateJson` (package-private) | `com.telamin.mongoose.plugin.lib.json.StateJson` (lib-jsonserialiser) |
+
+Saved state records are unchanged, so an existing cache file restores as before.
+
 ## Admin commands
 
 When a `JsonFileCache` is wired alongside an `AdminCommandRegistry`, it auto-registers two commands keyed by its service name (`{serviceName}` below):
@@ -72,11 +134,16 @@ When a `JsonFileCache` is wired alongside an `AdminCommandRegistry`, it auto-reg
 - **Bare-basename file names work.** Configure `state.json` (relative to CWD) without a parent path.
 - **Type preservation.** Each entry is stored alongside a `type` field so reloads on restart reconstruct the right concrete Java type. Custom types must be on the classpath.
 - **Synchronous vs async flush.** `asyncWrite=false` (default) writes to disk on each `put`. Set `asyncWrite=true` to defer flushes to the agent thread.
+- **Compact file.** The file is one line of JSON (it was pretty-printed before 1.1.2); either form loads.
 
 ## Tests
 
-- [`InMemoryCacheTest`](src/test/java/com/fluxtion/dataflow/serverplugin/svc/cache/InMemoryCacheTest.java) — put/get/keys/remove + `getOrDefault`.
-- [`JsonFileCacheTest`](src/test/java/com/fluxtion/dataflow/serverplugin/svc/cache/JsonFileCacheTest.java) — missing-parent-dir creation, bare-basename, null/empty-filename guards.
+- [`InMemoryCacheTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/InMemoryCacheTest.java) — put/get/keys/remove + `getOrDefault`.
+- [`JsonFileCacheTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/JsonFileCacheTest.java) — missing-parent-dir creation, bare-basename, null/empty-filename guards.
+- [`JsonFileCacheAtomicWriteTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/JsonFileCacheAtomicWriteTest.java) — compact JSON, a write failing part way leaves the previous file byte-identical and retries, stale temp file ignored, async and tearDown writes, eviction.
+- [`JsonFileCacheKillTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/JsonFileCacheKillTest.java) — a child writer process is SIGKILLed mid-write six times; the file always loads with one whole value.
+- [`PersistentNodeTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/PersistentNodeTest.java) — save/restore, older records, seeding; replay guard off without `DeliveryContext`, on with a test double of it, and on with Mongoose's own when built against a Mongoose that has it (`-Dmongoose.version=...`).
+- [`SeedTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/SeedTest.java).
 
 ## Related
 

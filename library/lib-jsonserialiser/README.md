@@ -19,7 +19,7 @@ Unknown properties are tolerated (Jackson `FAIL_ON_UNKNOWN_PROPERTIES` is disabl
 <dependency>
     <groupId>com.telamin</groupId>
     <artifactId>lib-jsonserialiser</artifactId>
-    <version>0.2.8-SNAPSHOT</version>
+    <version>${mongoose-plugins.version}</version>   <!-- StateJson: 1.1.2 or later -->
 </dependency>
 ```
 
@@ -45,6 +45,19 @@ Sample JSONL payload:
 
 Each line is dispatched to the named class. `Trade` and `MidPrice` must be on the runtime classpath of the Mongoose server.
 
+## StateJson
+
+`StateJson.mapper()` is a shared Jackson mapper for application state and JSON lines: records, collections and enums,
+`java.time` values (`LocalDateTime`, `LocalDate`, `LocalTime`, `Instant`, `Duration`) written as ISO strings and read
+back from them, unknown properties ignored. `StateJson.line(value)` is a String, number, boolean or null as its text
+and anything else as one line of JSON. svc-cache (`PersistentNode`), connector-file (`LineMapper`, `JsonLineSink`) and
+mongoose-test-support (`FixtureRunner`) all use it, so state, feeds, sinks and fixtures read and write alike. Do not
+reconfigure the shared mapper; `StateJson.newMapper()` gives one of your own.
+
+Migration: the package-private `com.telamin.support.StateJson` of `com.telamin:fluxtion-app-support` is now the public
+`com.telamin.mongoose.plugin.lib.json.StateJson` in this artifact (`MAPPER` became `mapper()`, `JsonLineSink.format`
+is `StateJson.line`).
+
 ## When to reach for it
 
 - You have a single feed carrying multiple event types and want type-safe dispatch driven by the payload itself, not the feed config.
@@ -59,5 +72,5 @@ If your feed is always one type, prefer a dedicated mapper (e.g. a lambda callin
 
 ## See also
 
-- [TypeSerialiser source](src/main/java/com/fluxtion/dataflow/serverplugin/lib/json/TypeSerialiser.java)
-- [JsonlTest](src/test/java/com/fluxtion/dataflow/serverplugin/lib/json/JsonlTest.java)
+- [TypeSerialiser source](src/main/java/com/telamin/mongoose/plugin/lib/json/TypeSerialiser.java)
+- [JsonlTest](src/test/java/com/telamin/mongoose/plugin/lib/json/JsonlTest.java)
