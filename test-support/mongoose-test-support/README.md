@@ -114,6 +114,12 @@ Sink values are formatted as connector-file's `JsonLineSink` writes them (a Stri
 line). A feed line `#admin <command> [args...]` invokes a signal-routed admin command in the processor's event cycle
 (as `registerSignalCommand` does on a server) and collects its replies; other lines starting with `#` are comments.
 
+No feed source runs in a fixture, so events carry no Mongoose `DeliveryContext`: a `PersistentNode`'s `replayed()` is
+always false here and crash re-delivery cannot be exercised with FixtureRunner (use a server and a killed process).
+The processor is always stopped and torn down, then the caches; if several steps fail, the first failure is thrown with
+the others attached as suppressed. Class names (`processor(String)`, `mapper(String)`) are loaded when `run()` starts,
+through `classLoader(...)` if set.
+
 ### From Java (JUnit or anything else)
 
 ```java

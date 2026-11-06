@@ -57,6 +57,28 @@ class JsonFileCacheAtomicWriteTest {
     }
 
     @Test
+    void a_pretty_printed_file_written_before_1_1_2_still_loads() throws Exception {
+        Path file = tempDir.resolve("old.json");
+        Files.writeString(file, """
+                {
+                  "name" : {
+                    "type" : "java.lang.String",
+                    "data" : "\\"alpha\\""
+                  },
+                  "count" : {
+                    "type" : "java.lang.Integer",
+                    "data" : "42"
+                  }
+                }""");
+        JsonFileCache cache = open(file);
+        assertEquals("alpha", cache.get("name"));
+        assertEquals(Integer.valueOf(42), cache.get("count"));
+        cache.put("more", "x");
+        assertFalse(Files.readString(file).contains("\n"), "rewritten compact");
+        assertEquals("alpha", open(file).get("name"));
+    }
+
+    @Test
     void a_write_failing_part_way_leaves_the_previous_file_intact() throws Exception {
         Path file = tempDir.resolve("state.json");
         JsonFileCache cache = open(file);

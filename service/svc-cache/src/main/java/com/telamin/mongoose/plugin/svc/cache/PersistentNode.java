@@ -44,6 +44,14 @@ import java.util.Map;
  * shows the cycle was a deliberate no-op. {@code DeliveryContext} is looked up reflectively, once, so this class also
  * runs on a Mongoose without it.
  *
+ * <p><b>One PersistentNode per processor, or independent nodes only.</b> Each PersistentNode writes its own record,
+ * so a processor with several of them writes the cache file once per node per event, and a crash between two nodes'
+ * writes leaves them at different saved positions. On restart the re-delivered event is then {@code replayed()} for
+ * the node that saved it and new for the one that did not; if the first is upstream and returns early
+ * ({@code if (replayed()) return false;}), the downstream node never sees an event it still needs. Keep the replay
+ * guard to a single PersistentNode per processor, or to nodes that do not trigger one another. Writes are not batched
+ * into one per event cycle.
+ *
  * @param <S> the state type
  */
 public abstract class PersistentNode<S> extends EventLogNode {

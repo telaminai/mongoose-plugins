@@ -64,11 +64,18 @@ public class MyHandler extends ObjectEventHandlerNode {
 
 ## Crash-safe writes
 
-`JsonFileCache` never writes its file in place. Each write serialises the whole cache as compact JSON to a sibling
-`<fileName>.tmp` and moves it over `fileName` with `ATOMIC_MOVE`, so a process killed mid-write (or a write that fails
-part way) leaves the previous complete file. A stale `.tmp` left by a crash is deleted on `init()`. A failed write keeps
-the cache dirty so the next `doWork()` retries. `tearDown()` writes the same way. Writes are logged at debug level only.
-This survives a process kill; surviving power loss would also need an fsync, which is not done.
+`JsonFileCache` never writes its file in place. Each write serialises the whole cache as compact JSON to its own
+sibling temporary file (`<fileName>.<random>.tmp`) and moves it over `fileName` with `ATOMIC_MOVE`, so a process killed
+mid-write (or a write that fails part way) leaves the previous complete file. `init()` deletes this file's stale
+`<fileName>.*.tmp`. A failed write keeps the cache dirty so the next `doWork()` retries. `tearDown()` writes the same
+way, and does not write at all if `init()` failed (a corrupt file is left as it is). This survives a process kill;
+surviving power loss would also need an fsync, which is not done.
+
+A `put` or `remove` changes the map before it marks the cache dirty, and with `asyncWrite=false` it returns only after
+a write that includes its change is on disk, even when another thread's put or the agent's `doWork` overlaps it.
+
+**One instance per file.** Two `JsonFileCache` instances on the same file each replace it with their own map, and one's
+`init()` deletes the other's in-flight temporary files.
 
 ## PersistentNode and Seed: node state that survives a restart
 
@@ -96,6 +103,13 @@ public class Basket extends PersistentNode<Basket.State> {
 }
 ```
 
+**One PersistentNode per processor, or independent nodes only.** Each PersistentNode writes its own record, so a
+processor with several writes the file once per node per event, and a crash between two nodes' writes leaves them at
+different saved positions. After the restart the re-delivered event is `replayed()` for the node that saved it and new
+for the other; if the first is upstream and returns early, the downstream node never sees an event it still needs.
+Keep the replay guard to one PersistentNode per processor, or to nodes that do not trigger one another. (Writes are not
+batched into one per event cycle.)
+
 The saved record is `{"_v":3,"state":{...},"positions":{"<feed>":{"epoch":e,"position":p}}}`; older records (the bare
 state, or `_v:2`) still restore, without trusting their positions.
 
@@ -120,6 +134,20 @@ off and `replayed()` is always false; nothing else changes.
 
 Saved state records are unchanged, so an existing cache file restores as before.
 
+## Behaviour changes in 1.1.2 (JsonFileCache)
+
+- **Logging.** The INFO line per write (`cache updated:<file> keys:[...]`, with every key) is now DEBUG and carries the
+  key count, not the keys.
+- **File format.** The file is compact, one line of JSON; before it was pretty-printed. Both load.
+- **Atomic replace.** The file is replaced by a new one on every write: a `fileName` that is a symlink becomes a regular
+  file (the link's target is no longer written), and the file's permissions and owner are not kept; the new file gets
+  the temporary file's (owner-only, from `Files.createTempFile`).
+- **Windows.** Only `AtomicMoveNotSupportedException` falls back to a plain replacing move. If the file system refuses
+  the replace, e.g. `AccessDeniedException` while another process has the file open, the write fails, the exception
+  surfaces from `put`/`doWork`, and the cache stays dirty for the next attempt. Not tested on Windows.
+- **Temporary files.** `<fileName>.<random>.tmp` per write, instead of none; stale ones are deleted on `init()`.
+- **tearDown** no longer writes after a failed `init()`, so it cannot overwrite an unreadable file with an empty map.
+
 ## Admin commands
 
 When a `JsonFileCache` is wired alongside an `AdminCommandRegistry`, it auto-registers two commands keyed by its service name (`{serviceName}` below):
@@ -141,6 +169,8 @@ When a `JsonFileCache` is wired alongside an `AdminCommandRegistry`, it auto-reg
 - [`InMemoryCacheTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/InMemoryCacheTest.java) — put/get/keys/remove + `getOrDefault`.
 - [`JsonFileCacheTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/JsonFileCacheTest.java) — missing-parent-dir creation, bare-basename, null/empty-filename guards.
 - [`JsonFileCacheAtomicWriteTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/JsonFileCacheAtomicWriteTest.java) — compact JSON, a write failing part way leaves the previous file byte-identical and retries, stale temp file ignored, async and tearDown writes, eviction.
+- [`JsonFileCacheConcurrencyTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/JsonFileCacheConcurrencyTest.java) — a put overlapped by the agent's doWork or by another thread's synchronous put is never left unsaved (deterministic interleavings and thread races).
+- [`JsonFileCacheTempAndTearDownTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/JsonFileCacheTempAndTearDownTest.java) — per-write temporary files, stale ones removed, two instances on one file, tearDown dirty-flag and failed-init guards.
 - [`JsonFileCacheKillTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/JsonFileCacheKillTest.java) — a child writer process is SIGKILLed mid-write six times; the file always loads with one whole value.
 - [`PersistentNodeTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/PersistentNodeTest.java) — save/restore, older records, seeding; replay guard off without `DeliveryContext`, on with a test double of it, and on with Mongoose's own when built against a Mongoose that has it (`-Dmongoose.version=...`).
 - [`SeedTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/SeedTest.java).

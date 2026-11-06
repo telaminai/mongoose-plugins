@@ -93,7 +93,9 @@ Fields are split on single spaces and `f[0]` is the record type. An unknown type
 an exception or a `null` result gives `Rejected(line)`, an event a node can handle. A line starting with `{` is JSON:
 `json(type, cls)` picks the class by the `typeField()` (`"type"` by default), `json(cls)` is for lines with no type
 field; fields fill the record's components by name, unknown fields are ignored. Parsers: `at` (LocalDateTime), `date`,
-`i`, `l`, `d`. Non-text input passes through unchanged.
+`i`, `l`, `d`. Non-text input passes through unchanged. A trailing `\r` (a CRLF file) is dropped before mapping. With
+both `json(cls)` and typed `json(type, cls)` registered, a line with no type field goes to `json(cls)` and a line whose
+type is not registered is rejected.
 
 ```yaml
 eventFeeds:
@@ -110,7 +112,7 @@ eventSinks:
 
 `JsonLineSink.format(value)` is the line a value is written as; mongoose-test-support's `FixtureRunner` formats sink
 values the same way, so in-process and server runs compare alike. `JsonLineSink` takes the rotation options of
-`FileMessageSink`.
+`FileMessageSink`. It is indexed for the config schema as `connector-file-jsonline:sink`.
 
 ## Migration from `com.telamin:fluxtion-app-support`
 
