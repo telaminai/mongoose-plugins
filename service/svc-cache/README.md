@@ -126,13 +126,16 @@ the delivery's position, once. So:
 - a queued event is new work and is applied (`replayed()` is false for it);
 - a crash before the callback leaves nothing of the delivery saved: the line was not acknowledged, the restart
   re-delivers it, and the whole delivery, queued events included, is applied again;
-- a server retry of a delivery (`DeliveryContext.attempt()` grew; only a handwritten processor is retried, a generated
-  one that throws is quarantined) skips, in order, as many of the delivery's cycles as any earlier attempt completed
-  (their effects are in memory), audited `retriedSkip`, applies the cycles past them, and is saved at the retry's
-  completion. Cycles are matched by their order within the attempt, so a retry is taken to drive the same events in
-  the same order. A skipped cycle does not queue again the events its handler queued the first time, so a retry whose
-  skipped cycles had queued events and that then drives further events of its own can mistake those for the queued
-  cycles and skip them: keep a retried delivery's follow-up work in the handlers, or make the failing step the last;
+- a server retry of a delivery (`DeliveryContext.attempt()` grew; only a handwritten processor around a generated one
+  is retried, a generated one that throws is quarantined) **rolls back, then applies the whole delivery again**: the
+  node saves only at completion, so its last saved record is its state before the delivery; at the retry's first
+  cycle it restores that state and its positions (audited `retryRollback`), and every cycle of the retry is applied
+  as new work. Nothing is skipped by matching cycles, so an event the delivery queues, a synthetic-clock cycle and
+  work the failed attempt never reached are each applied once, and the retry's completion saves once. Each
+  PersistentNode of the processor rolls back on its own, and a processor that handled the item and is not retried
+  keeps its state and its save. Outputs are not rolled back: what the failed attempt published is published again by
+  the retry (at-least-once outputs). Requirements: start every state-changing handler with `replayed()`, and make
+  `restore` replace the node's state wholly (it is also called on a live node for a rollback);
 - a `ReplayRecord`'s synthetic-clock cycle is just another cycle of the delivery;
 - a save that fails in the callback throws; the reader retries it under the feed group's retry policy, and if the
   policy gives up the error is reported and the line is acknowledged, as any failed item is;
@@ -211,7 +214,7 @@ When a `JsonFileCache` is wired alongside an `AdminCommandRegistry`, it auto-reg
 - [`JsonFileCacheConcurrencyTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/JsonFileCacheConcurrencyTest.java) — a put overlapped by the agent's doWork or by another thread's synchronous put is never left unsaved (deterministic interleavings and thread races).
 - [`JsonFileCacheTempAndTearDownTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/JsonFileCacheTempAndTearDownTest.java) — per-write temporary files, only this file's stale ones removed (a distinct cache's data file or live write whose name extends this one's is kept), temporary-form, control-character and over-long file names refused at init, two instances on one file, tearDown dirty-flag and failed-init guards.
 - [`JsonFileCacheKillTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/JsonFileCacheKillTest.java) — a child writer process is SIGKILLed mid-write six times; the file always loads with one whole value.
-- [`PersistentNodeCompletionTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/PersistentNodeCompletionTest.java) — with the delivery-complete hook (a test double of it): an event queued during a delivery is applied and the delivery saved once at completion; a crash before completion saves nothing and the restart re-applies the whole delivery; a retry skips the cycles an earlier attempt completed and applies the rest (two completed cycles, a failure between cycles, a second retry, a retry with fewer cycles); a synthetic-clock cycle is not refused; events without a position are saved at once; a failing save throws so the reader retries it.
+- [`PersistentNodeCompletionTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/PersistentNodeCompletionTest.java) — with the delivery-complete hook (a test double of it): an event queued during a delivery is applied and the delivery saved once at completion; a crash before completion saves nothing and the restart re-applies the whole delivery; a retry rolls back and applies the whole delivery once (one and two completed cycles, a failure between cycles, a second retry, a queued event and a new one, a cycle with no handler, positions, a delivery that never completed); a synthetic-clock cycle is not refused; events without a position are saved at once; a failing save throws so the reader retries it.
 - [`PersistentNodeReentrantTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/PersistentNodeReentrantTest.java) — the fallback without the hook: an event queued during a positioned delivery is refused, not skipped; a crash at the first cycle's save ends at the same state as the refusing live run; separate deliveries and position-less events are not refused.
 - [`PersistentNodeTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/PersistentNodeTest.java) — save/restore, older records, seeding; replay guard off without `DeliveryContext`, on with a test double of it, and on with Mongoose's own when built against a Mongoose that has it (`-Dmongoose.version=...`).
 - [`SeedTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/SeedTest.java).

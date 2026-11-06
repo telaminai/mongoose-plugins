@@ -289,7 +289,7 @@ class DeliveryCompletionPersistenceTest {
     }
 
     @Test
-    void a_server_retry_of_a_delivery_the_node_completed_is_skipped_not_applied_twice_and_not_dropped() throws Exception {
+    void a_server_retry_of_a_delivery_the_node_completed_is_applied_once_and_not_dropped() throws Exception {
         Path state = dir.resolve("state.json");
         GymProcessor flow = start(state, new ArrayList<>(), null);
         flow.onEvent(new Join("m1", "Ada", "MONTHLY"));
@@ -371,5 +371,162 @@ class DeliveryCompletionPersistenceTest {
         assertTrue(errors().isEmpty(), errors().toString());
         assertEquals(35, flow.membership.due("m1"));
         assertEquals(15.0, membership(state).at("/state/members/m1/paid").asDouble());
+    }
+
+    // ---- hook recheck F1 and F2: a retry rolls back; a successful peer keeps its save -------------------------------
+
+    /**
+     * The recheck's F1 (independent_retry_must_not_silently_skip_new_followup_after_an_earlier_queued_cycle): the
+     * adapter's duplicate Join alerts and the sink queues Payment(50); the adapter fails once before Payment(7). The
+     * retry rolls back, the Join alerts again and queues Payment(50) again, and Payment(7) is applied: paid 57.
+     */
+    @Test
+    void a_retry_applies_a_new_payment_after_an_earlier_queued_cycle() throws Exception {
+        Path state = dir.resolve("queued-then-new.json");
+        List<String> alerts = new ArrayList<>();
+        GymProcessor flow = start(state, alerts, null);
+        flow.onEvent(new Join("m1", "Ada", "MONTHLY"));
+        DataFlow adapter = new DataFlow() {
+            int failures = 1;
+
+            @Override
+            public void onEvent(Object event) {
+                flow.onEvent(new Join("m1", "Ada", "MONTHLY"));    // alerts; the sink queues Payment(50)
+                if (failures-- > 0) throw new IllegalStateException("DEMO between generated calls");
+                flow.onEvent(new Payment("m1", 7, "cash"));        // never reached by the failed attempt
+            }
+
+            @Override
+            public void setClockStrategy(ClockStrategy strategy) {
+            }
+        };
+        OneToOneConcurrentArrayQueue<Object> queue = new OneToOneConcurrentArrayQueue<>(16);
+        queue.offer(positioned(1, 100, "join then pay seven"));
+        reader(queue, adapter).doWork();
+        assertTrue(errors().isEmpty(), errors().toString());
+        JsonNode record = membership(state);
+        assertEquals(100, record.at("/positions/input/position").asLong());
+        assertEquals(57.0, record.at("/state/members/m1/paid").asDouble(), "new payment must not be skipped");
+        assertEquals(2, alerts.size(), "the failed attempt's alert is published again by the retry (at-least-once"
+                + " outputs): " + alerts);
+    }
+
+    /**
+     * The recheck's clock variant (independent_first_replay_record_retry_must_apply_business_event_after_clock_cycle):
+     * the first attempt's synthetic-clock install is a cycle; the adapter fails before the business event; the retry
+     * does not install the clock again. The payment is applied, not taken for the clock cycle.
+     */
+    @Test
+    void a_retry_after_a_clock_install_cycle_applies_the_business_event() throws Exception {
+        Path state = dir.resolve("clock-retry.json");
+        GymProcessor flow = start(state, new ArrayList<>(), null);
+        flow.onEvent(new Join("m1", "Ada", "MONTHLY"));
+        DataFlow adapter = new DataFlow() {
+            int failures = 1;
+
+            @Override
+            public void onEvent(Object event) {
+                if (failures-- > 0) throw new IllegalStateException("DEMO before the business event");
+                flow.onEvent(event);
+            }
+
+            @Override
+            public void setClockStrategy(ClockStrategy strategy) {
+                flow.setClockStrategy(strategy);
+            }
+        };
+        ReplayRecord event = new ReplayRecord();
+        event.setEvent(new Payment("m1", 20, "cash"));
+        event.setWallClockTime(1_700_000_000_000L);
+        OneToOneConcurrentArrayQueue<Object> queue = new OneToOneConcurrentArrayQueue<>(16);
+        queue.offer(positioned(1, 100, event));
+        reader(queue, adapter).doWork();
+        assertTrue(errors().isEmpty(), errors().toString());
+        JsonNode record = membership(state);
+        assertEquals(100, record.at("/positions/input/position").asLong());
+        assertEquals(20.0, record.at("/state/members/m1/paid").asDouble(), "clock installation was not this payment");
+    }
+
+    /**
+     * The recheck's F2 (independent_clock_callback_ownership_preserves_successful_peer_save_when_second_fails): two
+     * processors on one queue, a positioned ReplayRecord; the generated one applies the payment, a handwritten peer fails
+     * once and is retried alone. The generated processor is not retried, and its save must still run.
+     */
+    @Test
+    void a_successful_peer_keeps_its_save_when_another_processor_fails() throws Exception {
+        Path state = dir.resolve("successful-peer.json");
+        GymProcessor first = start(state, new ArrayList<>(), null);
+        first.onEvent(new Join("m1", "Ada", "MONTHLY"));
+        DataFlow second = new DataFlow() {
+            int failures = 1;
+
+            @Override
+            public void onEvent(Object event) {
+                if (failures-- > 0) throw new IllegalStateException("DEMO second failed once");
+            }
+
+            @Override
+            public void setClockStrategy(ClockStrategy strategy) {
+            }
+        };
+        ReplayRecord event = new ReplayRecord();
+        event.setEvent(new Payment("m1", 20, "cash"));
+        event.setWallClockTime(1_700_000_000_000L);
+        OneToOneConcurrentArrayQueue<Object> queue = new OneToOneConcurrentArrayQueue<>(16);
+        EventQueueToEventProcessorAgent reader = reader(queue, first);
+        reader.registerProcessor(second);
+        queue.offer(positioned(1, 100, event));
+        reader.doWork();
+        assertTrue(errors().isEmpty(), errors().toString());
+        assertEquals(30, first.membership.due("m1"), "applied once, not retried");
+        assertEquals(20.0, membership(state).at("/state/members/m1/paid").asDouble(),
+                "successful peer's callback must not be discarded");
+        assertEquals(100, membership(state).at("/positions/input/position").asLong());
+    }
+
+    /** Several PersistentNodes of one processor each roll back: Membership and FrontDesk apply the retry once. */
+    @Test
+    void every_persistent_node_of_the_processor_rolls_back_on_a_retry() throws Exception {
+        Path state = dir.resolve("several.json");
+        List<String> alerts = new ArrayList<>();
+        GymProcessor flow = start(state, alerts, null);
+        flow.onEvent(new Join("m1", "Ada", "MONTHLY"));
+        DataFlow adapter = new DataFlow() {
+            int failures = 1;
+
+            @Override
+            public void onEvent(Object event) {
+                flow.onEvent(new Payment("m1", 50, "cash"));
+                flow.onEvent(new com.telamin.mongoose.plugin.testsupport.gym.event.CheckIn("m1"));
+                if (failures-- > 0) throw new IllegalStateException("DEMO after both nodes changed");
+            }
+
+            @Override
+            public void setClockStrategy(ClockStrategy strategy) {
+            }
+        };
+        OneToOneConcurrentArrayQueue<Object> queue = new OneToOneConcurrentArrayQueue<>(16);
+        queue.offer(positioned(1, 100, "pay and check in"));
+        reader(queue, adapter).doWork();
+        assertTrue(errors().isEmpty(), errors().toString());
+        assertEquals(List.of(), alerts, "no 'already checked in' on the retry: FrontDesk rolled back too");
+        assertEquals(50.0, membership(state).at("/state/members/m1/paid").asDouble(), "paid once");
+        JsonNode frontDesk = record(state, "frontDesk");
+        assertEquals("[\"m1\"]", frontDesk.at("/state/inside").toString());
+        assertEquals(100, frontDesk.at("/positions/input/position").asLong());
+    }
+
+    /** A node's saved record by key, read from a copy of the cache file. */
+    private JsonNode record(Path state, String key) throws Exception {
+        Path copy = Files.createTempFile(dir, "read", ".json");
+        Files.copy(state, copy, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        JsonFileCache reader = new JsonFileCache();
+        reader.setFileName(copy.toString());
+        reader.init();
+        try {
+            return StateJson.mapper().readTree((String) reader.get(key));
+        } finally {
+            reader.tearDown();
+        }
     }
 }

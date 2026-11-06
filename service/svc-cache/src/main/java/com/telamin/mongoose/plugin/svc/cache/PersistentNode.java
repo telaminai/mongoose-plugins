@@ -52,16 +52,23 @@ import java.util.Map;
  * delivery, and the state and the delivery's position are written once, when the reader has finished the delivery,
  * queued events included, and before the feed can acknowledge or commit it. A queued event is new work and is applied
  * ({@code replayed()} is false for it). A crash before the callback leaves nothing of the delivery saved, so the
- * restart re-delivers it and the whole delivery, queued events included, is applied again. A server retry of a
- * delivery ({@code DeliveryContext.attempt()} grew: a handwritten processor around a generated one failed after some of
- * its cycles; a generated processor that throws is quarantined, never retried) skips, in order, as many of its cycles
- * as any earlier attempt completed (their effects are in memory), audited {@code retriedSkip}, applies the cycles past
- * them, and is saved at the retry's completion. Cycles are matched by their order within the attempt: a retry is taken
- * to drive the processor's events in the same order. A skipped cycle does not queue the events its handler queued the
- * first time (the handler returns early), so a retry whose skipped cycles had queued events and that then drives
- * further events of its own can match those to queued cycles of the earlier attempt and skip them: keep a retried
- * delivery's follow-up work in the handlers, or make the failing step idempotent and last. A save that fails in the
- * callback throws, and the reader retries it under its retry policy.
+ * restart re-delivers it and the whole delivery, queued events included, is applied again. A save that fails in the
+ * callback throws, and the reader retries it under its retry policy; if the policy gives up, the feed reports the loss
+ * ({@code completionFailures}, {@code lossless:false}).
+ *
+ * <p><b>A retry rolls back, then applies the whole delivery again.</b> A server retries a delivery
+ * ({@code DeliveryContext.attempt()} grows) when a handwritten processor around a generated one fails after some of
+ * the generated cycles ran; a generated processor that throws is quarantined, never retried. Because the node saves
+ * only at completion, its last saved record is exactly its state before the delivery began. At the first cycle of a
+ * retry the node restores that state and its positions (audited {@code retryRollback}), and every cycle of the retry is
+ * applied as new work: nothing is skipped, so an event the delivery queues, a synthetic-clock cycle, or work the failed
+ * attempt never reached is applied exactly once. The completion saves once, as for any delivery. Each PersistentNode of
+ * the processor rolls back on its own; a processor that handled the item and is not retried keeps its state and its
+ * save. Requirements: every handler that changes state starts with {@code if (replayed()) return false;} (it is where
+ * the rollback happens before any change; a cycle in which no handler of the node runs rolls back at
+ * {@code @AfterEvent}), and {@link #restore} replaces the node's state wholly, since it is also called on a live node
+ * for a rollback. Not rolled back: state outside {@link #state()} (other nodes, caches, services), and outputs: what the
+ * failed attempt published (alerts, sink messages) is published again by the retry, the at-least-once output rule.
  *
  * <p>On a Mongoose with {@code DeliveryContext} but without the hook (an intermediate 1.1.3 snapshot), a further cycle
  * under a delivery whose position this node already saved cannot be made crash-safe and is <b>refused</b>:
@@ -91,12 +98,13 @@ public abstract class PersistentNode<S> extends EventLogNode {
     private transient Object savedDelivery;
     /** With the hook: the positioned delivery whose cycles this node is handling, saved at its completion. */
     private transient Object pendingDelivery;
-    /** The dispatch attempt ({@code DeliveryContext.attempt()}) the cycles below are counted in. */
+    /** The dispatch attempt ({@code DeliveryContext.attempt()}) of the pending delivery this node last ran under. */
     private transient int cycleAttempt;
-    /** Cycles of the pending delivery this node has completed ({@code @AfterEvent}) in the current attempt. */
-    private transient int cyclesThisAttempt;
-    /** The most cycles of the pending delivery any attempt completed: their effects are in this node's memory. */
-    private transient int cyclesApplied;
+    /**
+     * The node's state and positions before the pending delivery began, as a saved record: what the last save wrote
+     * (or would have written, had the write failed). A retry of the delivery restores it (hook recheck F1).
+     */
+    private transient String baseline;
     /** The one completion callback of this node, so the delivery keeps it once however many cycles register it. */
     private final transient Runnable completion = this::saveAtCompletion;
 
@@ -110,7 +118,10 @@ public abstract class PersistentNode<S> extends EventLogNode {
     /** This node's current state. */
     protected abstract S state();
 
-    /** Called on start with the saved state, if there is one. */
+    /**
+     * Called on start with the saved state, if there is one, and on a retry of a delivery with the state before it
+     * (see the class notes): replace the node's state wholly, never merge.
+     */
     protected abstract void restore(S saved);
 
     /** Called when the cache registers, before {@link #restore}; seed configuration here. */
@@ -153,6 +164,7 @@ public abstract class PersistentNode<S> extends EventLogNode {
                 throw new IllegalStateException("cannot restore state '" + stateKey() + "' as " + stateType().getName(), e);
             }
         }
+        baseline = record();   // the state before the first delivery: as restored, or as built
     }
 
     /**
@@ -167,15 +179,7 @@ public abstract class PersistentNode<S> extends EventLogNode {
             return false;
         }
         if (delivery.hook()) {
-            trackCycles(d);
-            if (cyclesThisAttempt < cyclesApplied) {
-                // a retry of the delivery after a failure (hook review R1): an earlier attempt completed this cycle, so
-                // its effect is in memory, not yet saved; it is saved at the retry's completion. Cycles are matched by
-                // their order within the attempt; a cycle past those completed before is new work
-                auditLog.info("retriedSkip", (long) (Long) delivery.position(d));
-                return true;
-            }
-            // a cycle no attempt completed: the delivery's first, an event it queued, or one the retry reaches anew
+            enterCycle(d);   // a retry rolls back first; then every cycle of the delivery is new work
         } else if (d.equals(savedDelivery)) {
             throw reentrant(d);
         }
@@ -196,9 +200,7 @@ public abstract class PersistentNode<S> extends EventLogNode {
         boolean positioned = d != null && delivery.position(d) instanceof Long;
         if (positioned && delivery.hook()) {
             // saved once the delivery, with the events it queued, is complete (see the class notes)
-            trackCycles(d);
-            cyclesThisAttempt++;
-            cyclesApplied = Math.max(cyclesApplied, cyclesThisAttempt);
+            enterCycle(d);
             if (delivery.onComplete(completion)) {
                 return;
             }
@@ -214,17 +216,44 @@ public abstract class PersistentNode<S> extends EventLogNode {
         }
     }
 
-    /** Count this node's cycles per delivery and per dispatch attempt: a new delivery or a new attempt starts at 0. */
-    private void trackCycles(Object d) {
+    /**
+     * The first sight of a cycle of positioned delivery {@code d}, from the handler's {@link #replayed()} or, for a
+     * cycle in which no handler of this node ran, from {@code @AfterEvent}. A new delivery starts from the baseline; a
+     * cycle of a later dispatch attempt of the same delivery (a retry: {@code DeliveryContext.attempt()} grew) first
+     * restores the baseline, so the retry applies every cycle afresh and nothing of the failed attempt is counted twice
+     * or skipped (hook recheck F1).
+     */
+    private void enterCycle(Object d) {
         int attempt = delivery.attempt();
         if (!d.equals(pendingDelivery)) {
+            if (pendingDelivery != null) {
+                // the previous delivery never completed (its dispatch failed and was given up on, or the processor
+                // was removed): what is in memory now is what carries on
+                baseline = record();
+            }
             pendingDelivery = d;
             cycleAttempt = attempt;
-            cyclesThisAttempt = 0;
-            cyclesApplied = 0;
-        } else if (attempt != cycleAttempt) {
+        } else if (attempt > cycleAttempt) {
+            rollback();
             cycleAttempt = attempt;
-            cyclesThisAttempt = 0;
+        }
+    }
+
+    /** Restore the state and positions of {@link #baseline}: the node as it was before the pending delivery. */
+    private void rollback() {
+        if (baseline == null) {
+            return;
+        }
+        try {
+            JsonNode root = JSON.readTree(baseline);
+            Map<String, Applied> positions = new HashMap<>();
+            root.path("positions").fields().forEachRemaining(e -> positions.put(e.getKey(),
+                    new Applied(e.getValue().path("epoch").asLong(), e.getValue().path("position").asLong())));
+            appliedPositions = positions;
+            restore(JSON.treeToValue(root.get("state"), stateType()));
+            auditLog.info("retryRollback", (long) cycleAttempt);
+        } catch (IOException e) {
+            throw new IllegalStateException("cannot roll back state '" + stateKey() + "' for a retry", e);
         }
     }
 
@@ -236,18 +265,28 @@ public abstract class PersistentNode<S> extends EventLogNode {
     }
 
     private void write(Object d, boolean positioned) {
+        if (positioned) {
+            long pos = (Long) delivery.position(d);
+            // same epoch: keep the furthest position; a new epoch (source reset) starts over
+            appliedPositions.merge(delivery.feed(d), new Applied(delivery.epoch(d), pos),
+                    (old, now) -> old.epoch() == now.epoch() && old.position() >= now.position() ? old : now);
+        }
+        String record = record();
+        baseline = record;          // what the next delivery starts from, whether or not the write below succeeds
+        if (!positioned) {
+            pendingDelivery = null; // a position-less save: nothing of a delivery is pending any more
+        }
+        cache.put(stateKey(), record);
+    }
+
+    /** The node's saved record: {@code {"_v":3,"state":...,"positions":...}}. */
+    private String record() {
         try {
-            if (positioned) {
-                long pos = (Long) delivery.position(d);
-                // same epoch: keep the furthest position; a new epoch (source reset) starts over
-                appliedPositions.merge(delivery.feed(d), new Applied(delivery.epoch(d), pos),
-                        (old, now) -> old.epoch() == now.epoch() && old.position() >= now.position() ? old : now);
-            }
             ObjectNode record = JSON.createObjectNode();
             record.put("_v", 3);
             record.set("state", JSON.valueToTree(state()));
             record.set("positions", JSON.valueToTree(appliedPositions));
-            cache.put(stateKey(), JSON.writeValueAsString(record));
+            return JSON.writeValueAsString(record);
         } catch (IOException e) {
             throw new IllegalStateException("cannot save state '" + stateKey() + "'", e);
         }
