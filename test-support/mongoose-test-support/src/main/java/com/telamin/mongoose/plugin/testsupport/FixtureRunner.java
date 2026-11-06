@@ -41,6 +41,10 @@ import java.util.function.Supplier;
  * cycle (as {@code registerSignalCommand} does on a server) and collects its replies; other lines starting with
  * {@code #} are comments.
  *
+ * <p>No feed source runs here, so events carry no Mongoose {@code DeliveryContext}: a {@code PersistentNode}'s
+ * {@code replayed()} is always false in a fixture, and crash re-delivery cannot be exercised with it (use a real server
+ * and a killed process for that).
+ *
  * <pre>
  * FixtureRunner.Result result = FixtureRunner.builder()
  *         .processor(MarketProcessor::new)            // or .processor("com.example.generated.MarketProcessor")
@@ -112,6 +116,7 @@ public final class FixtureRunner {
     public static final class Builder {
         private Supplier<? extends DataFlow> processor;
         private Function<Object, Object> mapper = x -> x;
+        private String mapperClass;
         private String sink;
         private final Map<String, Path> caches = new LinkedHashMap<>();
         private final List<List<String>> feeds = new ArrayList<>();
@@ -148,13 +153,15 @@ public final class FixtureRunner {
         /** The feed's value mapper; identity when not set. */
         public Builder mapper(Function<Object, Object> mapper) {
             this.mapper = Objects.requireNonNull(mapper);
+            this.mapperClass = null;
             return this;
         }
 
         /** A {@code Function<Object, Object>} class with a no-arg constructor. */
         @SuppressWarnings("unchecked")
         public Builder mapper(String className) {
-            this.mapper = (Function<Object, Object>) newInstance(className);
+            Objects.requireNonNull(className);
+            this.mapperClass = className;   // created by run(), with the class loader set by then
             return this;
         }
 
@@ -212,7 +219,12 @@ public final class FixtureRunner {
             return this;
         }
 
+        @SuppressWarnings("unchecked")
         public Result run() throws Exception {
+            if (mapperClass != null) {
+                mapper = (Function<Object, Object>) newInstance(mapperClass);
+                mapperClass = null;
+            }
             if (processor == null) {
                 throw new IllegalStateException("no processor");
             }
@@ -244,7 +256,7 @@ public final class FixtureRunner {
                 throws Exception {
             DataFlow flow = processor.get();
             List<JsonFileCache> opened = new ArrayList<>();
-            boolean stopped = false;
+            Throwable failure = null;
             try {
                 flow.setAuditLogProcessor(r -> {
                     if (auditOut != null) {
@@ -269,24 +281,33 @@ public final class FixtureRunner {
                         flow.onEvent(mapper.apply(line));
                     }
                 }
-                stopped = true;
-                flow.stop();
-                flow.tearDown();
             } catch (Exception | Error e) {
-                if (!stopped) {
-                    try {
-                        flow.stop();
-                        flow.tearDown();
-                    } catch (Throwable suppressed) {
-                        e.addSuppressed(suppressed);
-                    }
-                }
-                throw e;
-            } finally {
-                for (JsonFileCache cache : opened) {
-                    cache.tearDown();
-                }
+                failure = e;
             }
+            // always stop and tear down, then the caches; the first failure is thrown, later ones attached to it
+            failure = attempt(failure, flow::stop);
+            failure = attempt(failure, flow::tearDown);
+            for (JsonFileCache cache : opened) {
+                failure = attempt(failure, cache::tearDown);
+            }
+            if (failure instanceof Exception e) {
+                throw e;
+            }
+            if (failure instanceof Error e) {
+                throw e;
+            }
+        }
+
+        private static Throwable attempt(Throwable failure, Runnable step) {
+            try {
+                step.run();
+            } catch (Throwable t) {
+                if (failure == null) {
+                    return t;
+                }
+                failure.addSuppressed(t);
+            }
+            return failure;
         }
 
         private Object newInstance(String className) {
@@ -346,7 +367,7 @@ public final class FixtureRunner {
                     break;
                 }
             }
-            t.printStackTrace();
+            t.printStackTrace(console);
             return 2;
         }
     }
