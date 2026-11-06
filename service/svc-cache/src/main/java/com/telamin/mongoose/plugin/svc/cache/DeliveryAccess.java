@@ -17,15 +17,14 @@ import java.lang.invoke.MethodType;
  * {@link #enabled()} is false and {@link #current()} always null; against one that has
  * {@value #CONTEXT_CLASS}, whose static {@code current()} returns a {@code Delivery} with {@code feed()},
  * {@code epoch()}, {@code position()} and {@code alreadyApplied(long, Object)}, the calls go straight to it through
- * method handles. The delivery-complete hook (Mongoose 1.1.3: static {@code onComplete(Runnable)},
- * {@code onFailure(Runnable)} and {@code attempt()}) is optional: {@link #hook()} says whether this Mongoose has all
- * three; a snapshot with only some of them is treated as having none.
+ * method handles. The delivery-complete hook (Mongoose 1.1.3: static {@code onComplete(Runnable)} and
+ * {@code attempt()}) is optional: {@link #hook()} says whether this Mongoose has it.
  */
 @Log4j2
 final class DeliveryAccess {
 
     static final String CONTEXT_CLASS = "com.telamin.mongoose.service.delivery.DeliveryContext";
-    static final DeliveryAccess OFF = new DeliveryAccess(null, null, null, null, null, null, null, null);
+    static final DeliveryAccess OFF = new DeliveryAccess(null, null, null, null, null, null, null);
     /** Resolved once against the Mongoose on this module's class path. */
     static final DeliveryAccess DEFAULT = resolve(CONTEXT_CLASS, DeliveryAccess.class.getClassLoader());
 
@@ -36,12 +35,9 @@ final class DeliveryAccess {
     private final MethodHandle alreadyApplied;   // (Object,long,Object)boolean
     private final MethodHandle onComplete;       // (Runnable)boolean, null without the hook
     private final MethodHandle attempt;          // ()int, null without the hook
-    private final MethodHandle onFailure;        // (Runnable)boolean, null without the hook
 
     private DeliveryAccess(MethodHandle current, MethodHandle feed, MethodHandle epoch, MethodHandle position,
-                           MethodHandle alreadyApplied, MethodHandle onComplete, MethodHandle attempt,
-                           MethodHandle onFailure) {
-        this.onFailure = onFailure;
+                           MethodHandle alreadyApplied, MethodHandle onComplete, MethodHandle attempt) {
         this.onComplete = onComplete;
         this.attempt = attempt;
         this.current = current;
@@ -79,19 +75,15 @@ final class DeliveryAccess {
                     .asType(MethodType.methodType(boolean.class, Object.class, long.class, Object.class));
             MethodHandle onComplete = null;
             MethodHandle attempt = null;
-            MethodHandle onFailure = null;
             try {
                 onComplete = lookup.findStatic(context, "onComplete", MethodType.methodType(boolean.class, Runnable.class));
                 attempt = lookup.findStatic(context, "attempt", MethodType.methodType(int.class));
-                onFailure = lookup.findStatic(context, "onFailure", MethodType.methodType(boolean.class, Runnable.class));
             } catch (NoSuchMethodException | IllegalAccessException noHook) {
-                // all three or none: saving at completion is only safe with a rollback at a failure
                 onComplete = null;
                 attempt = null;
-                onFailure = null;
             }
             log.debug("{} found: replay guard on, delivery-complete hook {}", className, onComplete != null ? "on" : "off");
-            return new DeliveryAccess(current, feed, epoch, position, alreadyApplied, onComplete, attempt, onFailure);
+            return new DeliveryAccess(current, feed, epoch, position, alreadyApplied, onComplete, attempt);
         } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
             log.warn("{} found but not usable ({}): replay guard off", className, e.toString());
             return OFF;
@@ -117,21 +109,6 @@ final class DeliveryAccess {
         }
         try {
             return (boolean) onComplete.invokeExact(callback);
-        } catch (Throwable t) {
-            throw rethrow(t);
-        }
-    }
-
-    /**
-     * Register {@code callback} to run if the dispatch of the current delivery to this processor fails, before it is
-     * retried: true when registered (or already pending), false without the hook or a positioned delivery.
-     */
-    boolean onFailure(Runnable callback) {
-        if (onFailure == null) {
-            return false;
-        }
-        try {
-            return (boolean) onFailure.invokeExact(callback);
         } catch (Throwable t) {
             throw rethrow(t);
         }

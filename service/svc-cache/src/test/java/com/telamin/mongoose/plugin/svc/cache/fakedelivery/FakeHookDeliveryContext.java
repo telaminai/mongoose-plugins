@@ -15,7 +15,6 @@ public final class FakeHookDeliveryContext {
 
     private static final ThreadLocal<FakeDelivery> CURRENT = new ThreadLocal<>();
     private static final ThreadLocal<ArrayDeque<Runnable>> PENDING = ThreadLocal.withInitial(ArrayDeque::new);
-    private static final ThreadLocal<ArrayDeque<Runnable>> FAILURES = ThreadLocal.withInitial(ArrayDeque::new);
     private static final ThreadLocal<int[]> ATTEMPT = ThreadLocal.withInitial(() -> new int[1]);
 
     private FakeHookDeliveryContext() {
@@ -34,15 +33,6 @@ public final class FakeHookDeliveryContext {
         return true;
     }
 
-    public static boolean onFailure(Runnable callback) {
-        if (CURRENT.get() == null) return false;
-        for (Runnable pending : FAILURES.get()) {
-            if (pending == callback) return true;
-        }
-        FAILURES.get().add(callback);
-        return true;
-    }
-
     public static int attempt() {
         return CURRENT.get() == null ? 0 : ATTEMPT.get()[0];
     }
@@ -50,7 +40,6 @@ public final class FakeHookDeliveryContext {
     public static void enter(String feed, long sequence, long epoch, Object position) {
         CURRENT.set(new FakeDelivery(feed, sequence, epoch, position));
         PENDING.get().clear();
-        FAILURES.get().clear();
         ATTEMPT.get()[0] = 0;
     }
 
@@ -59,7 +48,6 @@ public final class FakeHookDeliveryContext {
      * this again retries it, as the reader does.
      */
     public static void complete() {
-        FAILURES.get().clear();
         Runnable next;
         while ((next = PENDING.get().peek()) != null) {
             next.run();
@@ -67,12 +55,10 @@ public final class FakeHookDeliveryContext {
         }
     }
 
-    /** The reader: the dispatch attempt failed; run its failure callbacks, discard its completions and count it. */
+    /** The reader: the dispatch attempt failed; discard its callbacks and count it. */
     public static void dispatchFailed() {
-        ATTEMPT.get()[0]++;      // as Mongoose: the attempt is counted, then the failure callbacks run
-        Runnable failure;
-        while ((failure = FAILURES.get().poll()) != null) failure.run();
         PENDING.get().clear();
+        ATTEMPT.get()[0]++;
     }
 
     public static int pending() {
@@ -82,7 +68,6 @@ public final class FakeHookDeliveryContext {
     public static void exit() {
         CURRENT.remove();
         PENDING.get().clear();
-        FAILURES.get().clear();
         ATTEMPT.get()[0] = 0;
     }
 }

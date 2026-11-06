@@ -59,22 +59,18 @@ import java.util.Map;
  * <p><b>A retry rolls back, then applies the whole delivery again.</b> A server retries a delivery
  * ({@code DeliveryContext.attempt()} grows) when a handwritten processor around a generated one fails after some of
  * the generated cycles ran; a generated processor that throws is quarantined, never retried. Because the node saves
- * only at completion, its last saved record is exactly its state before the delivery began. The node registers a
- * rollback to it as a failure callback ({@code DeliveryContext.onFailure}): Mongoose runs it at the failure, before
- * the retry runs any code, so everything the retry does, including an adapter that reads the node's state to compute
- * an argument or choose a branch before any handler, sees the state before the delivery (audited
- * {@code retryRollback}). Every cycle of the retry is then applied as new work: nothing is skipped, so an event the
- * delivery queues, a synthetic-clock cycle, or work the failed attempt never reached is applied exactly once. The
- * completion saves once, as for any delivery. Each PersistentNode of the processor rolls back on its own; a processor
- * that handled the item and is not retried keeps its state and its save. A rollback that fails (the saved record
- * cannot be restored) makes Mongoose fail closed: the item is not acknowledged, the feed reports itself
- * {@code stalled} and not lossless, and the processor group ends; a restart re-delivers it. Requirement:
- * {@link #restore} replaces the node's state wholly, since it is also called on a live node for a rollback. Not rolled
- * back: state outside {@link #state()} (other nodes, caches, services), and outputs: what the failed attempt
- * published (alerts, sink messages) is published again by the retry, the at-least-once output rule.
+ * only at completion, its last saved record is exactly its state before the delivery began. At the first cycle of a
+ * retry the node restores that state and its positions (audited {@code retryRollback}), and every cycle of the retry is
+ * applied as new work: nothing is skipped, so an event the delivery queues, a synthetic-clock cycle, or work the failed
+ * attempt never reached is applied exactly once. The completion saves once, as for any delivery. Each PersistentNode of
+ * the processor rolls back on its own; a processor that handled the item and is not retried keeps its state and its
+ * save. Requirements: every handler that changes state starts with {@code if (replayed()) return false;} (it is where
+ * the rollback happens before any change; a cycle in which no handler of the node runs rolls back at
+ * {@code @AfterEvent}), and {@link #restore} replaces the node's state wholly, since it is also called on a live node
+ * for a rollback. Not rolled back: state outside {@link #state()} (other nodes, caches, services), and outputs: what the
+ * failed attempt published (alerts, sink messages) is published again by the retry, the at-least-once output rule.
  *
- * <p>On a Mongoose with {@code DeliveryContext} but without the whole hook ({@code onComplete}, {@code onFailure} and
- * {@code attempt()}; an intermediate 1.1.3 snapshot), a further cycle
+ * <p>On a Mongoose with {@code DeliveryContext} but without the hook (an intermediate 1.1.3 snapshot), a further cycle
  * under a delivery whose position this node already saved cannot be made crash-safe and is <b>refused</b>:
  * {@link #replayed()} and {@link #saveState()} throw {@link IllegalStateException} ({@code saveState} first writes the
  * node's state, so the cache still matches the node). Without {@code DeliveryContext} (1.1.2 and earlier) nothing
@@ -111,8 +107,6 @@ public abstract class PersistentNode<S> extends EventLogNode {
     private transient String baseline;
     /** The one completion callback of this node, so the delivery keeps it once however many cycles register it. */
     private final transient Runnable completion = this::saveAtCompletion;
-    /** The one failure callback of this node: the rollback Mongoose runs at a failed dispatch, before a retry. */
-    private final transient Runnable rollbackAtFailure = this::rollback;
 
     /** A source position within one epoch of the source (a new epoch: the pointer or the input file was reset). */
     public record Applied(long epoch, long position) {
@@ -223,32 +217,29 @@ public abstract class PersistentNode<S> extends EventLogNode {
     }
 
     /**
-     * A cycle of positioned delivery {@code d}, seen from the handler's {@link #replayed()} or from
-     * {@code @AfterEvent}. A new delivery starts from the baseline. Every cycle registers the node's rollback as a
-     * failure callback ({@code DeliveryContext.onFailure}, the same instance, kept once): if the processor's dispatch
-     * fails, Mongoose runs it at the failure, before the retry runs any code, so a retry starts from the state before
-     * the delivery and applies every cycle afresh (hook recheck 2, F1).
+     * The first sight of a cycle of positioned delivery {@code d}, from the handler's {@link #replayed()} or, for a
+     * cycle in which no handler of this node ran, from {@code @AfterEvent}. A new delivery starts from the baseline; a
+     * cycle of a later dispatch attempt of the same delivery (a retry: {@code DeliveryContext.attempt()} grew) first
+     * restores the baseline, so the retry applies every cycle afresh and nothing of the failed attempt is counted twice
+     * or skipped (hook recheck F1).
      */
     private void enterCycle(Object d) {
         int attempt = delivery.attempt();
         if (!d.equals(pendingDelivery)) {
             if (pendingDelivery != null) {
                 // the previous delivery never completed (its dispatch failed and was given up on, or the processor
-                // was removed); its failure callback rolled it back, so memory and the baseline agree
+                // was removed): what is in memory now is what carries on
                 baseline = record();
             }
             pendingDelivery = d;
             cycleAttempt = attempt;
         } else if (attempt > cycleAttempt) {
-            cycleAttempt = attempt;     // a retry: already rolled back at the failure
+            rollback();
+            cycleAttempt = attempt;
         }
-        delivery.onFailure(rollbackAtFailure);
     }
 
-    /**
-     * Restore the state and positions of {@link #baseline}: the node as it was before the pending delivery. Run by
-     * Mongoose at a failed dispatch; a failure here makes Mongoose fail closed (the item is not acknowledged).
-     */
+    /** Restore the state and positions of {@link #baseline}: the node as it was before the pending delivery. */
     private void rollback() {
         if (baseline == null) {
             return;
@@ -260,7 +251,7 @@ public abstract class PersistentNode<S> extends EventLogNode {
                     new Applied(e.getValue().path("epoch").asLong(), e.getValue().path("position").asLong())));
             appliedPositions = positions;
             restore(JSON.treeToValue(root.get("state"), stateType()));
-            auditLog.info("retryRollback", (long) delivery.attempt());
+            auditLog.info("retryRollback", (long) cycleAttempt);
         } catch (IOException e) {
             throw new IllegalStateException("cannot roll back state '" + stateKey() + "' for a retry", e);
         }
