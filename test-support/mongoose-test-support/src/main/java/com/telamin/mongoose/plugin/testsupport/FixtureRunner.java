@@ -67,7 +67,11 @@ import java.util.function.Supplier;
  * </pre>
  * Prints {@code admin> } replies, then PASS, or FAIL with the first differing lines (exit 0 / 1); without
  * {@code --expect} it prints the sink lines. A run that throws prints {@code FIXTURE RUN FAILED} (exit 2).
- * {@code --actual} writes every sink line of the run, {@code --audit} every node's audit records.
+ * {@code --actual} writes every sink line of the run, {@code --audit} every node's audit records. The expected file is
+ * read before the run. The files a run writes or deletes ({@code --actual}, {@code --audit}, each cache) must differ
+ * from each other and from the files it reads ({@code --feed}/{@code --restart}, {@code --expect}); the same file
+ * under two names (a symbolic or hard link, {@code a/../b}) counts as the same. A collision is refused before
+ * anything is deleted or run (exit 2), as {@link Builder#run()} refuses it with {@link IllegalArgumentException}.
  * {@code --processor} names a {@link DataFlow} class or a {@code Supplier<DataFlow>} class, either with a no-arg
  * constructor; {@code --mapper} a {@code Function<Object, Object>} class.
  */
@@ -121,6 +125,8 @@ public final class FixtureRunner {
         private String sink;
         private final Map<String, Path> caches = new LinkedHashMap<>();
         private final List<List<String>> feeds = new ArrayList<>();
+        private final List<Path> feedFiles = new ArrayList<>();
+        private final List<Path> protectedFiles = new ArrayList<>();
         private Path actual;
         private Path audit;
         private Consumer<String> adminListener = r -> { };
@@ -179,7 +185,9 @@ public final class FixtureRunner {
         }
 
         public Builder feed(Path file) throws IOException {
-            return feedLines(Files.readAllLines(file));
+            feedLines(Files.readAllLines(file));
+            feedFiles.add(file);
+            return this;
         }
 
         public Builder feedLines(List<String> lines) {
@@ -208,6 +216,15 @@ public final class FixtureRunner {
             return this;
         }
 
+        /**
+         * A file the run must not write or delete, e.g. the expected baseline the result will be compared with: a cache,
+         * {@link #actual} or {@link #audit} on it is refused by {@link #run()}.
+         */
+        public Builder protect(Path file) {
+            protectedFiles.add(Objects.requireNonNull(file));
+            return this;
+        }
+
         /** Called with each admin reply as it is produced. */
         public Builder onAdminReply(Consumer<String> listener) {
             this.adminListener = Objects.requireNonNull(listener);
@@ -220,8 +237,16 @@ public final class FixtureRunner {
             return this;
         }
 
+        /**
+         * Runs the feeds.
+         *
+         * @throws IllegalArgumentException before anything is deleted or run, when a file the run writes or deletes (a
+         *                                  cache, {@link #actual}, {@link #audit}) is another of those or a file it reads
+         *                                  (a feed file, a {@link #protect protected} file)
+         */
         @SuppressWarnings("unchecked")
         public Result run() throws Exception {
+            checkPaths();
             if (mapperClass != null) {
                 mapper = (Function<Object, Object>) newInstance(mapperClass);
                 mapperClass = null;
@@ -251,6 +276,34 @@ public final class FixtureRunner {
                 Files.write(mkParent(actual), out);
             }
             return new Result(List.copyOf(out), List.copyOf(replies));
+        }
+
+        private record Use(String option, Path path, boolean written) {
+        }
+
+        /** Refuses a file the run writes or deletes that is also another file it uses. */
+        private void checkPaths() throws IOException {
+            List<Use> uses = new ArrayList<>();
+            caches.forEach((name, file) -> uses.add(new Use("--cache " + name, file, true)));
+            if (actual != null) {
+                uses.add(new Use("--actual", actual, true));
+            }
+            if (audit != null) {
+                uses.add(new Use("--audit", audit, true));
+            }
+            feedFiles.forEach(f -> uses.add(new Use("--feed", f, false)));
+            protectedFiles.forEach(f -> uses.add(new Use("--expect", f, false)));
+            for (int i = 0; i < uses.size(); i++) {
+                for (int j = i + 1; j < uses.size(); j++) {
+                    Use a = uses.get(i);
+                    Use b = uses.get(j);
+                    if ((a.written() || b.written()) && sameFile(a.path(), b.path())) {
+                        throw new IllegalArgumentException("fixture files collide: " + a.option() + " " + a.path()
+                                + " and " + b.option() + " " + b.path() + " are the same file, which the run would"
+                                + " overwrite or delete; give each its own file");
+                    }
+                }
+            }
         }
 
         private void runOne(List<String> lines, List<String> out, Consumer<String> reply, PrintWriter auditOut)
@@ -337,6 +390,27 @@ public final class FixtureRunner {
         replies.forEach(r -> reply.accept(String.valueOf(r)));
     }
 
+    /**
+     * True when {@code a} and {@code b} name the same file: equal once made absolute, normalised and resolved through
+     * symbolic links (for a file not yet created, through its nearest existing directory), or, both existing, the same
+     * file to the file system (a hard link, a case-insensitive name).
+     */
+    static boolean sameFile(Path a, Path b) throws IOException {
+        if (Files.exists(a) && Files.exists(b) && Files.isSameFile(a, b)) {
+            return true;
+        }
+        return resolved(a).equals(resolved(b));
+    }
+
+    private static Path resolved(Path p) throws IOException {
+        Path abs = p.toAbsolutePath().normalize();
+        Path existing = abs;
+        while (existing != null && !Files.exists(existing)) {
+            existing = existing.getParent();
+        }
+        return existing == null ? abs : existing.toRealPath().resolve(existing.relativize(abs));
+    }
+
     private static Path mkParent(Path file) throws IOException {
         Path p = file.toAbsolutePath();
         Files.createDirectories(p.getParent());
@@ -402,12 +476,22 @@ public final class FixtureRunner {
                 default -> throw new IllegalArgumentException("unknown option " + args[i]);
             }
         }
+        List<String> expected = null;
+        if (expect != null) {
+            // read before the run, and protected from it: no output of the run can replace the baseline it is judged by
+            try {
+                expected = Files.readAllLines(Path.of(expect));
+            } catch (IOException e) {
+                throw new IllegalArgumentException("--expect " + expect + " cannot be read: " + e, e);
+            }
+            b.protect(Path.of(expect));
+        }
         Result result = b.run();
         if (expect == null) {
             result.sinkLines().forEach(console::println);
             return 0;
         }
-        Comparison cmp = result.compare(Path.of(expect));
+        Comparison cmp = result.compare(expected);
         if (cmp.pass()) {
             console.println("PASS: " + cmp.actual().size() + " lines match " + expect);
             return 0;

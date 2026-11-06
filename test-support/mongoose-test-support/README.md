@@ -142,7 +142,14 @@ assertTrue(cmp.pass(), String.join("\n", cmp.differences(8)));
 ```
 
 `feedLines(List<String>)` / `restartLines(...)` take lines instead of files, `actual(path)` also writes the sink lines,
-`onAdminReply(consumer)` sees each admin reply as it happens.
+`protect(path)` names a file the run must not write (the expected baseline), `onAdminReply(consumer)` sees each admin
+reply as it happens.
+
+**No run writes over its own inputs.** The files a run writes or deletes (each cache, `actual`, `audit`) must differ
+from each other and from the files it reads (feed and restart files, protected files). The same file under two names
+counts as the same: a symbolic or hard link, `a/../b`, or a case-insensitive name of an existing file. `run()` refuses a
+collision with `IllegalArgumentException` before anything is deleted or run. (Two names for a file not yet created
+that differ only in case are not detected on a case-insensitive file system.)
 
 ### Command line
 
@@ -155,6 +162,10 @@ java -cp <classpath> com.telamin.mongoose.plugin.testsupport.FixtureRunner \
     [--cache name=data/run/state.json[,name2=file2]] --feed scenario.txt [--restart restart-B.txt] \
     [--expect expected.txt] [--actual logs/fixture-actual.txt] [--audit logs/fixture-audit.yaml]
 ```
+
+`--expect` is read before the run and protected from it, so `--actual` (or a cache, or `--audit`) on the expected file
+is refused (exit 2) rather than overwriting the baseline and passing; so is any other collision above, and an expected
+file that cannot be read.
 
 Prints `admin> ` replies, then `PASS: n lines match ...` (exit 0) or `FAIL` with the first differing lines (exit 1);
 without `--expect` it prints the sink lines. A run that throws prints `FIXTURE RUN FAILED: <root cause>` and the first
