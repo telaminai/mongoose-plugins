@@ -66,6 +66,30 @@ class LineMapperTest {
     }
 
     @Test
+    void crlf_lines_map_like_lf_lines() {
+        assertEquals(new Item("a1", 3, LocalDateTime.parse("2026-01-02T10:00")),
+                mapper.apply("ITEM a1 3 2026-01-02T10:00\r"));
+        assertEquals(new Pickup("PICKUP", "p1", LocalDateTime.parse("2026-01-02T10:00")),
+                mapper.apply("{\"type\":\"PICKUP\",\"id\":\"p1\",\"at\":\"2026-01-02T10:00\"}\r"));
+        assertEquals(new Rejected("NOPE x"), mapper.apply("NOPE x\r"), "rejected with the line as read, less its CR");
+    }
+
+    @Test
+    void untyped_and_typed_json_registrations_together() {
+        LineMapper mixed = new LineMapper() {
+            {
+                json("PICKUP", Pickup.class);
+                json(Quote.class);
+            }
+        };
+        assertEquals(new Pickup("PICKUP", "p1", null), mixed.apply("{\"type\":\"PICKUP\",\"id\":\"p1\"}"));
+        assertEquals(new Quote("ABC", 2.0), mixed.apply("{\"sym\":\"ABC\",\"px\":2.0}"), "no type field: json(cls)");
+        assertEquals(new Rejected("{\"type\":\"OTHER\",\"sym\":\"ABC\"}"),
+                mixed.apply("{\"type\":\"OTHER\",\"sym\":\"ABC\"}"),
+                "an unregistered type is rejected, not given to json(cls)");
+    }
+
+    @Test
     void non_text_input_passes_through() {
         Object event = new Object();
         assertSame(event, mapper.apply(event));

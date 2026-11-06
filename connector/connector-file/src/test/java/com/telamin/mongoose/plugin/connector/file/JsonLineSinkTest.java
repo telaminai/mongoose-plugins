@@ -13,6 +13,7 @@ import java.time.LocalDate;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 class JsonLineSinkTest {
 
@@ -20,6 +21,32 @@ class JsonLineSinkTest {
     Path tempDir;
 
     public record Alert(String id, LocalDate day, List<Integer> counts) {
+    }
+
+    @Test
+    void rotation_keeps_writing_json_lines() throws Exception {
+        Path out = tempDir.resolve("rot/output.txt");
+        JsonLineSink sink = new JsonLineSink();
+        sink.setFilename(out.toString());
+        sink.setRotateOnSizeBytes(60);
+        sink.init();
+        sink.start();
+        for (int i = 0; i < 6; i++) {
+            sink.accept(new Alert("a" + i, LocalDate.parse("2026-01-02"), List.of(i)));
+        }
+        sink.stop();
+        List<String> backups = sink.listRotatedBackups();
+        assertFalse(backups.isEmpty(), "rotated");
+        List<String> all = new java.util.ArrayList<>();
+        for (String b : backups) {
+            all.addAll(Files.readAllLines(out.resolveSibling(b)));
+        }
+        all.addAll(Files.readAllLines(out));
+        List<String> expected = new java.util.ArrayList<>();
+        for (int i = 0; i < 6; i++) {
+            expected.add("{\"id\":\"a" + i + "\",\"day\":\"2026-01-02\",\"counts\":[" + i + "]}");
+        }
+        assertEquals(expected, all, "every value, once, as one JSON line, across the rotated files");
     }
 
     @Test

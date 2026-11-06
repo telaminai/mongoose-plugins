@@ -20,13 +20,15 @@ import java.util.function.Function;
  * A feed {@code valueMapper} driven by a table: register each record type with its field count and a constructor, e.g.
  * {@code record("ITEM", 4, f -> new ItemRegistered(f[1], f[2], at(f[3])));}. Fields are split on single spaces and
  * f[0] is the record type. An unknown type, a wrong field count, an empty field or any exception while mapping
- * gives {@link Rejected}(line), which a node can handle like any event. Non-text input passes through unchanged.
+ * gives {@link Rejected}(line), which a node can handle like any event. Non-text input passes through unchanged. A
+ * trailing carriage return (a line of a CRLF file) is dropped before mapping.
  *
  * <p>JSON lines: a line starting with <code>{</code> is JSON. Register each class with the value of its
  * {@link #typeField()} ({@code "type"} by default), e.g. {@code json("PICKUP", PickupRequest.class);}, or
  * {@code json(Quote.class)} for a feed with no type field. The JSON fields fill the record's components by name
  * (unknown fields are ignored; java.time values as ISO strings, see {@link StateJson}). Malformed JSON or an
- * unregistered type gives Rejected.
+ * unregistered type gives Rejected: a line whose type field names no registered type is rejected even when
+ * {@code json(cls)} is registered, which takes only lines with no type field.
  *
  * <pre>
  * public class AppLineMapper extends LineMapper {
@@ -70,9 +72,10 @@ public abstract class LineMapper implements Function<Object, Object> {
 
     @Override
     public Object apply(Object input) {
-        if (!(input instanceof String line)) {
+        if (!(input instanceof String text)) {
             return input;
         }
+        String line = text.endsWith("\r") ? text.substring(0, text.length() - 1) : text;   // a CRLF file's line
         if (line.startsWith("{")) {
             return mapJson(line);
         }
