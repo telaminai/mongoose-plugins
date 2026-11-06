@@ -310,4 +310,66 @@ class DeliveryCompletionPersistenceTest {
         assertEquals(0, attempt.invoke(null));
         assertFalse(onComplete(() -> fail("no delivery")), "outside a delivery nothing is kept");
     }
+
+    /**
+     * Hook review R1 (the reviewer's independent_retry_of_two_generated_cycles_does_not_duplicate_second_payment): a
+     * handwritten adapter drives two complete cycles of the generated processor under one positioned input, then a
+     * later step fails once. The retry skips both payments; 15 is applied and saved, not 20.
+     */
+    @Test
+    void a_retry_of_two_generated_cycles_does_not_duplicate_the_second_payment() throws Exception {
+        Path state = dir.resolve("two-cycles.json");
+        GymProcessor flow = start(state, new ArrayList<>(), null);
+        flow.onEvent(new Join("m1", "Ada", "MONTHLY"));
+        DataFlow adapter = new DataFlow() {
+            int failures = 1;
+
+            @Override
+            public void onEvent(Object event) {
+                flow.onEvent(new Payment("m1", 10, "cash"));
+                flow.onEvent(new Payment("m1", 5, "cash"));
+                if (failures-- > 0) throw new IllegalStateException("DEMO after both generated cycles");
+            }
+
+            @Override
+            public void setClockStrategy(ClockStrategy clockStrategy) {
+            }
+        };
+        OneToOneConcurrentArrayQueue<Object> queue = new OneToOneConcurrentArrayQueue<>(16);
+        queue.offer(positioned(1, 100, "two payments"));
+        reader(queue, adapter).doWork();
+        assertTrue(errors().isEmpty(), "retry recovered: " + errors());
+        JsonNode record = membership(state);
+        assertAll(() -> assertEquals(35, flow.membership.due("m1"), "payments total 15, not 20"),
+                () -> assertEquals(15.0, record.at("/state/members/m1/paid").asDouble(), "durable payment total"),
+                () -> assertEquals(100, record.at("/positions/input/position").asLong()));
+    }
+
+    /** The adapter's step between the two payments fails once: the retry skips the first and applies the second. */
+    @Test
+    void a_retry_after_a_failure_between_two_generated_cycles_applies_the_second_once() throws Exception {
+        Path state = dir.resolve("partial.json");
+        GymProcessor flow = start(state, new ArrayList<>(), null);
+        flow.onEvent(new Join("m1", "Ada", "MONTHLY"));
+        DataFlow adapter = new DataFlow() {
+            int failures = 1;
+
+            @Override
+            public void onEvent(Object event) {
+                flow.onEvent(new Payment("m1", 10, "cash"));
+                if (failures-- > 0) throw new IllegalStateException("DEMO between the generated cycles");
+                flow.onEvent(new Payment("m1", 5, "cash"));
+            }
+
+            @Override
+            public void setClockStrategy(ClockStrategy clockStrategy) {
+            }
+        };
+        OneToOneConcurrentArrayQueue<Object> queue = new OneToOneConcurrentArrayQueue<>(16);
+        queue.offer(positioned(1, 100, "two payments"));
+        reader(queue, adapter).doWork();
+        assertTrue(errors().isEmpty(), errors().toString());
+        assertEquals(35, flow.membership.due("m1"));
+        assertEquals(15.0, membership(state).at("/state/members/m1/paid").asDouble());
+    }
 }

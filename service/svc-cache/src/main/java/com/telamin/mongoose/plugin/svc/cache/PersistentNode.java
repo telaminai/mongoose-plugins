@@ -53,9 +53,15 @@ import java.util.Map;
  * queued events included, and before the feed can acknowledge or commit it. A queued event is new work and is applied
  * ({@code replayed()} is false for it). A crash before the callback leaves nothing of the delivery saved, so the
  * restart re-delivers it and the whole delivery, queued events included, is applied again. A server retry of a
- * delivery whose cycle this node completed (the dispatch failed after it; {@code DeliveryContext.attempt()} grew) is
- * skipped as already applied in memory, audited {@code retriedSkip}, and saved at the retry's completion. A save that
- * fails in the callback throws, and the reader retries it under its retry policy.
+ * delivery ({@code DeliveryContext.attempt()} grew: a handwritten processor around a generated one failed after some of
+ * its cycles; a generated processor that throws is quarantined, never retried) skips, in order, as many of its cycles
+ * as any earlier attempt completed (their effects are in memory), audited {@code retriedSkip}, applies the cycles past
+ * them, and is saved at the retry's completion. Cycles are matched by their order within the attempt: a retry is taken
+ * to drive the processor's events in the same order. A skipped cycle does not queue the events its handler queued the
+ * first time (the handler returns early), so a retry whose skipped cycles had queued events and that then drives
+ * further events of its own can match those to queued cycles of the earlier attempt and skip them: keep a retried
+ * delivery's follow-up work in the handlers, or make the failing step idempotent and last. A save that fails in the
+ * callback throws, and the reader retries it under its retry policy.
  *
  * <p>On a Mongoose with {@code DeliveryContext} but without the hook (an intermediate 1.1.3 snapshot), a further cycle
  * under a delivery whose position this node already saved cannot be made crash-safe and is <b>refused</b>:
@@ -83,10 +89,14 @@ public abstract class PersistentNode<S> extends EventLogNode {
     private transient DeliveryAccess delivery = DeliveryAccess.DEFAULT;
     /** Without the hook: the positioned delivery whose state this node last saved in this run; a further cycle is refused. */
     private transient Object savedDelivery;
-    /** With the hook: the positioned delivery whose cycle this node completed, saved at its completion. */
+    /** With the hook: the positioned delivery whose cycles this node is handling, saved at its completion. */
     private transient Object pendingDelivery;
-    /** The dispatch attempt ({@code DeliveryContext.attempt()}) of the last cycle this node completed under it. */
-    private transient int pendingAttempt;
+    /** The dispatch attempt ({@code DeliveryContext.attempt()}) the cycles below are counted in. */
+    private transient int cycleAttempt;
+    /** Cycles of the pending delivery this node has completed ({@code @AfterEvent}) in the current attempt. */
+    private transient int cyclesThisAttempt;
+    /** The most cycles of the pending delivery any attempt completed: their effects are in this node's memory. */
+    private transient int cyclesApplied;
     /** The one completion callback of this node, so the delivery keeps it once however many cycles register it. */
     private final transient Runnable completion = this::saveAtCompletion;
 
@@ -157,15 +167,15 @@ public abstract class PersistentNode<S> extends EventLogNode {
             return false;
         }
         if (delivery.hook()) {
-            if (d.equals(pendingDelivery)) {
-                if (delivery.attempt() > pendingAttempt) {
-                    // a retry of the delivery after a failure: this node completed its cycle, so the effect is in
-                    // memory, not yet saved; it is saved at the retry's completion
-                    auditLog.info("retriedSkip", (long) (Long) delivery.position(d));
-                    return true;
-                }
-                return false;   // a further cycle of the same attempt: an event the delivery queued, new work
+            trackCycles(d);
+            if (cyclesThisAttempt < cyclesApplied) {
+                // a retry of the delivery after a failure (hook review R1): an earlier attempt completed this cycle, so
+                // its effect is in memory, not yet saved; it is saved at the retry's completion. Cycles are matched by
+                // their order within the attempt; a cycle past those completed before is new work
+                auditLog.info("retriedSkip", (long) (Long) delivery.position(d));
+                return true;
             }
+            // a cycle no attempt completed: the delivery's first, an event it queued, or one the retry reaches anew
         } else if (d.equals(savedDelivery)) {
             throw reentrant(d);
         }
@@ -186,8 +196,9 @@ public abstract class PersistentNode<S> extends EventLogNode {
         boolean positioned = d != null && delivery.position(d) instanceof Long;
         if (positioned && delivery.hook()) {
             // saved once the delivery, with the events it queued, is complete (see the class notes)
-            pendingDelivery = d;
-            pendingAttempt = delivery.attempt();
+            trackCycles(d);
+            cyclesThisAttempt++;
+            cyclesApplied = Math.max(cyclesApplied, cyclesThisAttempt);
             if (delivery.onComplete(completion)) {
                 return;
             }
@@ -200,6 +211,20 @@ public abstract class PersistentNode<S> extends EventLogNode {
                 throw reentrant(d);
             }
             savedDelivery = d;
+        }
+    }
+
+    /** Count this node's cycles per delivery and per dispatch attempt: a new delivery or a new attempt starts at 0. */
+    private void trackCycles(Object d) {
+        int attempt = delivery.attempt();
+        if (!d.equals(pendingDelivery)) {
+            pendingDelivery = d;
+            cycleAttempt = attempt;
+            cyclesThisAttempt = 0;
+            cyclesApplied = 0;
+        } else if (attempt != cycleAttempt) {
+            cycleAttempt = attempt;
+            cyclesThisAttempt = 0;
         }
     }
 

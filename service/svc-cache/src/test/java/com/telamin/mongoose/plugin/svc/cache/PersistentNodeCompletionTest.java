@@ -243,4 +243,75 @@ class PersistentNodeCompletionTest {
         assertDoesNotThrow(FakeHookDeliveryContext::complete);
         assertNotNull(failing.get("test.account"));
     }
+
+    // ---- hook review R1: a retry of a delivery of several cycles -------------------------------------------------
+
+    /** The reviewer's IndependentRetryCyclesTest: both cycles completed, then the retry drives both again. */
+    @Test
+    void a_retry_of_two_completed_cycles_applies_neither_again() throws Exception {
+        CountingCache cache = new CountingCache();
+        Account a = account(cache);
+        FakeHookDeliveryContext.enter("feed", 1, 7, 100L);
+        assertTrue(a.cycle(10));
+        assertTrue(a.cycle(5));
+        FakeHookDeliveryContext.dispatchFailed();
+        assertFalse(a.cycle(10));
+        assertFalse(a.cycle(5), "completed in the first attempt: not applied twice");
+        FakeHookDeliveryContext.complete();
+        assertEquals(15, a.balance, "completed reentrant cycle must not be applied twice on retry");
+        assertEquals(15, saved(cache).at("/state/balance").asInt());
+        assertEquals(List.of("retriedSkip=100", "retriedSkip=100"), a.audit);
+    }
+
+    /** The first attempt failed after its first cycle: the retry skips that one and applies the cycle it never ran. */
+    @Test
+    void a_retry_of_a_partially_completed_delivery_applies_only_the_cycles_it_had_not_completed() throws Exception {
+        CountingCache cache = new CountingCache();
+        Account a = account(cache);
+        FakeHookDeliveryContext.enter("feed", 1, 7, 100L);
+        assertTrue(a.cycle(10));
+        FakeHookDeliveryContext.dispatchFailed();     // failed before the second cycle
+        assertFalse(a.cycle(10));
+        assertTrue(a.cycle(5), "never applied: new work");
+        FakeHookDeliveryContext.complete();
+        assertEquals(15, a.balance);
+        assertEquals(15, saved(cache).at("/state/balance").asInt());
+    }
+
+    /** Two failed attempts: the second retry skips the cycles completed by either earlier attempt. */
+    @Test
+    void a_second_retry_skips_what_any_earlier_attempt_completed() throws Exception {
+        CountingCache cache = new CountingCache();
+        Account a = account(cache);
+        FakeHookDeliveryContext.enter("feed", 1, 7, 100L);
+        assertTrue(a.cycle(10));
+        FakeHookDeliveryContext.dispatchFailed();
+        assertFalse(a.cycle(10));
+        assertTrue(a.cycle(5));
+        FakeHookDeliveryContext.dispatchFailed();
+        assertFalse(a.cycle(10));
+        assertFalse(a.cycle(5));
+        assertTrue(a.cycle(1));
+        FakeHookDeliveryContext.complete();
+        assertEquals(16, a.balance);
+        assertEquals(1, cache.puts);
+    }
+
+    /**
+     * A queued event is not queued again by a skipped cycle, so the retry runs fewer cycles than the attempt it
+     * repeats: the effect of the queued cycle is in memory and is saved at the retry's completion.
+     */
+    @Test
+    void a_retry_whose_skipped_cycle_queues_nothing_still_saves_the_queued_cycles_effect() throws Exception {
+        CountingCache cache = new CountingCache();
+        Account a = account(cache);
+        FakeHookDeliveryContext.enter("feed", 1, 7, 100L);
+        assertTrue(a.cycle(10));
+        assertTrue(a.cycle(5));                      // queued by the first
+        FakeHookDeliveryContext.dispatchFailed();
+        assertFalse(a.cycle(10));                    // skipped: queues nothing
+        FakeHookDeliveryContext.complete();
+        assertEquals(15, saved(cache).at("/state/balance").asInt());
+        assertEquals(100, saved(cache).at("/positions/feed/position").asLong());
+    }
 }
