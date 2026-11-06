@@ -148,7 +148,8 @@ reply as it happens.
 **No run writes over its own inputs.** The files a run writes or deletes (each cache, `actual`, `audit`) must differ
 from each other and from the files it reads (feed and restart files, protected files). The same file under two names
 counts as the same: a symbolic or hard link (including a symbolic link to a file not yet created, which writing would
-create), `a/../b`, or a case-insensitive name of an existing file. `run()` refuses a collision, or a symbolic link
+create), `a/../b` (resolved as the file system does: when `a` is a symbolic link, `..` is its target's parent), or a
+case-insensitive name of an existing file. `run()` refuses a collision, or a symbolic link
 loop, with `IllegalArgumentException` before anything is deleted or run. (Two names for a file not yet created
 that differ only in case are not detected on a case-insensitive file system.)
 

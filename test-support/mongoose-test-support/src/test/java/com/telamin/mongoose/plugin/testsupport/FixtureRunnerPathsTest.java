@@ -151,6 +151,32 @@ class FixtureRunnerPathsTest {
     }
 
     @Test
+    void a_symbolic_link_followed_by_dot_dot_is_resolved_before_the_dot_dot() throws Exception {
+        Path feed = write("feed.txt", "a\n");
+        Path real = Files.createDirectories(dir.resolve("real").resolve("sub")).getParent();
+        Path alias = dir.resolve("alias");
+        Path audit = dir.resolve("audit.yaml");
+        try {
+            Files.createSymbolicLink(alias, Path.of("real", "sub"));                    // alias/.. is real, not dir
+            Files.createSymbolicLink(audit, Path.of("alias", "..", "actual.txt"));     // dangling: real/actual.txt
+        } catch (UnsupportedOperationException | java.io.IOException e) {
+            assumeTrue(false, "no symbolic links here: " + e);
+        }
+        Path actual = real.resolve("actual.txt");
+        Path state = dir.resolve("state.json");
+        assertEquals(2, cli("--cache", "counterState=" + state, "--feed", feed.toString(),
+                "--actual", actual.toString(), "--audit", audit.toString()), out());
+        String literal = alias + java.io.File.separator + ".." + java.io.File.separator + "actual.txt";
+        assertEquals(2, cli("--cache", "counterState=" + state, "--feed", feed.toString(),
+                "--actual", actual.toString(), "--audit", literal), out());
+        assertFalse(Files.exists(actual), "nothing ran, so nothing was written through the link");
+        assertFalse(Files.exists(state), "nothing ran");
+        Path elsewhere = dir.resolve("actual.txt");   // what a lexical alias/.. would have named: a different file
+        assertEquals(0, cli("--cache", "counterState=" + state, "--feed", feed.toString(),
+                "--actual", elsewhere.toString(), "--audit", audit.toString()), out());
+    }
+
+    @Test
     void a_symbolic_link_loop_is_rejected() throws Exception {
         Path feed = write("feed.txt", "a\n");
         Path a = dir.resolve("a.txt");
