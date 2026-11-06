@@ -54,9 +54,9 @@ class SchemaGeneratorTest {
         Schema s = build();
         assertEquals(SchemaGenerator.SCHEMA_VERSION, s.schemaVersion());
         assertEquals(VERSION, s.pluginsVersion());
-        // P2 index: 5 plugin connectors × 2 = 10, + 10 services + 4 mongoose-core
-        // built-ins (file + in-memory, source+sink) = 24.
-        assertEquals(24, s.plugins().size());
+        // P2 index: 5 plugin connectors × 2 = 10, + connector-file's JsonLineSink, + 10 services
+        // + 4 mongoose-core built-ins (file + in-memory, source+sink) = 25.
+        assertEquals(25, s.plugins().size());
     }
 
     @Test
@@ -131,6 +131,20 @@ class SchemaGeneratorTest {
         assertTrue(readStrategy.enumValues().contains("EARLIEST"), "enum constants captured");
 
         assertEquals("boolean", field(p, "cacheEventLog").type());
+    }
+
+    @Test
+    void jsonLineSinkHasItsOwnEntryAndOverrides() throws Exception {
+        PluginSchema p = build().plugins().stream()
+                .filter(x -> x.instanceFqn().equals("com.telamin.mongoose.plugin.connector.file.JsonLineSink"))
+                .findFirst().orElseThrow(() -> new AssertionError("JsonLineSink not in the schema"));
+        assertEquals("connector-file", p.artifactId());
+        assertEquals("eventSinks", p.yamlKey());
+        FieldSchema filename = field(p, "filename");
+        assertTrue(filename.required(), "its own override key applies: filename required");
+        assertEquals("path", filename.format());
+        assertEquals("millis", field(p, "rotateOnIntervalMillis").format());
+        assertTrue(p.fields().stream().noneMatch(f -> f.name().equals("firstLineSupplier")), "hidden");
     }
 
     @Test

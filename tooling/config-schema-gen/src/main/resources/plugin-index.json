@@ -47,6 +47,13 @@
       "doc": "Append messages to a file."
     },
     {
+      "artifactId": "connector-file",
+      "id": "connector-file-jsonline:sink",
+      "kind": "sink",
+      "instanceFqn": "com.telamin.mongoose.plugin.connector.file.JsonLineSink",
+      "doc": "Append messages to a file, one per line: a String as it is, any other value as one line of JSON."
+    },
+    {
       "artifactId": "connector-kafka",
       "kind": "source",
       "instanceFqn": "com.telamin.mongoose.plugin.connector.kafka.KafkaMessageConsumer",

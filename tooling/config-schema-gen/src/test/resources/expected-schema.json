@@ -137,6 +137,39 @@
       "doc" : "Rotate when the file exceeds this many bytes; 0 = never."
     } ]
   }, {
+    "artifactId" : "connector-file",
+    "kind" : "sink",
+    "yamlKey" : "eventSinks",
+    "yamlBindKey" : "instance",
+    "instanceFqn" : "com.telamin.mongoose.plugin.connector.file.JsonLineSink",
+    "doc" : "Append messages to a file, one per line: a String as it is, any other value as one line of JSON.",
+    "fields" : [ {
+      "name" : "filename",
+      "type" : "string",
+      "required" : true,
+      "format" : "path",
+      "doc" : "Path of the output file."
+    }, {
+      "name" : "maxBackupFiles",
+      "type" : "int",
+      "required" : false,
+      "default" : 0,
+      "doc" : "Number of rotated backups to retain."
+    }, {
+      "name" : "rotateOnIntervalMillis",
+      "type" : "long",
+      "required" : false,
+      "default" : 0,
+      "format" : "millis",
+      "doc" : "Rotate on this interval; 0 = never."
+    }, {
+      "name" : "rotateOnSizeBytes",
+      "type" : "long",
+      "required" : false,
+      "default" : 0,
+      "doc" : "Rotate when the file exceeds this many bytes; 0 = never."
+    } ]
+  }, {
     "artifactId" : "connector-kafka",
     "kind" : "source",
     "yamlKey" : "eventFeeds",
