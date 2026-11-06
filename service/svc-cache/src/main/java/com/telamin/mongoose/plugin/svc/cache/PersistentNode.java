@@ -44,6 +44,24 @@ import java.util.Map;
  * shows the cycle was a deliberate no-op. {@code DeliveryContext} is looked up reflectively, once, so this class also
  * runs on a Mongoose without it.
  *
+ * <p><b>No reentrant events during a positioned delivery.</b> A handler, or a sink it publishes to, that sends the
+ * processor another event with {@code onEvent} (or {@code EventDispatcher.queueReentrantEvent} /
+ * {@code processReentrantEvent}) while the processor is handling a delivery with a source position makes the
+ * processor run a second event cycle under that same delivery. The generated processor runs {@code @AfterEvent} (this
+ * node's save, with the delivery's position) at the end of the first cycle, before it drains the queued event, and
+ * neither Fluxtion nor Mongoose tells a node when the whole delivery, queued events included, is complete. The second
+ * cycle can then be neither skipped (it is new work, not a replay) nor applied safely (after a crash before its save,
+ * the restarted node skips the re-delivered event as already applied, so nothing queues the second event again and its
+ * effect is lost). It is therefore <b>refused</b>: {@link #replayed()} and {@link #saveState()} throw
+ * {@link IllegalStateException} in any further event cycle under a delivery this node has already saved in this run
+ * ({@code saveState} first writes the node's state, so the cache still matches the node). On a server the
+ * processor's dispatch fails and is retried, and refused again, by the feed's retry policy; the event is then dropped
+ * and reported. The same applies to any other second cycle under one delivery, e.g. a synthetic clock installed for a
+ * {@code ReplayRecord} on a positioned feed, or a server's retry of a delivery that failed after this node saved it
+ * (the saved state already holds that delivery's effect). Do the follow-up work in the same cycle (call the method, rather than
+ * re-dispatching an event), or publish it to a feed of its own. Events without a source position (no
+ * {@code DeliveryContext}, a timer, an admin command, a fixture run) are never refused.
+ *
  * <p><b>One PersistentNode per processor, or independent nodes only.</b> Each PersistentNode writes its own record,
  * so a processor with several of them writes the cache file once per node per event, and a crash between two nodes'
  * writes leaves them at different saved positions. On restart the re-delivered event is then {@code replayed()} for
@@ -62,6 +80,8 @@ public abstract class PersistentNode<S> extends EventLogNode {
     /** Per feed, the source epoch and position of the last event whose effect is in the saved state. */
     private transient Map<String, Applied> appliedPositions = new HashMap<>();
     private transient DeliveryAccess delivery = DeliveryAccess.DEFAULT;
+    /** The positioned delivery whose state this node last saved in this run: a further cycle under it is refused. */
+    private transient Object savedDelivery;
 
     /** A source position within one epoch of the source (a new epoch: the pointer or the input file was reset). */
     public record Applied(long epoch, long position) {
@@ -118,11 +138,19 @@ public abstract class PersistentNode<S> extends EventLogNode {
         }
     }
 
-    /** True when the current event was re-delivered after a crash and its effect is already in the saved state. */
+    /**
+     * True when the current event was re-delivered after a crash and its effect is already in the saved state.
+     *
+     * @throws IllegalStateException for a further event cycle under a delivery whose state this node already saved in
+     *                               this run: an event queued reentrantly during the delivery (see the class notes)
+     */
     protected boolean replayed() {
         Object d = delivery.current();
         if (d == null || !(delivery.position(d) instanceof Long)) {
             return false;
+        }
+        if (d.equals(savedDelivery)) {
+            throw reentrant(d);
         }
         Applied stored = appliedPositions.get(delivery.feed(d));
         if (stored != null && delivery.alreadyApplied(d, stored.epoch(), stored.position())) {
@@ -137,7 +165,9 @@ public abstract class PersistentNode<S> extends EventLogNode {
         if (cache != null) {
             try {
                 Object d = delivery.current();
-                if (d != null && delivery.position(d) instanceof Long pos) {
+                boolean positioned = d != null && delivery.position(d) instanceof Long;
+                if (positioned) {
+                    long pos = (Long) delivery.position(d);
                     // same epoch: keep the furthest position; a new epoch (source reset) starts over
                     appliedPositions.merge(delivery.feed(d), new Applied(delivery.epoch(d), pos),
                             (old, now) -> old.epoch() == now.epoch() && old.position() >= now.position() ? old : now);
@@ -147,10 +177,25 @@ public abstract class PersistentNode<S> extends EventLogNode {
                 record.set("state", JSON.valueToTree(state()));
                 record.set("positions", JSON.valueToTree(appliedPositions));
                 cache.put(stateKey(), JSON.writeValueAsString(record));
+                if (positioned) {
+                    // written first, so the saved record matches this node's state; then refused (see class notes)
+                    if (d.equals(savedDelivery)) {
+                        throw reentrant(d);
+                    }
+                    savedDelivery = d;
+                }
             } catch (IOException e) {
                 throw new IllegalStateException("cannot save state '" + stateKey() + "'", e);
             }
         }
+    }
+
+    private IllegalStateException reentrant(Object d) {
+        return new IllegalStateException("PersistentNode '" + stateKey() + "': a second event cycle under delivery "
+                + d + ", whose position this node already saved. An event sent to the processor reentrantly (onEvent"
+                + " or EventDispatcher from a handler or a sink) during a positioned delivery runs after the"
+                + " delivery's @AfterEvent save and cannot be made crash-safe, so it is refused: do the work in the"
+                + " same cycle, or publish it to a feed of its own");
     }
 
     /** For tests: the delivery context this node reads. */
