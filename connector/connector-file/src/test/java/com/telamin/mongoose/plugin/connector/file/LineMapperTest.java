@@ -56,6 +56,27 @@ class LineMapperTest {
     }
 
     @Test
+    void json_lines_with_content_after_the_first_value_are_rejected() {
+        LineMapper quotes = new LineMapper() {
+            {
+                json(Quote.class);
+            }
+        };
+        for (String bad : List.of("{\"sym\":\"A\",\"px\":1}{\"sym\":\"B\",\"px\":2}",
+                "{\"sym\":\"A\",\"px\":1} {\"sym\":\"B\",\"px\":2}",
+                "{\"sym\":\"A\",\"px\":1} garbage",
+                "{\"sym\":\"A\",\"px\":1}}",
+                "{\"sym\":\"A\",\"px\":1} 42")) {
+            assertEquals(new Rejected(bad), quotes.apply(bad), bad);
+        }
+        for (String bad : List.of("{\"type\":\"PICKUP\",\"id\":\"p1\"}{\"type\":\"PICKUP\",\"id\":\"p2\"}",
+                "{\"type\":\"PICKUP\",\"id\":\"p1\"},")) {
+            assertEquals(new Rejected(bad), mapper.apply(bad), bad);
+        }
+        assertEquals(new Quote("A", 1), quotes.apply("{\"sym\":\"A\",\"px\":1}   "), "trailing white space is not content");
+    }
+
+    @Test
     void json_lines_without_a_type_field() {
         LineMapper quotes = new LineMapper() {
             {

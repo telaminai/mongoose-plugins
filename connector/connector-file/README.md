@@ -95,7 +95,8 @@ an exception or a `null` result gives `Rejected(line)`, an event a node can hand
 field; fields fill the record's components by name, unknown fields are ignored. Parsers: `at` (LocalDateTime), `date`,
 `i`, `l`, `d`. Non-text input passes through unchanged. A trailing `\r` (a CRLF file) is dropped before mapping. With
 both `json(cls)` and typed `json(type, cls)` registered, a line with no type field goes to `json(cls)` and a line whose
-type is not registered is rejected.
+type is not registered is rejected. A JSON line holds one value: malformed JSON, or anything but white space after
+the first value (two objects on one line, trailing garbage), is rejected too.
 
 ```yaml
 eventFeeds:

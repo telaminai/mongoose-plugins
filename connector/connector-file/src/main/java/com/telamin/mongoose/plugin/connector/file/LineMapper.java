@@ -6,7 +6,9 @@
 package com.telamin.mongoose.plugin.connector.file;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.ObjectReader;
 import com.telamin.mongoose.plugin.lib.json.StateJson;
 
 import java.time.LocalDate;
@@ -26,8 +28,8 @@ import java.util.function.Function;
  * <p>JSON lines: a line starting with <code>{</code> is JSON. Register each class with the value of its
  * {@link #typeField()} ({@code "type"} by default), e.g. {@code json("PICKUP", PickupRequest.class);}, or
  * {@code json(Quote.class)} for a feed with no type field. The JSON fields fill the record's components by name
- * (unknown fields are ignored; java.time values as ISO strings, see {@link StateJson}). Malformed JSON or an
- * unregistered type gives Rejected: a line whose type field names no registered type is rejected even when
+ * (unknown fields are ignored; java.time values as ISO strings, see {@link StateJson}). Malformed JSON, anything but
+ * white space after the first JSON value (e.g. two objects on one line), or an unregistered type gives Rejected: a line whose type field names no registered type is rejected even when
  * {@code json(cls)} is registered, which takes only lines with no type field.
  *
  * <pre>
@@ -43,6 +45,8 @@ import java.util.function.Function;
 public abstract class LineMapper implements Function<Object, Object> {
 
     private static final ObjectMapper JSON = StateJson.mapper();
+    /** One JSON value per line: content after it (a second object, garbage) fails the read. */
+    private static final ObjectReader ONE_VALUE = JSON.reader().with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
 
     private record Spec(int fields, Function<String[], Object> mapper) {
     }
@@ -94,7 +98,7 @@ public abstract class LineMapper implements Function<Object, Object> {
 
     private Object mapJson(String line) {
         try {
-            JsonNode node = JSON.readTree(line);
+            JsonNode node = ONE_VALUE.readTree(line);
             JsonNode type = node.get(typeField());
             Class<?> cls = jsonTypes.get(type == null ? "" : type.asText());
             if (cls == null) {
