@@ -1,0 +1,5 @@
+IN m1
+BOOK b7 m1 studio-a 2026-11-05T18:00
+PAY m1 50.00 CARD
+OUT m2
+IN m1

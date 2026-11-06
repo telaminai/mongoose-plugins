@@ -1,0 +1,8 @@
+ALERT membership PAY m9: unknown member, payment of 10.0 not applied
+ALERT access IN m3: membership not active, balance due 30.0
+ALERT access IN m1: already checked in
+ALERT bookings BOOK b2: studio-a at 2026-11-05T18:00 already booked by b1
+ALERT bookings BOOK b3: member m3 not active, balance due 30.0
+ALERT bookings BOOK b4: unknown room pool
+ALERT access IN m3: gym at capacity (2/2)
+ALERT access OUT m9: not checked in
