@@ -114,23 +114,31 @@ for the other; if the first is upstream and returns early, the downstream node n
 Keep the replay guard to one PersistentNode per processor, or to nodes that do not trigger one another. (Writes are not
 batched into one per event cycle.)
 
-**No reentrant events during a positioned delivery: they are refused.** A handler, or a sink it publishes to, that
-sends the processor another event (`onEvent`, `EventDispatcher.queueReentrantEvent` or `processReentrantEvent`)
-while the processor handles an event that has a source position makes it run a second event cycle under the same
-delivery. The generated processor runs `@AfterEvent` (each PersistentNode's save, with the delivery's position) at the
-end of the first cycle, before it drains the queued event, and neither Fluxtion nor Mongoose tells a node when the
-delivery as a whole, queued events included, is complete. The second cycle can be neither skipped (it is new work, not
-a replay) nor applied safely (after a crash before its save, the restarted node skips the re-delivered event as
-already applied, so nothing queues the second event again and its effect is lost). So `replayed()` and `saveState()`
-throw `IllegalStateException` in any further cycle under a delivery the node already saved in this run (`saveState`
-writes first, so the cache matches the node). On a server the dispatch fails, is retried and refused again by the
-feed's retry policy, and the event is dropped and reported. The same applies to any other second cycle under one
-delivery: a synthetic clock installed for a `ReplayRecord` on a positioned feed, or a server retry of a delivery that
-failed after the node saved it (its effect is already saved). Do the follow-up work in the same cycle (call the method
-rather than re-dispatching an event), or publish it to a feed of its own. Events without a source position (no
-`DeliveryContext`, timers, admin commands, fixture runs) are never refused. Lifting this needs a delivery-complete
-hook upstream (a Fluxtion callback after the processor drains its queued events, or a Mongoose callback after a
-processor's dispatch of a positioned item), so the position is committed once per delivery.
+**Saved once per delivery, at delivery completion (recommended).** A handler, or a sink it publishes to, may send the
+processor another event (`onEvent`, `EventDispatcher.queueReentrantEvent`) while the processor handles an event that
+has a source position. The generated processor runs `@AfterEvent` at the end of the first cycle and then the queued
+event, as a second cycle under the same delivery. With Mongoose's delivery-complete hook
+(`DeliveryContext.onComplete`, Mongoose 1.1.3) the node's `@AfterEvent` does not write for a positioned delivery: it
+registers one callback for the delivery, and Mongoose's reader runs it once the delivery is complete, after every
+event the delivery queued, and before the feed can acknowledge or commit the line. The callback writes the state and
+the delivery's position, once. So:
+
+- a queued event is new work and is applied (`replayed()` is false for it);
+- a crash before the callback leaves nothing of the delivery saved: the line was not acknowledged, the restart
+  re-delivers it, and the whole delivery, queued events included, is applied again;
+- a server retry of a delivery whose cycle the node completed (the dispatch failed after it,
+  `DeliveryContext.attempt()` grew) is skipped as already applied in memory, audited `retriedSkip`, and saved at the
+  retry's completion; a `ReplayRecord`'s synthetic-clock cycle is just another cycle of the delivery;
+- a save that fails in the callback throws; the reader retries it under the feed group's retry policy, and if the
+  policy gives up the error is reported and the line is acknowledged, as any failed item is;
+- events without a source position (timers, admin commands, fixture runs) are saved in every cycle, as before.
+
+`DeliveryAccess` finds the hook through method handles, so the module still builds and runs against older Mongoose
+releases: on 1.1.2 and earlier (no `DeliveryContext`) nothing changes (no replay guard, a save in every cycle). On a
+Mongoose that has `DeliveryContext` but not the hook (an intermediate 1.1.3 snapshot), a further cycle under a
+delivery whose position the node already saved cannot be made crash-safe and is refused: `replayed()` and
+`saveState()` throw `IllegalStateException` (`saveState` writes first, so the cache matches the node); do the
+follow-up work in the same cycle or publish it to a feed of its own there.
 
 The saved record is `{"_v":3,"state":{...},"positions":{"<feed>":{"epoch":e,"position":p}}}`; older records (the bare
 state, or `_v:2`) still restore, without trusting their positions.
@@ -138,7 +146,8 @@ state, or `_v:2`) still restore, without trusting their positions.
 **Replay guard.** With a Mongoose that provides `com.telamin.mongoose.service.delivery.DeliveryContext` (at-least-once
 file feed delivery), the node stores each feed's source epoch and position in the same write as its state, and
 `replayed()` is true for an event whose effect is already saved; a skipped event is audited as `replayedSkip`. Use a
-`JsonFileCache` with `asyncWrite: false` and no agent group, so the state is written in the event cycle that changed it.
+`JsonFileCache` with `asyncWrite: false` and no agent group, so the state is written before the feed can commit the line
+(at delivery completion with the hook, else in the event cycle that changed it).
 `DeliveryContext` is looked up once through method handles: on a Mongoose without it (1.1.2 and earlier) the guard is
 off and `replayed()` is always false; nothing else changes.
 
@@ -197,7 +206,8 @@ When a `JsonFileCache` is wired alongside an `AdminCommandRegistry`, it auto-reg
 - [`JsonFileCacheConcurrencyTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/JsonFileCacheConcurrencyTest.java) — a put overlapped by the agent's doWork or by another thread's synchronous put is never left unsaved (deterministic interleavings and thread races).
 - [`JsonFileCacheTempAndTearDownTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/JsonFileCacheTempAndTearDownTest.java) — per-write temporary files, only this file's stale ones removed (a distinct cache's data file or live write whose name extends this one's is kept), temporary-form, control-character and over-long file names refused at init, two instances on one file, tearDown dirty-flag and failed-init guards.
 - [`JsonFileCacheKillTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/JsonFileCacheKillTest.java) — a child writer process is SIGKILLed mid-write six times; the file always loads with one whole value.
-- [`PersistentNodeReentrantTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/PersistentNodeReentrantTest.java) — an event queued during a positioned delivery is refused, not skipped; a crash at the first cycle's save ends at the same state as the refusing live run; separate deliveries and position-less events are not refused.
+- [`PersistentNodeCompletionTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/PersistentNodeCompletionTest.java) — with the delivery-complete hook (a test double of it): an event queued during a delivery is applied and the delivery saved once at completion; a crash before completion saves nothing and the restart re-applies the whole delivery; a retry of a completed cycle is skipped; a synthetic-clock cycle is not refused; events without a position are saved at once; a failing save throws so the reader retries it.
+- [`PersistentNodeReentrantTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/PersistentNodeReentrantTest.java) — the fallback without the hook: an event queued during a positioned delivery is refused, not skipped; a crash at the first cycle's save ends at the same state as the refusing live run; separate deliveries and position-less events are not refused.
 - [`PersistentNodeTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/PersistentNodeTest.java) — save/restore, older records, seeding; replay guard off without `DeliveryContext`, on with a test double of it, and on with Mongoose's own when built against a Mongoose that has it (`-Dmongoose.version=...`).
 - [`SeedTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/SeedTest.java).
 

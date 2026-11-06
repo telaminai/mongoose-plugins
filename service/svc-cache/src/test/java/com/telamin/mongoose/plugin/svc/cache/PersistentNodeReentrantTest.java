@@ -17,7 +17,8 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * A second event cycle under one delivery (an event a handler or sink queued with {@code onEvent} while the delivery
+ * The fallback on a Mongoose with {@code DeliveryContext} but without the delivery-complete hook (this test double has
+ * no {@code onComplete}; with the hook see {@link PersistentNodeCompletionTest}). A second event cycle under one delivery (an event a handler or sink queued with {@code onEvent} while the delivery
  * was being handled) is refused: its source position was saved at the first cycle's {@code @AfterEvent}, so it can
  * be neither skipped as a replay (it is new) nor applied safely (a crash before its save would skip it on restart,
  * and the redelivered outer event, skipped, never queues it again).

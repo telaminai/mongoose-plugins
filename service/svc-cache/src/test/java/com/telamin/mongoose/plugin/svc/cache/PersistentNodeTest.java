@@ -236,6 +236,10 @@ class PersistentNodeTest {
             first.cacheRegistered(cache);
             enter.invoke(null, "feed", 1L, 3L, 100L);
             assertTrue(first.cycle(T0));
+            if (DeliveryAccess.DEFAULT.hook()) {
+                // with the delivery-complete hook the save waits for the reader's completion: run it, as the reader does
+                ctx.getMethod("runCompletions").invoke(null);
+            }
 
             Counter restarted = new Counter();
             restarted.cacheRegistered(cache);

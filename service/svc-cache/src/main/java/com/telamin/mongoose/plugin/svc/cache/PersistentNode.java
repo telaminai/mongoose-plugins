@@ -37,30 +37,31 @@ import java.util.Map;
  * lines after a crash. The node saves each feed's source epoch and position in the same write as its state, and
  * {@link #replayed()} is true for an event whose effect the saved state already holds: start every handler that
  * changes state or publishes with {@code if (replayed()) return false;}. Use a {@link JsonFileCache} (its writes are
- * atomic) with {@code asyncWrite: false} (the default) and no agentGroup, so the state is written in the event cycle
- * that changed it; an asynchronous write would let the feed commit run ahead of the saved state. With a Mongoose
+ * atomic) with {@code asyncWrite: false} (the default) and no agentGroup, so the state is written before the feed can
+ * commit the event; an asynchronous write would let the feed commit run ahead of the saved state. With a Mongoose
  * without {@code DeliveryContext}, or an event that has no source position (a timer, an admin command),
- * {@code replayed()} is false. A skipped event is audited with {@code replayedSkip} (the saved position), so the audit
- * shows the cycle was a deliberate no-op. {@code DeliveryContext} is looked up reflectively, once, so this class also
- * runs on a Mongoose without it.
+ * {@code replayed()} is false and the state is saved in every event cycle. A skipped event is audited with
+ * {@code replayedSkip} (the saved position), so the audit shows the cycle was a deliberate no-op.
+ * {@code DeliveryContext} is looked up reflectively, once, so this class also runs on a Mongoose without it.
  *
- * <p><b>No reentrant events during a positioned delivery.</b> A handler, or a sink it publishes to, that sends the
- * processor another event with {@code onEvent} (or {@code EventDispatcher.queueReentrantEvent} /
- * {@code processReentrantEvent}) while the processor is handling a delivery with a source position makes the
- * processor run a second event cycle under that same delivery. The generated processor runs {@code @AfterEvent} (this
- * node's save, with the delivery's position) at the end of the first cycle, before it drains the queued event, and
- * neither Fluxtion nor Mongoose tells a node when the whole delivery, queued events included, is complete. The second
- * cycle can then be neither skipped (it is new work, not a replay) nor applied safely (after a crash before its save,
- * the restarted node skips the re-delivered event as already applied, so nothing queues the second event again and its
- * effect is lost). It is therefore <b>refused</b>: {@link #replayed()} and {@link #saveState()} throw
- * {@link IllegalStateException} in any further event cycle under a delivery this node has already saved in this run
- * ({@code saveState} first writes the node's state, so the cache still matches the node). On a server the
- * processor's dispatch fails and is retried, and refused again, by the feed's retry policy; the event is then dropped
- * and reported. The same applies to any other second cycle under one delivery, e.g. a synthetic clock installed for a
- * {@code ReplayRecord} on a positioned feed, or a server's retry of a delivery that failed after this node saved it
- * (the saved state already holds that delivery's effect). Do the follow-up work in the same cycle (call the method, rather than
- * re-dispatching an event), or publish it to a feed of its own. Events without a source position (no
- * {@code DeliveryContext}, a timer, an admin command, a fixture run) are never refused.
+ * <p><b>Saved once per delivery, when the delivery is complete.</b> A handler, or a sink it publishes to, may send the
+ * processor another event with {@code onEvent} (or {@code EventDispatcher.queueReentrantEvent}) while it handles a
+ * delivery: the generated processor runs {@code @AfterEvent} at the end of the first cycle and then the queued event,
+ * as a second cycle under the same delivery. With Mongoose's delivery-complete hook ({@code DeliveryContext.onComplete},
+ * Mongoose 1.1.3) the {@code @AfterEvent} of a positioned delivery does not write: it registers one callback for the
+ * delivery, and the state and the delivery's position are written once, when the reader has finished the delivery,
+ * queued events included, and before the feed can acknowledge or commit it. A queued event is new work and is applied
+ * ({@code replayed()} is false for it). A crash before the callback leaves nothing of the delivery saved, so the
+ * restart re-delivers it and the whole delivery, queued events included, is applied again. A server retry of a
+ * delivery whose cycle this node completed (the dispatch failed after it; {@code DeliveryContext.attempt()} grew) is
+ * skipped as already applied in memory, audited {@code retriedSkip}, and saved at the retry's completion. A save that
+ * fails in the callback throws, and the reader retries it under its retry policy.
+ *
+ * <p>On a Mongoose with {@code DeliveryContext} but without the hook (an intermediate 1.1.3 snapshot), a further cycle
+ * under a delivery whose position this node already saved cannot be made crash-safe and is <b>refused</b>:
+ * {@link #replayed()} and {@link #saveState()} throw {@link IllegalStateException} ({@code saveState} first writes the
+ * node's state, so the cache still matches the node). Without {@code DeliveryContext} (1.1.2 and earlier) nothing
+ * changes: no replay guard, a save in every cycle.
  *
  * <p><b>One PersistentNode per processor, or independent nodes only.</b> Each PersistentNode writes its own record,
  * so a processor with several of them writes the cache file once per node per event, and a crash between two nodes'
@@ -80,8 +81,14 @@ public abstract class PersistentNode<S> extends EventLogNode {
     /** Per feed, the source epoch and position of the last event whose effect is in the saved state. */
     private transient Map<String, Applied> appliedPositions = new HashMap<>();
     private transient DeliveryAccess delivery = DeliveryAccess.DEFAULT;
-    /** The positioned delivery whose state this node last saved in this run: a further cycle under it is refused. */
+    /** Without the hook: the positioned delivery whose state this node last saved in this run; a further cycle is refused. */
     private transient Object savedDelivery;
+    /** With the hook: the positioned delivery whose cycle this node completed, saved at its completion. */
+    private transient Object pendingDelivery;
+    /** The dispatch attempt ({@code DeliveryContext.attempt()}) of the last cycle this node completed under it. */
+    private transient int pendingAttempt;
+    /** The one completion callback of this node, so the delivery keeps it once however many cycles register it. */
+    private final transient Runnable completion = this::saveAtCompletion;
 
     /** A source position within one epoch of the source (a new epoch: the pointer or the input file was reset). */
     public record Applied(long epoch, long position) {
@@ -141,15 +148,25 @@ public abstract class PersistentNode<S> extends EventLogNode {
     /**
      * True when the current event was re-delivered after a crash and its effect is already in the saved state.
      *
-     * @throws IllegalStateException for a further event cycle under a delivery whose state this node already saved in
-     *                               this run: an event queued reentrantly during the delivery (see the class notes)
+     * @throws IllegalStateException on a Mongoose without the delivery-complete hook, for a further event cycle under a
+     *                               delivery whose state this node already saved in this run (see the class notes)
      */
     protected boolean replayed() {
         Object d = delivery.current();
         if (d == null || !(delivery.position(d) instanceof Long)) {
             return false;
         }
-        if (d.equals(savedDelivery)) {
+        if (delivery.hook()) {
+            if (d.equals(pendingDelivery)) {
+                if (delivery.attempt() > pendingAttempt) {
+                    // a retry of the delivery after a failure: this node completed its cycle, so the effect is in
+                    // memory, not yet saved; it is saved at the retry's completion
+                    auditLog.info("retriedSkip", (long) (Long) delivery.position(d));
+                    return true;
+                }
+                return false;   // a further cycle of the same attempt: an event the delivery queued, new work
+            }
+        } else if (d.equals(savedDelivery)) {
             throw reentrant(d);
         }
         Applied stored = appliedPositions.get(delivery.feed(d));
@@ -162,31 +179,52 @@ public abstract class PersistentNode<S> extends EventLogNode {
 
     @AfterEvent
     public void saveState() {
-        if (cache != null) {
-            try {
-                Object d = delivery.current();
-                boolean positioned = d != null && delivery.position(d) instanceof Long;
-                if (positioned) {
-                    long pos = (Long) delivery.position(d);
-                    // same epoch: keep the furthest position; a new epoch (source reset) starts over
-                    appliedPositions.merge(delivery.feed(d), new Applied(delivery.epoch(d), pos),
-                            (old, now) -> old.epoch() == now.epoch() && old.position() >= now.position() ? old : now);
-                }
-                ObjectNode record = JSON.createObjectNode();
-                record.put("_v", 3);
-                record.set("state", JSON.valueToTree(state()));
-                record.set("positions", JSON.valueToTree(appliedPositions));
-                cache.put(stateKey(), JSON.writeValueAsString(record));
-                if (positioned) {
-                    // written first, so the saved record matches this node's state; then refused (see class notes)
-                    if (d.equals(savedDelivery)) {
-                        throw reentrant(d);
-                    }
-                    savedDelivery = d;
-                }
-            } catch (IOException e) {
-                throw new IllegalStateException("cannot save state '" + stateKey() + "'", e);
+        if (cache == null) {
+            return;
+        }
+        Object d = delivery.current();
+        boolean positioned = d != null && delivery.position(d) instanceof Long;
+        if (positioned && delivery.hook()) {
+            // saved once the delivery, with the events it queued, is complete (see the class notes)
+            pendingDelivery = d;
+            pendingAttempt = delivery.attempt();
+            if (delivery.onComplete(completion)) {
+                return;
             }
+            pendingDelivery = null;   // not a reader's delivery after all: save now
+        }
+        write(d, positioned);
+        if (positioned && !delivery.hook()) {
+            // written first, so the saved record matches this node's state; then refused (see class notes)
+            if (d.equals(savedDelivery)) {
+                throw reentrant(d);
+            }
+            savedDelivery = d;
+        }
+    }
+
+    /** The delivery is complete: save the state with its position, once. */
+    private void saveAtCompletion() {
+        Object d = delivery.current();
+        write(d, d != null && delivery.position(d) instanceof Long);
+        pendingDelivery = null;
+    }
+
+    private void write(Object d, boolean positioned) {
+        try {
+            if (positioned) {
+                long pos = (Long) delivery.position(d);
+                // same epoch: keep the furthest position; a new epoch (source reset) starts over
+                appliedPositions.merge(delivery.feed(d), new Applied(delivery.epoch(d), pos),
+                        (old, now) -> old.epoch() == now.epoch() && old.position() >= now.position() ? old : now);
+            }
+            ObjectNode record = JSON.createObjectNode();
+            record.put("_v", 3);
+            record.set("state", JSON.valueToTree(state()));
+            record.set("positions", JSON.valueToTree(appliedPositions));
+            cache.put(stateKey(), JSON.writeValueAsString(record));
+        } catch (IOException e) {
+            throw new IllegalStateException("cannot save state '" + stateKey() + "'", e);
         }
     }
 

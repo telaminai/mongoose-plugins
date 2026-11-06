@@ -17,13 +17,14 @@ import java.lang.invoke.MethodType;
  * {@link #enabled()} is false and {@link #current()} always null; against one that has
  * {@value #CONTEXT_CLASS}, whose static {@code current()} returns a {@code Delivery} with {@code feed()},
  * {@code epoch()}, {@code position()} and {@code alreadyApplied(long, Object)}, the calls go straight to it through
- * method handles.
+ * method handles. The delivery-complete hook (Mongoose 1.1.3: static {@code onComplete(Runnable)} and
+ * {@code attempt()}) is optional: {@link #hook()} says whether this Mongoose has it.
  */
 @Log4j2
 final class DeliveryAccess {
 
     static final String CONTEXT_CLASS = "com.telamin.mongoose.service.delivery.DeliveryContext";
-    static final DeliveryAccess OFF = new DeliveryAccess(null, null, null, null, null);
+    static final DeliveryAccess OFF = new DeliveryAccess(null, null, null, null, null, null, null);
     /** Resolved once against the Mongoose on this module's class path. */
     static final DeliveryAccess DEFAULT = resolve(CONTEXT_CLASS, DeliveryAccess.class.getClassLoader());
 
@@ -32,9 +33,13 @@ final class DeliveryAccess {
     private final MethodHandle epoch;            // (Object)long
     private final MethodHandle position;         // (Object)Object
     private final MethodHandle alreadyApplied;   // (Object,long,Object)boolean
+    private final MethodHandle onComplete;       // (Runnable)boolean, null without the hook
+    private final MethodHandle attempt;          // ()int, null without the hook
 
     private DeliveryAccess(MethodHandle current, MethodHandle feed, MethodHandle epoch, MethodHandle position,
-                           MethodHandle alreadyApplied) {
+                           MethodHandle alreadyApplied, MethodHandle onComplete, MethodHandle attempt) {
+        this.onComplete = onComplete;
+        this.attempt = attempt;
         this.current = current;
         this.feed = feed;
         this.epoch = epoch;
@@ -68,8 +73,17 @@ final class DeliveryAccess {
             MethodHandle alreadyApplied = lookup.findVirtual(delivery, "alreadyApplied",
                             MethodType.methodType(boolean.class, long.class, Object.class))
                     .asType(MethodType.methodType(boolean.class, Object.class, long.class, Object.class));
-            log.debug("{} found: replay guard on", className);
-            return new DeliveryAccess(current, feed, epoch, position, alreadyApplied);
+            MethodHandle onComplete = null;
+            MethodHandle attempt = null;
+            try {
+                onComplete = lookup.findStatic(context, "onComplete", MethodType.methodType(boolean.class, Runnable.class));
+                attempt = lookup.findStatic(context, "attempt", MethodType.methodType(int.class));
+            } catch (NoSuchMethodException | IllegalAccessException noHook) {
+                onComplete = null;
+                attempt = null;
+            }
+            log.debug("{} found: replay guard on, delivery-complete hook {}", className, onComplete != null ? "on" : "off");
+            return new DeliveryAccess(current, feed, epoch, position, alreadyApplied, onComplete, attempt);
         } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
             log.warn("{} found but not usable ({}): replay guard off", className, e.toString());
             return OFF;
@@ -78,6 +92,38 @@ final class DeliveryAccess {
 
     boolean enabled() {
         return current != null;
+    }
+
+    /** True when this Mongoose runs callbacks at delivery completion ({@code DeliveryContext.onComplete}). */
+    boolean hook() {
+        return onComplete != null;
+    }
+
+    /**
+     * Register {@code callback} for the current delivery's completion: true when registered (or already pending), false
+     * when there is no hook or no positioned delivery on this thread (nothing kept).
+     */
+    boolean onComplete(Runnable callback) {
+        if (onComplete == null) {
+            return false;
+        }
+        try {
+            return (boolean) onComplete.invokeExact(callback);
+        } catch (Throwable t) {
+            throw rethrow(t);
+        }
+    }
+
+    /** Failed dispatch attempts of the current item (0 without the hook). */
+    int attempt() {
+        if (attempt == null) {
+            return 0;
+        }
+        try {
+            return (int) attempt.invokeExact();
+        } catch (Throwable t) {
+            throw rethrow(t);
+        }
     }
 
     /** The delivery of the event the calling thread is handling, or null (none, or no delivery context). */
