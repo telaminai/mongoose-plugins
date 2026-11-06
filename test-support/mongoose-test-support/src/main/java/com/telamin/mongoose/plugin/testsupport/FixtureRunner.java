@@ -18,6 +18,7 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.io.PrintWriter;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -392,8 +393,9 @@ public final class FixtureRunner {
 
     /**
      * True when {@code a} and {@code b} name the same file: equal once made absolute, normalised and resolved through
-     * symbolic links (for a file not yet created, through its nearest existing directory), or, both existing, the same
-     * file to the file system (a hard link, a case-insensitive name).
+     * symbolic links (for a file not yet created, through its nearest existing directory, and through a symbolic link
+     * whose target does not exist yet), or, both existing, the same file to the file system (a hard link, a
+     * case-insensitive name). A symbolic link loop is an {@link IllegalArgumentException}.
      */
     static boolean sameFile(Path a, Path b) throws IOException {
         if (Files.exists(a) && Files.exists(b) && Files.isSameFile(a, b)) {
@@ -402,13 +404,27 @@ public final class FixtureRunner {
         return resolved(a).equals(resolved(b));
     }
 
+    /** Symbolic links followed before a path is called a loop, as the usual operating system limit. */
+    private static final int MAX_LINKS = 40;
+
     private static Path resolved(Path p) throws IOException {
         Path abs = p.toAbsolutePath().normalize();
-        Path existing = abs;
-        while (existing != null && !Files.exists(existing)) {
-            existing = existing.getParent();
+        for (int links = 0; links <= MAX_LINKS; links++) {
+            Path existing = abs;   // the nearest element that exists, counting a dangling symbolic link as existing
+            while (existing != null && !Files.exists(existing, LinkOption.NOFOLLOW_LINKS)) {
+                existing = existing.getParent();
+            }
+            if (existing == null) {
+                return abs;
+            }
+            if (!Files.isSymbolicLink(existing) || Files.exists(existing)) {
+                return existing.toRealPath().resolve(existing.relativize(abs));
+            }
+            // a symbolic link whose target does not exist (yet): writing through it creates the target, so follow it
+            Path target = existing.getParent().resolve(Files.readSymbolicLink(existing));
+            abs = target.resolve(existing.relativize(abs)).toAbsolutePath().normalize();
         }
-        return existing == null ? abs : existing.toRealPath().resolve(existing.relativize(abs));
+        throw new IllegalArgumentException("too many symbolic links (a loop?) resolving " + p);
     }
 
     private static Path mkParent(Path file) throws IOException {

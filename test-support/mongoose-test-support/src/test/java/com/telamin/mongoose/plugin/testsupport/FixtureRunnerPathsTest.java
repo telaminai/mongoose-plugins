@@ -126,6 +126,46 @@ class FixtureRunnerPathsTest {
     }
 
     @Test
+    void a_dangling_symbolic_link_to_another_output_is_rejected() throws Exception {
+        Path feed = write("feed.txt", "a\n");
+        Path actual = dir.resolve("actual.txt");
+        Path audit = dir.resolve("audit.yaml");
+        Path out = dir.resolve("out");
+        Path relative = dir.resolve("relative.yaml");
+        try {
+            Files.createSymbolicLink(audit, actual);                          // absolute target, not yet created
+            Files.createDirectories(out);
+            Files.createSymbolicLink(relative, Path.of("out", "..", "actual.txt"));   // relative target, not yet created
+        } catch (UnsupportedOperationException | java.io.IOException e) {
+            assumeTrue(false, "no symbolic links here: " + e);
+        }
+        Path state = dir.resolve("state.json");
+        assertEquals(2, cli("--cache", "counterState=" + state, "--feed", feed.toString(),
+                "--actual", actual.toString(), "--audit", audit.toString()), out());
+        assertEquals(2, cli("--cache", "counterState=" + state, "--feed", feed.toString(),
+                "--actual", actual.toString(), "--audit", relative.toString()), out());
+        assertEquals(2, cli("--cache", "counterState=" + audit, "--feed", feed.toString(),
+                "--actual", actual.toString()), out());
+        assertFalse(Files.exists(actual), "nothing ran, so nothing was written through the link");
+        assertFalse(Files.exists(state), "nothing ran");
+    }
+
+    @Test
+    void a_symbolic_link_loop_is_rejected() throws Exception {
+        Path feed = write("feed.txt", "a\n");
+        Path a = dir.resolve("a.txt");
+        Path b = dir.resolve("b.txt");
+        try {
+            Files.createSymbolicLink(a, b);
+            Files.createSymbolicLink(b, a);
+        } catch (UnsupportedOperationException | java.io.IOException e) {
+            assumeTrue(false, "no symbolic links here: " + e);
+        }
+        assertEquals(2, cli("--feed", feed.toString(), "--actual", a.toString()), out());
+        assertTrue(out().contains("symbolic link"), out());
+    }
+
+    @Test
     void distinct_paths_still_pass() throws Exception {
         Path feed = write("feed.txt", "a\n");
         Path expected = write("expected.txt", "seen a\n{\"value\":\"a\",\"count\":1}\n");
