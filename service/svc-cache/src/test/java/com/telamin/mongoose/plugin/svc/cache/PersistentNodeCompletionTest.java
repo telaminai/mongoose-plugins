@@ -382,4 +382,20 @@ class PersistentNodeCompletionTest {
         assertTrue(a.retryWarningLogged(), "still once: the flag stays set, nothing is logged again");
         assertEquals(1, saved(cache).at("/state/balance").asInt());
     }
+
+    /**
+     * The first cycle this node sees of a delivery can already be a retry (the attempt that threw changed state
+     * outside a guarded handler, or another processor on the input threw): the node warns then too (hook recheck 3,
+     * W1).
+     */
+    @Test
+    void a_first_seen_cycle_on_a_retry_attempt_logs_the_warning() throws Exception {
+        CountingCache cache = new CountingCache();
+        Account a = account(cache);
+        FakeHookDeliveryContext.enter("feed", 1, 7, 100L);
+        FakeHookDeliveryContext.dispatchFailed();      // the first attempt threw before this node's first cycle
+        assertTrue(a.cycle(20), "delivery is not changed");
+        assertTrue(a.retryWarningLogged(), "a retry seen for the first time warns as well");
+        FakeHookDeliveryContext.complete();
+    }
 }

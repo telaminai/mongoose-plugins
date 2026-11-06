@@ -232,6 +232,11 @@ public abstract class PersistentNode<S> extends EventLogNode {
             }
             pendingDelivery = d;
             cycleAttempt = attempt;
+            if (attempt > 0) {
+                // first seen on a retry: the failed attempt never reached a guarded cycle of this node, so anything
+                // it changed here is not rolled back (unsupported, warned)
+                warnUnsupportedRetry(d);
+            }
         } else if (attempt > cycleAttempt) {
             warnUnsupportedRetry(d);
             rollback();
@@ -248,12 +253,12 @@ public abstract class PersistentNode<S> extends EventLogNode {
             return;
         }
         retryWarned = true;
-        log.warn("PersistentNode '{}': delivery {} is being retried (DeliveryContext.attempt() grew), so a handwritten"
-                + " processor threw part-way through it and the server retries it. That is not a supported"
-                + " configuration: the state saved after the retry is not guaranteed, because code that reads this"
-                + " node's state before a guarded handler sees the failed attempt's state. Host PersistentNodes in"
-                + " generated or interpreted processors, whose failures are quarantined, not retried. Logged once per"
-                + " node", stateKey(), d);
+        log.warn("PersistentNode '{}': delivery {} is being retried (DeliveryContext.attempt() is {}): a handwritten"
+                + " processor on this input threw and the server retries it, possibly not this node's own processor."
+                + " That is not a supported configuration: the state saved after the retry is not guaranteed, because"
+                + " code that reads or changes this node's state outside a guarded handler sees the failed attempt's"
+                + " state. Host PersistentNodes in generated or interpreted processors, whose failures are"
+                + " quarantined, not retried. Logged once per node", stateKey(), d, delivery.attempt());
     }
 
     /** For tests: whether the unsupported-retry warning was logged. */

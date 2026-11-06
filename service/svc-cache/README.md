@@ -132,7 +132,9 @@ the delivery's position, once. So:
   that is **not supported**: the node's state saved after the retry is not guaranteed, because code that reads the
   node's state before a guarded handler runs (an adapter computing an argument or choosing a branch) sees the failed
   attempt's state. The node logs a WARN once per node the first time it sees such a retry
-  (`DeliveryContext.attempt()` grew) and does not change delivery; as a best effort for that case only it restores its
+  (`DeliveryContext.attempt()` grew, or above 0 at its first cycle of the delivery; the retry may be due to another
+  processor on the same input) and does not change delivery. A change the failed attempt made to the node outside a
+  guarded handler, before its first cycle, is not rolled back; as a best effort for that case only it restores its
   last saved record at the retry's first guarded handler and applies the retry's cycles as new work (audited
   `retryRollback`);
 - a `ReplayRecord`'s synthetic-clock cycle is just another cycle of the delivery;
