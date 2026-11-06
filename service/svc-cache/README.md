@@ -68,8 +68,9 @@ public class MyHandler extends ObjectEventHandlerNode {
 sibling temporary file and moves it over `fileName` with `ATOMIC_MOVE`, so a process killed mid-write (or a write that
 fails part way) leaves the previous complete file. For a file `<name>` the temporary file is `.<name>.<16 hex
 digits>.jfc.tmp` (hidden, owner-only where POSIX permissions exist): no other cache's file or temporary file can have
-that name, so `init()` deletes exactly this file's stale writes and never another cache's data or in-flight write (a
-`fileName` of that form is refused). A failed write keeps the cache dirty so the next `doWork()` retries. `tearDown()` writes the same
+that name, so `init()` deletes exactly this file's stale writes and never another cache's data or in-flight write.
+`init()` refuses a `fileName` whose last element has that form, holds a control character or line terminator, or is
+longer than 229 bytes in UTF-8 (so its temporary name fits the usual 255-byte limit). A failed write keeps the cache dirty so the next `doWork()` retries. `tearDown()` writes the same
 way, and does not write at all if `init()` failed (a corrupt file is left as it is). This survives a process kill;
 surviving power loss would also need an fsync, which is not done.
 
@@ -167,7 +168,9 @@ Saved state records are unchanged, so an existing cache file restores as before.
   the replace, e.g. `AccessDeniedException` while another process has the file open, the write fails, the exception
   surfaces from `put`/`doWork`, and the cache stays dirty for the next attempt. Not tested on Windows.
 - **Temporary files.** One per write, `.<name>.<16 hex digits>.jfc.tmp` beside `<name>`, instead of none; `init()` deletes
-  only this file's stale ones (an exact-name match, never a prefix match), and a `fileName` of that form is refused.
+  only this file's stale ones (an exact-name match, never a prefix match). `init()` refuses a `fileName` of that form, one
+  holding a control character or line terminator, and one longer than 229 bytes in UTF-8, which used to fail only at
+  its first write.
 - **tearDown** no longer writes after a failed `init()`, so it cannot overwrite an unreadable file with an empty map.
 
 ## Admin commands
@@ -192,7 +195,7 @@ When a `JsonFileCache` is wired alongside an `AdminCommandRegistry`, it auto-reg
 - [`JsonFileCacheTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/JsonFileCacheTest.java) — missing-parent-dir creation, bare-basename, null/empty-filename guards.
 - [`JsonFileCacheAtomicWriteTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/JsonFileCacheAtomicWriteTest.java) — compact JSON, a write failing part way leaves the previous file byte-identical and retries, stale temp file ignored, async and tearDown writes, eviction.
 - [`JsonFileCacheConcurrencyTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/JsonFileCacheConcurrencyTest.java) — a put overlapped by the agent's doWork or by another thread's synchronous put is never left unsaved (deterministic interleavings and thread races).
-- [`JsonFileCacheTempAndTearDownTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/JsonFileCacheTempAndTearDownTest.java) — per-write temporary files, only this file's stale ones removed (a distinct cache's data file or live write whose name extends this one's is kept), temporary-form file names refused, two instances on one file, tearDown dirty-flag and failed-init guards.
+- [`JsonFileCacheTempAndTearDownTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/JsonFileCacheTempAndTearDownTest.java) — per-write temporary files, only this file's stale ones removed (a distinct cache's data file or live write whose name extends this one's is kept), temporary-form, control-character and over-long file names refused at init, two instances on one file, tearDown dirty-flag and failed-init guards.
 - [`JsonFileCacheKillTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/JsonFileCacheKillTest.java) — a child writer process is SIGKILLed mid-write six times; the file always loads with one whole value.
 - [`PersistentNodeReentrantTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/PersistentNodeReentrantTest.java) — an event queued during a positioned delivery is refused, not skipped; a crash at the first cycle's save ends at the same state as the refusing live run; separate deliveries and position-less events are not refused.
 - [`PersistentNodeTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/PersistentNodeTest.java) — save/restore, older records, seeding; replay guard off without `DeliveryContext`, on with a test double of it, and on with Mongoose's own when built against a Mongoose that has it (`-Dmongoose.version=...`).

@@ -122,6 +122,44 @@ class JsonFileCacheTempAndTearDownTest {
         assertEquals(Integer.valueOf(123), open(archive, false).get("balance"));
     }
 
+    @Test
+    void a_file_name_with_a_line_terminator_or_control_character_is_refused() throws Exception {
+        for (String t : List.of("\n", "\r", "\u0085", "\u2028", "\u2029", "\t", "\u0001")) {
+            Path first = dir.resolve("state" + t + "name");
+            Path second = dir.resolve(JsonFileCache.tempName(first, 1));
+            JsonFileCache tempShaped = new JsonFileCache();
+            tempShaped.setFileName(second.toString());
+            assertThrows(IllegalStateException.class, tempShaped::init,
+                    "a name of the temporary form is refused whatever characters it holds: " + t.codePointAt(0));
+            JsonFileCache named = new JsonFileCache();
+            named.setFileName(first.toString());
+            IllegalStateException e = assertThrows(IllegalStateException.class, named::init, "char " + t.codePointAt(0));
+            assertTrue(e.getMessage().contains("control character or line terminator"), e.getMessage());
+        }
+        assertEquals(List.of(), names(), "nothing was created or deleted");
+    }
+
+    @Test
+    void a_file_name_too_long_for_its_temporary_file_is_refused_at_init() throws Exception {
+        String longest = "x".repeat(JsonFileCache.MAX_NAME_BYTES);
+        JsonFileCache ok = open(dir.resolve(longest), false);
+        assertDoesNotThrow(() -> ok.put("key", "value"), "the longest supported name can be written");
+        assertEquals("value", open(dir.resolve(longest), false).get("key"));
+
+        Path tooLong = dir.resolve("x".repeat(240));
+        Files.writeString(tooLong, "{}");
+        JsonFileCache c = new JsonFileCache();
+        c.setFileName(tooLong.toString());
+        IllegalStateException e = assertThrows(IllegalStateException.class, c::init,
+                "refused at init, not at the first write");
+        assertTrue(e.getMessage().contains("too long"), e.getMessage());
+        assertEquals("{}", Files.readString(tooLong), "the existing file is left alone");
+        String multiByte = "\u00e9".repeat(JsonFileCache.MAX_NAME_BYTES / 2 + 1);   // 2 bytes each in UTF-8
+        JsonFileCache wide = new JsonFileCache();
+        wide.setFileName(dir.resolve(multiByte).toString());
+        assertThrows(IllegalStateException.class, wide::init, "the limit is in bytes, not characters");
+    }
+
     /** A cache value whose serialisation waits until released, holding its cache's write open. */
     public static class BlockedWrite extends JsonFileCache.TypedData {
         static java.util.concurrent.CountDownLatch entered;

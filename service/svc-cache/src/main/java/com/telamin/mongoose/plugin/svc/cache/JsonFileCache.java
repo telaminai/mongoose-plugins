@@ -25,6 +25,7 @@ import lombok.extern.log4j.Log4j2;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
@@ -44,7 +45,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Consumer;
-import java.util.regex.Pattern;
 
 /**
  * A {@link Cache} mirrored to a JSON file, reloaded on {@link #init()}.
@@ -54,7 +54,8 @@ import java.util.regex.Pattern;
  * (or a write that fails part way) leaves the previous complete file, never a truncated one. Each write uses its own
  * temporary file, named {@code .<name>.<16 hex digits>.jfc.tmp} beside the file {@code <name>}: a hidden name that
  * no other cache's file or temporary file can have, so {@link #init()} deletes exactly this file's stale writes and
- * nothing else (a {@code fileName} of that form is refused). This survives a process kill; surviving power loss would
+ * nothing else. A {@code fileName} of that form, one holding a control character or line terminator, or one longer
+ * than {@link #MAX_NAME_BYTES} bytes is refused at {@link #init()}. This survives a process kill; surviving power loss would
  * also need an fsync, which is not done.
  * <p>
  * Use one instance per file: two instances writing the same file each replace it with their own map, and one's
@@ -72,7 +73,11 @@ public class JsonFileCache implements Cache, Agent, Lifecycle, EventFlowService<
 
     /** The temporary file name of a write, for a target {@code <name>}: {@code .<name>.<16 hex>.jfc.tmp}. */
     static final String TEMP_SUFFIX = ".jfc.tmp";
-    private static final Pattern ANY_TEMP_NAME = Pattern.compile("\\..+\\.[0-9a-f]{16}" + Pattern.quote(TEMP_SUFFIX));
+    /**
+     * The longest {@code fileName} (its last element, in UTF-8 bytes) whose temporary file name still fits the
+     * common 255-byte limit: the temporary name adds a dot, a dot, 16 hex digits and the suffix.
+     */
+    static final int MAX_NAME_BYTES = 255 - 2 - 16 - TEMP_SUFFIX.length();
 
     private String fileName;
     private final AtomicBoolean updated = new AtomicBoolean(false);
@@ -116,9 +121,18 @@ public class JsonFileCache implements Cache, Agent, Lifecycle, EventFlowService<
         if (maxSize < 0) {
             throw new IllegalStateException("JsonFileCache maxSize must be >= 0, got " + maxSize);
         }
-        if (ANY_TEMP_NAME.matcher(Path.of(fileName).getFileName().toString()).matches()) {
+        String name = Path.of(fileName).getFileName().toString();
+        if (name.codePoints().anyMatch(JsonFileCache::isControlOrLineTerminator)) {
+            throw new IllegalStateException("JsonFileCache fileName " + escaped(fileName)
+                    + " contains a control character or line terminator: choose another");
+        }
+        if (isAnyTempName(name)) {
             throw new IllegalStateException("JsonFileCache fileName " + fileName
                     + " has the form of a temporary file (.<name>.<16 hex digits>" + TEMP_SUFFIX + "): choose another");
+        }
+        if (name.getBytes(StandardCharsets.UTF_8).length > MAX_NAME_BYTES) {
+            throw new IllegalStateException("JsonFileCache fileName " + fileName + " is too long: its last element must be"
+                    + " at most " + MAX_NAME_BYTES + " bytes in UTF-8, to leave room for its temporary file name");
         }
         Map<String, TypedData> loaded = null;
         initialised = false;
@@ -332,6 +346,32 @@ public class JsonFileCache implements Cache, Agent, Lifecycle, EventFlowService<
         return "." + target.getFileName() + "." + String.format("%016x", random) + TEMP_SUFFIX;
     }
 
+    private static boolean isControlOrLineTerminator(int c) {
+        return Character.isISOControl(c) || c == '\u2028' || c == '\u2029';
+    }
+
+    private static String escaped(String s) {
+        StringBuilder b = new StringBuilder();
+        s.codePoints().forEach(c -> b.append(isControlOrLineTerminator(c)
+                ? String.format("\\u%04x", c) : Character.toString(c)));
+        return b.toString();
+    }
+
+    /**
+     * True when {@code name} is the temporary file name of some target: {@code .<name>.<16 hex digits>.jfc.tmp} with a
+     * non-empty name. The same structure as {@link #isTempFileOf}, so every name that could be some cache's temporary
+     * file is refused as a {@code fileName}, whatever characters it holds.
+     */
+    static boolean isAnyTempName(String name) {
+        int hex = name.length() - TEMP_SUFFIX.length() - 16;
+        return name.length() >= 2 + 1 + 16 + TEMP_SUFFIX.length() && name.startsWith(".")
+                && name.endsWith(TEMP_SUFFIX) && name.charAt(hex - 1) == '.' && isHex16(name, hex);
+    }
+
+    private static boolean isHex16(String s, int from) {
+        return s.substring(from, from + 16).chars().allMatch(c -> (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'));
+    }
+
     /**
      * True when {@code candidate} is named as one of {@code target}'s temporary files. Only {@code target}'s own: the
      * name starts with the whole target name and ends with exactly 16 hex digits and the suffix, so no other file's
@@ -341,9 +381,7 @@ public class JsonFileCache implements Cache, Agent, Lifecycle, EventFlowService<
         String n = candidate.getFileName().toString();
         String prefix = "." + target.getFileName() + ".";
         return n.length() == prefix.length() + 16 + TEMP_SUFFIX.length() && n.startsWith(prefix)
-                && n.endsWith(TEMP_SUFFIX)
-                && n.substring(prefix.length(), prefix.length() + 16).chars()
-                .allMatch(c -> (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'));
+                && n.endsWith(TEMP_SUFFIX) && isHex16(n, prefix.length());
     }
 
     /** A new, empty temporary file for a write of {@code target}, readable by its owner only where POSIX allows. */
