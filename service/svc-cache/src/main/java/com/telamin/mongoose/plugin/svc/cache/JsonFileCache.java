@@ -26,6 +26,7 @@ import lombok.extern.log4j.Log4j2;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -47,11 +48,16 @@ import java.util.function.Consumer;
  * <b>Crash-safe writes.</b> Every write serialises the whole cache, as compact JSON, to a sibling temporary file
  * ({@code <fileName>.tmp}) and then moves it over {@code fileName} atomically. The file is never written in place, so a
  * process killed mid-write (or a write that fails part way) leaves the previous complete file, never a truncated one;
- * a stale temporary file is ignored and replaced by the next write. This survives a process kill; surviving power
- * loss would also need an fsync, which is not done.
+ * each write uses its own temporary file ({@code <fileName>.<random>.tmp}), and {@link #init()} deletes this file's
+ * stale ones. This survives a process kill; surviving power loss would also need an fsync, which is not done.
+ * <p>
+ * Use one instance per file: two instances writing the same file each replace it with their own map, and one's
+ * {@code init()} deletes the other's in-flight temporary files.
  * <p>
  * With {@code asyncWrite=false} (the default) each {@link #put} and {@link #remove} writes before it returns; with
- * {@code asyncWrite=true} writes are left to {@link #doWork()} on the cache's agent thread. {@link #tearDown()} writes
+ * {@code asyncWrite=true} writes are left to {@link #doWork()} on the cache's agent thread. A change is made to the map
+ * before the cache is marked dirty, so a write that overlaps it either includes it or leaves the cache dirty for the
+ * next one. {@link #tearDown()} writes
  * the same way. Each write is logged at debug level only.
  */
 @Data
@@ -85,6 +91,10 @@ public class JsonFileCache implements Cache, Agent, Lifecycle, EventFlowService<
     private int maxSize = 0;
     @Setter(AccessLevel.NONE)
     private final AtomicLong evictedCount = new AtomicLong();
+    /** Set once {@link #init()} has loaded (or created) the file: tearDown never writes over a file it never read. */
+    @Getter(AccessLevel.NONE)
+    @Setter(AccessLevel.NONE)
+    private volatile boolean initialised;
 
     @SneakyThrows
     @Override
@@ -97,11 +107,9 @@ public class JsonFileCache implements Cache, Agent, Lifecycle, EventFlowService<
             throw new IllegalStateException("JsonFileCache maxSize must be >= 0, got " + maxSize);
         }
         Map<String, TypedData> loaded = null;
+        initialised = false;
         file = new File(fileName);
-        Path staleTemp = tempPath();
-        if (Files.deleteIfExists(staleTemp)) {
-            log.info("deleted incomplete cache write:{}", staleTemp);
-        }
+        deleteStaleTempFiles();
         if (file.exists() && file.length() > 0) {
             log.info("opened cache file:{}", fileName);
             loaded = mapper.readValue(file, new TypeReference<Map<String, TypedData>>() {
@@ -123,6 +131,7 @@ public class JsonFileCache implements Cache, Agent, Lifecycle, EventFlowService<
                 get(key);
             }
         }
+        initialised = true;
     }
 
     private Map<String, TypedData> buildBackingMap() {
@@ -201,15 +210,15 @@ public class JsonFileCache implements Cache, Agent, Lifecycle, EventFlowService<
 
     @Override
     public void put(String key, Object value) {
-        updated.set(true);
         try {
             TypedData typedData = new TypedData();
             typedData.setType(value.getClass());
             typedData.setInstance(value);
             typedData.setData(mapper.writeValueAsString(value));
             cacheMap.put(key, typedData);
+            updated.set(true);   // after the change: a write that takes the flag sees the change
             if (!asyncWrite) {
-                doWork();
+                syncWrite();
             }
         } catch (Exception e) {
             throw new RuntimeException(e);
@@ -239,29 +248,38 @@ public class JsonFileCache implements Cache, Agent, Lifecycle, EventFlowService<
     @SneakyThrows
     @Override
     public void remove(String key) {
-        updated.set(true);
         cacheMap.remove(key);
+        updated.set(true);
         if (!asyncWrite) {
-            doWork();
+            syncWrite();
+        }
+    }
+
+    /**
+     * The write of a synchronous put or remove. Serialised with every other write, so it returns only once a write that
+     * includes this caller's change is on disk: either this one, or another caller's that took the dirty flag after
+     * the change and completed before this method could enter.
+     */
+    private synchronized void syncWrite() throws IOException {
+        if (updated.getAndSet(false)) {
+            try {
+                writeFile();
+            } catch (IOException | RuntimeException e) {
+                updated.set(true);
+                throw e;
+            }
+            log.debug("cache updated:{} keys:{}", fileName, cacheMap.size());
         }
     }
 
     @Override
     public int doWork() throws Exception {
-        if (updated.getAndSet(false)) {
-            try {
-                writeFile();
-            } catch (IOException | RuntimeException e) {
-                updated.set(true);   // still dirty: the next doWork retries
-                throw e;
-            }
-            log.debug("cache updated:{} keys:{}", fileName, cacheMap.size());
-        }
+        syncWrite();   // a failed write leaves the cache dirty: the next doWork retries
         return 0;
     }
 
     /**
-     * Writes the whole cache to {@code <fileName>.tmp} and moves it over {@code fileName} atomically, so a reader or a
+     * Writes the whole cache to a new {@code <fileName>.<random>.tmp} and moves it over {@code fileName} atomically, so a reader or a
      * restart sees either the previous file or the new one, never a partial write. Serialised: a synchronous
      * {@code put} and the agent thread never write the temporary file at the same time.
      */
@@ -271,7 +289,7 @@ public class JsonFileCache implements Cache, Agent, Lifecycle, EventFlowService<
         if (parent != null) {
             Files.createDirectories(parent);
         }
-        Path tmp = tempPath();
+        Path tmp = Files.createTempFile(parent, target.getFileName() + ".", ".tmp");
         try {
             if (maxSize > 0) {
                 synchronized (cacheMap) {   // Collections.synchronizedMap: iterate under its lock
@@ -295,9 +313,24 @@ public class JsonFileCache implements Cache, Agent, Lifecycle, EventFlowService<
         }
     }
 
-    private Path tempPath() {
+    /** Deletes {@code <fileName>.*.tmp}: writes this file's previous run did not finish. */
+    private void deleteStaleTempFiles() throws IOException {
         Path target = Path.of(fileName).toAbsolutePath();
-        return target.resolveSibling(target.getFileName() + ".tmp");
+        Path parent = target.getParent();
+        if (parent == null || !Files.isDirectory(parent)) {
+            return;
+        }
+        String prefix = target.getFileName() + ".";
+        try (DirectoryStream<Path> files = Files.newDirectoryStream(parent, p -> {
+            String n = p.getFileName().toString();
+            return n.startsWith(prefix) && n.endsWith(".tmp") && n.length() > prefix.length() + 4
+                    && Files.isRegularFile(p);
+        })) {
+            for (Path stale : files) {
+                Files.deleteIfExists(stale);
+                log.info("deleted incomplete cache write:{}", stale);
+            }
+        }
     }
 
     @Override
@@ -311,8 +344,19 @@ public class JsonFileCache implements Cache, Agent, Lifecycle, EventFlowService<
         if (fileName == null || fileName.isEmpty()) {
             return;
         }
-        writeFile();
-        updated.set(false);
+        if (!initialised) {
+            log.warn("cache {} was never initialised: not writing it", fileName);
+            return;
+        }
+        synchronized (this) {
+            updated.set(false);   // before the write: a change made while it runs stays dirty
+            try {
+                writeFile();
+            } catch (IOException | RuntimeException e) {
+                updated.set(true);
+                throw e;
+            }
+        }
     }
 
     private void getCommand(List<String> args, Consumer<String> out, Consumer<String> err) {

@@ -32,8 +32,13 @@ class JsonFileCacheAtomicWriteTest {
         return cache;
     }
 
-    private static Path temp(Path file) {
-        return file.resolveSibling(file.getFileName() + ".tmp");
+    /** This file's temporary files, {@code <name>.<random>.tmp}. */
+    private static java.util.List<Path> temps(Path file) throws java.io.IOException {
+        String prefix = file.getFileName() + ".";
+        try (var s = Files.list(file.getParent())) {
+            return s.filter(p -> p.getFileName().toString().startsWith(prefix)
+                    && p.getFileName().toString().endsWith(".tmp")).toList();
+        }
     }
 
     @Test
@@ -46,7 +51,7 @@ class JsonFileCacheAtomicWriteTest {
         String json = Files.readString(file);
         assertFalse(json.contains("\n"), "compact JSON, one line: " + json);
         assertFalse(json.contains(": "), "compact JSON, no pretty printing: " + json);
-        assertFalse(Files.exists(temp(file)), "temporary file moved into place");
+        assertEquals(java.util.List.of(), temps(file), "temporary file moved into place");
         assertEquals("alpha", open(file).get("a"));
         assertEquals(Integer.valueOf(42), open(file).get("b"));
     }
@@ -63,7 +68,7 @@ class JsonFileCacheAtomicWriteTest {
         assertThrows(RuntimeException.class, () -> cache.put("b", "beta"));
 
         assertArrayEquals(before, Files.readAllBytes(file), "previous file untouched by the failed write");
-        assertFalse(Files.exists(temp(file)), "partial temporary file removed");
+        assertEquals(java.util.List.of(), temps(file), "partial temporary file removed");
         JsonFileCache reloaded = open(file);
         assertEquals("alpha", reloaded.get("a"));
         assertNull(reloaded.get("b"));
@@ -79,11 +84,11 @@ class JsonFileCacheAtomicWriteTest {
         Path file = tempDir.resolve("state.json");
         JsonFileCache first = open(file);
         first.put("a", "alpha");
-        Files.writeString(temp(file), "{\"a\":{\"type\":\"java.lang.Str");   // a writer killed mid-write
+        Files.writeString(file.resolveSibling("state.json.4711.tmp"), "{\"a\":{\"type\":\"java.lang.Str");   // a writer killed mid-write
 
         JsonFileCache restarted = open(file);
         assertEquals("alpha", restarted.get("a"));
-        assertFalse(Files.exists(temp(file)));
+        assertEquals(java.util.List.of(), temps(file));
         restarted.put("b", "beta");
         assertEquals("beta", open(file).get("b"));
     }
@@ -104,7 +109,7 @@ class JsonFileCacheAtomicWriteTest {
         cache.put("b", "beta");
         cache.tearDown();
         assertEquals("beta", open(file).get("b"));
-        assertFalse(Files.exists(temp(file)));
+        assertEquals(java.util.List.of(), temps(file));
     }
 
     @Test

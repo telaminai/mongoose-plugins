@@ -221,7 +221,6 @@ public final class FixtureRunner {
             }
             for (Path cacheFile : caches.values()) {
                 Files.deleteIfExists(cacheFile);
-                Files.deleteIfExists(cacheFile.resolveSibling(cacheFile.getFileName() + ".tmp"));
                 mkParent(cacheFile);
             }
             List<String> out = new ArrayList<>();
