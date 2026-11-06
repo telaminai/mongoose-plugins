@@ -529,4 +529,96 @@ class DeliveryCompletionPersistenceTest {
             reader.tearDown();
         }
     }
+
+    // ---- recheck 2 F1: the rollback happens at the failure, before the retry runs any code ------------------------
+
+    /** The reviewer's independent_argument_computation_must_see_rolled_back_state: the adapter pays 40% of what is due. */
+    @Test
+    void a_retry_computes_its_argument_from_rolled_back_state() throws Exception {
+        Path state = dir.resolve("argument-retry.json");
+        GymProcessor flow = start(state, new ArrayList<>(), null);
+        flow.onEvent(new Join("m1", "Ada", "MONTHLY"));
+        DataFlow adapter = new DataFlow() {
+            int failures = 1;
+
+            @Override
+            public void onEvent(Object event) {
+                flow.onEvent(new Payment("m1", flow.membership.due("m1") * 0.4, "cash"));
+                if (failures-- > 0) throw new IllegalStateException("DEMO after the payment");
+            }
+
+            @Override
+            public void setClockStrategy(ClockStrategy strategy) {
+            }
+        };
+        OneToOneConcurrentArrayQueue<Object> queue = new OneToOneConcurrentArrayQueue<>(16);
+        queue.offer(positioned(1, 100, "pay forty percent"));
+        reader(queue, adapter).doWork();
+        assertTrue(errors().isEmpty(), errors().toString());
+        assertEquals(100, membership(state).at("/positions/input/position").asLong());
+        assertEquals(20.0, membership(state).at("/state/members/m1/paid").asDouble(), "40% of 50, computed once");
+    }
+
+    /** The reviewer's independent_read_only_routing_must_see_rolled_back_state: the adapter branches on what is due. */
+    @Test
+    void a_retry_routes_on_rolled_back_state() throws Exception {
+        Path state = dir.resolve("routing-retry.json");
+        GymProcessor flow = start(state, new ArrayList<>(), null);
+        flow.onEvent(new Join("m1", "Ada", "MONTHLY"));
+        DataFlow adapter = new DataFlow() {
+            int failures = 1;
+
+            @Override
+            public void onEvent(Object event) {
+                if (flow.membership.due("m1") == 50) flow.onEvent(new Payment("m1", 20, "cash"));
+                else flow.setClockStrategy(() -> 123L);    // a handlerless generated cycle
+                if (failures-- > 0) throw new IllegalStateException("DEMO after the decision and the cycle");
+            }
+
+            @Override
+            public void setClockStrategy(ClockStrategy strategy) {
+            }
+        };
+        OneToOneConcurrentArrayQueue<Object> queue = new OneToOneConcurrentArrayQueue<>(16);
+        queue.offer(positioned(1, 100, "conditional payment"));
+        reader(queue, adapter).doWork();
+        assertTrue(errors().isEmpty(), errors().toString());
+        assertEquals(100, membership(state).at("/positions/input/position").asLong());
+        assertEquals(20.0, membership(state).at("/state/members/m1/paid").asDouble(), "routing must use baseline state");
+    }
+
+    /** A rollback that cannot be done fails closed: nothing is saved, the reader ends, the loss is reported. */
+    @Test
+    void a_rollback_that_fails_is_never_committed_as_a_success() throws Exception {
+        Path state = dir.resolve("rollback-fails.json");
+        GymProcessor flow = start(state, new ArrayList<>(), null);
+        flow.onEvent(new Join("m1", "Ada", "MONTHLY"));
+        DataFlow adapter = new DataFlow() {
+            @Override
+            public void onEvent(Object event) {
+                flow.onEvent(new Payment("m1", 20, "cash"));
+                // a corrupt baseline: the node's restore will throw
+                try {
+                    java.lang.reflect.Field f = com.telamin.mongoose.plugin.svc.cache.PersistentNode.class
+                            .getDeclaredField("baseline");
+                    f.setAccessible(true);
+                    f.set(flow.membership, "{not json");
+                } catch (ReflectiveOperationException e) {
+                    throw new IllegalStateException(e);
+                }
+                throw new IllegalStateException("DEMO after the payment");
+            }
+
+            @Override
+            public void setClockStrategy(ClockStrategy strategy) {
+            }
+        };
+        OneToOneConcurrentArrayQueue<Object> queue = new OneToOneConcurrentArrayQueue<>(16);
+        queue.offer(positioned(1, 100, "pay"));
+        EventQueueToEventProcessorAgent reader = reader(queue, adapter);
+        assertThrows(RuntimeException.class, reader::doWork, "the reader fails closed");
+        assertTrue(membership(state).at("/positions/input").isMissingNode(), "nothing of the delivery saved");
+        assertEquals(0.0, membership(state).at("/state/members/m1/paid").asDouble());
+        assertFalse(reported.stream().noneMatch(e -> e.getSeverity() == ErrorEvent.Severity.CRITICAL), reported.toString());
+    }
 }

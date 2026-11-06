@@ -239,7 +239,7 @@ class PersistentNodeCompletionTest {
         assertEquals(0, FakeHookDeliveryContext.pending(), "the failed attempt's callback is discarded");
         assertTrue(a.cycle(10), "the retry: rolled back, applied again");
         assertEquals(10, a.balance, "applied once");
-        assertEquals(List.of("retryRollback=0"), a.audit);
+        assertEquals(List.of("retryRollback=1"), a.audit);
         FakeHookDeliveryContext.complete();
         assertEquals(1, cache.puts);
         assertEquals(10, saved(cache).at("/state/balance").asInt());
@@ -363,5 +363,41 @@ class PersistentNodeCompletionTest {
         FakeHookDeliveryContext.complete();
         assertEquals(10, a.balance);
         assertEquals(10, saved(cache).at("/state/balance").asInt());
+    }
+
+    /** Recheck 2 F1: the rollback runs at the failure, so code that reads the node before a handler sees the baseline. */
+    @Test
+    void the_rollback_runs_at_the_failure_before_anything_reads_the_node() throws Exception {
+        CountingCache cache = new CountingCache();
+        Account a = account(cache);
+        FakeHookDeliveryContext.enter("feed", 1, 7, 100L);
+        a.cycle(10);
+        assertEquals(10, a.balance);
+        FakeHookDeliveryContext.dispatchFailed();
+        assertEquals(0, a.balance, "rolled back at the failure, before the retry reads it");
+        a.cycle(10);
+        FakeHookDeliveryContext.complete();
+        assertEquals(10, saved(cache).at("/state/balance").asInt());
+    }
+
+    /** Without onFailure (a snapshot with only onComplete) the hook is not used: the refusal fallback applies. */
+    @Test
+    void a_mongoose_without_on_failure_is_treated_as_having_no_hook() {
+        assertFalse(DeliveryAccess.resolve(OnCompleteOnly.class.getName(), getClass().getClassLoader()).hook());
+    }
+
+    /** A DeliveryContext with onComplete and attempt but no onFailure. */
+    public static final class OnCompleteOnly {
+        public static com.telamin.mongoose.plugin.svc.cache.fakedelivery.FakeDelivery current() {
+            return null;
+        }
+
+        public static boolean onComplete(Runnable r) {
+            return false;
+        }
+
+        public static int attempt() {
+            return 0;
+        }
     }
 }
