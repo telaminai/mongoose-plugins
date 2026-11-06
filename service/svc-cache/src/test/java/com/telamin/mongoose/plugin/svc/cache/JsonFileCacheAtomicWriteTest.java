@@ -32,12 +32,11 @@ class JsonFileCacheAtomicWriteTest {
         return cache;
     }
 
-    /** This file's temporary files, {@code <name>.<random>.tmp}. */
+    /** This file's temporary files, {@code .<name>.<16 hex>.jfc.tmp}, and anything else ending in {@code .tmp}. */
     private static java.util.List<Path> temps(Path file) throws java.io.IOException {
-        String prefix = file.getFileName() + ".";
         try (var s = Files.list(file.getParent())) {
-            return s.filter(p -> p.getFileName().toString().startsWith(prefix)
-                    && p.getFileName().toString().endsWith(".tmp")).toList();
+            return s.filter(p -> JsonFileCache.isTempFileOf(file, p) || p.getFileName().toString().endsWith(".tmp"))
+                    .toList();
         }
     }
 
@@ -106,7 +105,8 @@ class JsonFileCacheAtomicWriteTest {
         Path file = tempDir.resolve("state.json");
         JsonFileCache first = open(file);
         first.put("a", "alpha");
-        Files.writeString(file.resolveSibling("state.json.4711.tmp"), "{\"a\":{\"type\":\"java.lang.Str");   // a writer killed mid-write
+        Files.writeString(file.resolveSibling(JsonFileCache.tempName(file, 0x4711)),
+                "{\"a\":{\"type\":\"java.lang.Str");   // a writer killed mid-write
 
         JsonFileCache restarted = open(file);
         assertEquals("alpha", restarted.get("a"));

@@ -52,12 +52,40 @@ class JsonFileCacheTempAndTearDownTest {
     @Test
     void init_removes_only_this_files_stale_temporary_files() throws Exception {
         Path f = dir.resolve("state.json");
-        Files.writeString(dir.resolve("state.json.12345.tmp"), "{\"partial");
-        Files.writeString(dir.resolve("other.json.12345.tmp"), "{}");
-        Files.writeString(dir.resolve("state.json.bak"), "{}");
+        String stale = JsonFileCache.tempName(f, 0x12345L);
+        assertEquals(".state.json.0000000000012345.jfc.tmp", stale);
+        Files.writeString(dir.resolve(stale), "{\"partial");
+        String othersStale = JsonFileCache.tempName(dir.resolve("other.json"), 0x12345L);
+        Files.writeString(dir.resolve(othersStale), "{}");
+        List<String> notOurs = List.of("state.json.12345.tmp", "state.json.archive.tmp", ".state.json.12345.jfc.tmp",
+                ".state.json.0000000000012345.jfc.tmp.bak", ".state.json.x.0000000000012345.jfc.tmp",
+                ".state.json.000000000001234G.jfc.tmp", "state.json.bak");
+        for (String n : notOurs) {
+            Files.writeString(dir.resolve(n), "{}");
+        }
         JsonFileCache c = open(f, false);
         c.put("a", 1);
-        assertEquals(List.of("other.json.12345.tmp", "state.json", "state.json.bak"), names());
+        List<String> expected = new ArrayList<>(notOurs);
+        expected.addAll(List.of(othersStale, "state.json"));
+        assertEquals(expected.stream().sorted().toList(), names(), "only this file's own temporary file is removed");
+    }
+
+    @Test
+    void a_file_name_of_the_temporary_form_is_refused() {
+        JsonFileCache c = new JsonFileCache();
+        c.setFileName(dir.resolve(JsonFileCache.tempName(dir.resolve("state.json"), 1)).toString());
+        IllegalStateException e = assertThrows(IllegalStateException.class, c::init);
+        assertTrue(e.getMessage().contains("temporary file"), e.getMessage());
+    }
+
+    @Test
+    void temporary_files_are_owner_only_where_posix_permissions_exist() throws Exception {
+        org.junit.jupiter.api.Assumptions.assumeTrue(
+                dir.getFileSystem().supportedFileAttributeViews().contains("posix"), "no POSIX permissions here");
+        Path f = dir.resolve("perm.json");
+        open(f, false).put("a", 1);
+        assertEquals("rw-------", java.nio.file.attribute.PosixFilePermissions.toString(
+                Files.getPosixFilePermissions(f)), "the moved temporary file keeps its owner-only permissions");
     }
 
     @Test
@@ -83,6 +111,62 @@ class JsonFileCacheTempAndTearDownTest {
             ex.shutdownNow();
         }
         assertEquals(200, open(f, false).keys().size(), "the file is whole");
+    }
+
+    @Test
+    void init_keeps_a_distinct_cache_whose_file_name_extends_this_one() throws Exception {
+        Path archive = dir.resolve("state.json.archive.tmp");   // another cache's data file, not a temporary file
+        open(archive, false).put("balance", 123);
+        open(dir.resolve("state.json"), false);
+        assertTrue(Files.exists(archive), "another cache's saved data must not be deleted by this cache's init");
+        assertEquals(Integer.valueOf(123), open(archive, false).get("balance"));
+    }
+
+    /** A cache value whose serialisation waits until released, holding its cache's write open. */
+    public static class BlockedWrite extends JsonFileCache.TypedData {
+        static java.util.concurrent.CountDownLatch entered;
+        static java.util.concurrent.CountDownLatch release;
+
+        @Override
+        public String getData() {
+            entered.countDown();
+            try {
+                if (!release.await(5, java.util.concurrent.TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("not released");
+                }
+            } catch (InterruptedException e) {
+                throw new IllegalStateException(e);
+            }
+            return "\"value\"";
+        }
+    }
+
+    @Test
+    void init_keeps_the_live_temporary_file_of_a_distinct_cache() throws Exception {
+        JsonFileCache backup = open(dir.resolve("state.json.backup.json"), true);
+        backup.put("old", "saved");
+        backup.doWork();
+        BlockedWrite.entered = new java.util.concurrent.CountDownLatch(1);
+        BlockedWrite.release = new java.util.concurrent.CountDownLatch(1);
+        BlockedWrite hook = new BlockedWrite();
+        hook.setType(String.class);
+        backup.getCacheMap().put("hook", hook);
+        backup.put("new", "pending");
+        ExecutorService ex = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> write = ex.submit(() -> {
+                backup.doWork();
+                return null;
+            });
+            assertTrue(BlockedWrite.entered.await(5, java.util.concurrent.TimeUnit.SECONDS), "write in progress");
+            open(dir.resolve("state.json"), false);   // while the other cache's temporary file is open
+            BlockedWrite.release.countDown();
+            assertDoesNotThrow(() -> write.get(5, java.util.concurrent.TimeUnit.SECONDS));
+        } finally {
+            BlockedWrite.release.countDown();
+            ex.shutdownNow();
+        }
+        assertEquals("pending", open(dir.resolve("state.json.backup.json"), false).get("new"));
     }
 
     /** A cache value that, while the file is being written, makes another change (as another thread could). */

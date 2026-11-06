@@ -29,7 +29,9 @@ import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.IdentityHashMap;
@@ -40,19 +42,23 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Consumer;
+import java.util.regex.Pattern;
 
 /**
  * A {@link Cache} mirrored to a JSON file, reloaded on {@link #init()}.
  * <p>
  * <b>Crash-safe writes.</b> Every write serialises the whole cache, as compact JSON, to a sibling temporary file
- * ({@code <fileName>.tmp}) and then moves it over {@code fileName} atomically. The file is never written in place, so a
- * process killed mid-write (or a write that fails part way) leaves the previous complete file, never a truncated one;
- * each write uses its own temporary file ({@code <fileName>.<random>.tmp}), and {@link #init()} deletes this file's
- * stale ones. This survives a process kill; surviving power loss would also need an fsync, which is not done.
+ * and then moves it over {@code fileName} atomically. The file is never written in place, so a process killed mid-write
+ * (or a write that fails part way) leaves the previous complete file, never a truncated one. Each write uses its own
+ * temporary file, named {@code .<name>.<16 hex digits>.jfc.tmp} beside the file {@code <name>}: a hidden name that
+ * no other cache's file or temporary file can have, so {@link #init()} deletes exactly this file's stale writes and
+ * nothing else (a {@code fileName} of that form is refused). This survives a process kill; surviving power loss would
+ * also need an fsync, which is not done.
  * <p>
  * Use one instance per file: two instances writing the same file each replace it with their own map, and one's
- * {@code init()} deletes the other's in-flight temporary files.
+ * {@code init()} deletes the other's in-flight temporary files. Distinct files never touch each other's.
  * <p>
  * With {@code asyncWrite=false} (the default) each {@link #put} and {@link #remove} writes before it returns; with
  * {@code asyncWrite=true} writes are left to {@link #doWork()} on the cache's agent thread. A change is made to the map
@@ -63,6 +69,10 @@ import java.util.function.Consumer;
 @Data
 @Log4j2
 public class JsonFileCache implements Cache, Agent, Lifecycle, EventFlowService<Object> {
+
+    /** The temporary file name of a write, for a target {@code <name>}: {@code .<name>.<16 hex>.jfc.tmp}. */
+    static final String TEMP_SUFFIX = ".jfc.tmp";
+    private static final Pattern ANY_TEMP_NAME = Pattern.compile("\\..+\\.[0-9a-f]{16}" + Pattern.quote(TEMP_SUFFIX));
 
     private String fileName;
     private final AtomicBoolean updated = new AtomicBoolean(false);
@@ -105,6 +115,10 @@ public class JsonFileCache implements Cache, Agent, Lifecycle, EventFlowService<
         }
         if (maxSize < 0) {
             throw new IllegalStateException("JsonFileCache maxSize must be >= 0, got " + maxSize);
+        }
+        if (ANY_TEMP_NAME.matcher(Path.of(fileName).getFileName().toString()).matches()) {
+            throw new IllegalStateException("JsonFileCache fileName " + fileName
+                    + " has the form of a temporary file (.<name>.<16 hex digits>" + TEMP_SUFFIX + "): choose another");
         }
         Map<String, TypedData> loaded = null;
         initialised = false;
@@ -279,7 +293,7 @@ public class JsonFileCache implements Cache, Agent, Lifecycle, EventFlowService<
     }
 
     /**
-     * Writes the whole cache to a new {@code <fileName>.<random>.tmp} and moves it over {@code fileName} atomically, so a reader or a
+     * Writes the whole cache to a new temporary file ({@link #tempName}) and moves it over {@code fileName} atomically, so a reader or a
      * restart sees either the previous file or the new one, never a partial write. Serialised: a synchronous
      * {@code put} and the agent thread never write the temporary file at the same time.
      */
@@ -289,7 +303,7 @@ public class JsonFileCache implements Cache, Agent, Lifecycle, EventFlowService<
         if (parent != null) {
             Files.createDirectories(parent);
         }
-        Path tmp = Files.createTempFile(parent, target.getFileName() + ".", ".tmp");
+        Path tmp = newTempFile(target);
         try {
             if (maxSize > 0) {
                 synchronized (cacheMap) {   // Collections.synchronizedMap: iterate under its lock
@@ -313,19 +327,52 @@ public class JsonFileCache implements Cache, Agent, Lifecycle, EventFlowService<
         }
     }
 
-    /** Deletes {@code <fileName>.*.tmp}: writes this file's previous run did not finish. */
+    /** The name of a write's temporary file for {@code target}: {@code .<name>.<16 hex digits>.jfc.tmp}. */
+    static String tempName(Path target, long random) {
+        return "." + target.getFileName() + "." + String.format("%016x", random) + TEMP_SUFFIX;
+    }
+
+    /**
+     * True when {@code candidate} is named as one of {@code target}'s temporary files. Only {@code target}'s own: the
+     * name starts with the whole target name and ends with exactly 16 hex digits and the suffix, so no other file's
+     * temporary name and no cache file (a {@code fileName} of that form is refused) can match.
+     */
+    static boolean isTempFileOf(Path target, Path candidate) {
+        String n = candidate.getFileName().toString();
+        String prefix = "." + target.getFileName() + ".";
+        return n.length() == prefix.length() + 16 + TEMP_SUFFIX.length() && n.startsWith(prefix)
+                && n.endsWith(TEMP_SUFFIX)
+                && n.substring(prefix.length(), prefix.length() + 16).chars()
+                .allMatch(c -> (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'));
+    }
+
+    /** A new, empty temporary file for a write of {@code target}, readable by its owner only where POSIX allows. */
+    private static Path newTempFile(Path target) throws IOException {
+        Path parent = target.getParent();
+        boolean posix = parent.getFileSystem().supportedFileAttributeViews().contains("posix");
+        for (int attempt = 1; ; attempt++) {
+            Path tmp = parent.resolve(tempName(target, ThreadLocalRandom.current().nextLong()));
+            try {
+                return posix
+                        ? Files.createFile(tmp, PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")))
+                        : Files.createFile(tmp);
+            } catch (FileAlreadyExistsException e) {
+                if (attempt == 8) {
+                    throw e;
+                }
+            }
+        }
+    }
+
+    /** Deletes this file's temporary files ({@link #isTempFileOf}): writes its previous run did not finish. */
     private void deleteStaleTempFiles() throws IOException {
         Path target = Path.of(fileName).toAbsolutePath();
         Path parent = target.getParent();
         if (parent == null || !Files.isDirectory(parent)) {
             return;
         }
-        String prefix = target.getFileName() + ".";
-        try (DirectoryStream<Path> files = Files.newDirectoryStream(parent, p -> {
-            String n = p.getFileName().toString();
-            return n.startsWith(prefix) && n.endsWith(".tmp") && n.length() > prefix.length() + 4
-                    && Files.isRegularFile(p);
-        })) {
+        try (DirectoryStream<Path> files = Files.newDirectoryStream(parent,
+                p -> isTempFileOf(target, p) && Files.isRegularFile(p))) {
             for (Path stale : files) {
                 Files.deleteIfExists(stale);
                 log.info("deleted incomplete cache write:{}", stale);
