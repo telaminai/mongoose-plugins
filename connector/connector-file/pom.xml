@@ -18,6 +18,12 @@
     </properties>
 
     <dependencies>
+        <!-- StateJson: JSON lines for LineMapper and JsonLineSink (java.time as ISO strings). Brings jackson-databind. -->
+        <dependency>
+            <groupId>com.telamin</groupId>
+            <artifactId>lib-jsonserialiser</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <dependency>
             <groupId>com.telamin</groupId>
             <artifactId>mongoose-test-support</artifactId>
