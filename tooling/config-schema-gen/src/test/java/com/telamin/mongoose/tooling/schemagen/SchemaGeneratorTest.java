@@ -187,6 +187,19 @@ class SchemaGeneratorTest {
     }
 
     @Test
+    void inheritedNoOpHooksAreNotOffered() throws Exception {
+        // EventSource.setFeedStatusEvents is an empty default: a source built on AbstractEventSourceService implements
+        // it, but a service that only inherits the default ignores the property, so the schema must not offer it.
+        Schema s = build();
+        assertEquals("boolean", field(plugin(s, "connector-file", "source"), "feedStatusEvents").type());
+        for (String svc : java.util.List.of("svc-cache", "svc-admin-rest", "svc-admin-web")) {
+            PluginSchema p = plugin(s, svc, "service");
+            assertFalse(p.fields().stream().anyMatch(f -> f.name().equals("feedStatusEvents")),
+                    () -> svc + " offers feedStatusEvents, which only an EventSource default (a no-op) declares");
+        }
+    }
+
+    @Test
     void matchesGoldenFile() throws Exception {
         // Compare normalised serialised strings (both produced by the same writer)
         // rather than JsonNode trees — tree equality is brittle across int/long
