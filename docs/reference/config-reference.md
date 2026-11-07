@@ -6,7 +6,7 @@
     machine-readable, is at [`schema.json`](../schema/schema.json)
     (consumed by the Fluxtion project starter).
 
-Plugins release **`1.1.1`**. Feeds bind under `eventFeeds:` / sinks under `eventSinks:` (key `instance:`); services under `services:` (key `service:`).
+Plugins release **`1.1.2`**. Feeds bind under `eventFeeds:` / sinks under `eventSinks:` (key `instance:`); services under `services:` (key `service:`).
 
 ## Connectors
 
@@ -16,11 +16,12 @@ Built-in (mongoose-core): tail a file as an event source.
 
 - **Class**: `com.telamin.mongoose.connector.file.FileEventSource`
 - **YAML**: `eventFeeds:` → `instance:`
-- **From**: mongoose-core `1.1.2`
+- **From**: mongoose-core `1.1.3`
 
 | Field | Type | Required | Default | Allowed / notes |
 |---|---|:--:|---|---|
 | `cacheEventLog` | boolean |  | `false` | Cache startup lines in memory for replay; live lines are not retained after startComplete. |
+| `feedStatusEvents` | boolean |  | `false` |  |
 | `filename` | string | ✔ |  | _format: path_<br>Path to the file to tail. |
 | `readStrategy` | enum |  | `COMMITED` | `COMMITED` \| `EARLIEST` \| `LATEST` \| `ONCE_EARLIEST` \| `ONCE_LATEST`<br>How much of the file to replay on start. |
 
@@ -30,7 +31,7 @@ Built-in (mongoose-core): append messages to a file.
 
 - **Class**: `com.telamin.mongoose.connector.file.FileMessageSink`
 - **YAML**: `eventSinks:` → `instance:`
-- **From**: mongoose-core `1.1.2`
+- **From**: mongoose-core `1.1.3`
 
 | Field | Type | Required | Default | Allowed / notes |
 |---|---|:--:|---|---|
@@ -42,11 +43,12 @@ Built-in (mongoose-core): in-memory event source (tests / in-process).
 
 - **Class**: `com.telamin.mongoose.connector.memory.InMemoryEventSource`
 - **YAML**: `eventFeeds:` → `instance:`
-- **From**: mongoose-core `1.1.2`
+- **From**: mongoose-core `1.1.3`
 
 | Field | Type | Required | Default | Allowed / notes |
 |---|---|:--:|---|---|
 | `cacheEventLog` | boolean |  | `false` | Cache events before startup and replay them when the source starts. |
+| `feedStatusEvents` | boolean |  | `false` |  |
 | `retainEventLogAfterStart` | boolean |  | `false` | Continue retaining events after startup; the in-memory log grows for the lifetime of the source. Off by default. |
 
 ### InMemoryMessageSink  <small>`mongoose` · sink</small>
@@ -55,7 +57,7 @@ Built-in (mongoose-core): in-memory message sink.
 
 - **Class**: `com.telamin.mongoose.connector.memory.InMemoryMessageSink`
 - **YAML**: `eventSinks:` → `instance:`
-- **From**: mongoose-core `1.1.2`
+- **From**: mongoose-core `1.1.3`
 
 _No configurable fields._
 
@@ -69,6 +71,7 @@ Tail a file as an event source.
 | Field | Type | Required | Default | Allowed / notes |
 |---|---|:--:|---|---|
 | `cacheEventLog` | boolean |  | `false` | Cache startup lines in memory for replay; live lines are not retained after startComplete. |
+| `feedStatusEvents` | boolean |  | `false` |  |
 | `filename` | string | ✔ |  | _format: path_<br>Path to the file to tail. |
 | `readStrategy` | enum |  | `COMMITED` | `COMMITED` \| `EARLIEST` \| `LATEST` \| `ONCE_EARLIEST` \| `ONCE_LATEST`<br>How much of the file to replay on start. |
 
@@ -77,6 +80,20 @@ Tail a file as an event source.
 Append messages to a file.
 
 - **Class**: `com.telamin.mongoose.plugin.connector.file.FileMessageSink`
+- **YAML**: `eventSinks:` → `instance:`
+
+| Field | Type | Required | Default | Allowed / notes |
+|---|---|:--:|---|---|
+| `filename` | string | ✔ |  | _format: path_<br>Path of the output file. |
+| `maxBackupFiles` | int |  | `0` | Number of rotated backups to retain. |
+| `rotateOnIntervalMillis` | long |  | `0` | _format: millis_<br>Rotate on this interval; 0 = never. |
+| `rotateOnSizeBytes` | long |  | `0` | Rotate when the file exceeds this many bytes; 0 = never. |
+
+### JsonLineSink  <small>`connector-file` · sink</small>
+
+Append messages to a file, one per line: a String as it is, any other value as one line of JSON.
+
+- **Class**: `com.telamin.mongoose.plugin.connector.file.JsonLineSink`
 - **YAML**: `eventSinks:` → `instance:`
 
 | Field | Type | Required | Default | Allowed / notes |
@@ -95,6 +112,7 @@ Consume from a Kafka topic as an event source.
 
 | Field | Type | Required | Default | Allowed / notes |
 |---|---|:--:|---|---|
+| `feedStatusEvents` | boolean |  | `false` |  |
 | `pollTimeoutMs` | long |  | `100` | _format: millis_<br>Consumer poll timeout. |
 | `properties` | map&lt;string,string&gt; | ✔ |  | Kafka consumer properties (bootstrap.servers, group.id, deserializers, …). |
 | `topics` | list&lt;string&gt; | ✔ |  | Kafka topics to subscribe to. |
@@ -128,6 +146,7 @@ Subscribe to an Aeron stream / replay from an Aeron Archive.
 | `binaryMode` | boolean |  | `false` |  |
 | `cacheEventLog` | boolean |  | `false` |  |
 | `channel` | string |  | `aeron:ipc` | Aeron channel URI (e.g. aeron:ipc or aeron:udp?endpoint=host:port). |
+| `feedStatusEvents` | boolean |  | `false` |  |
 | `fragmentLimit` | int |  | `50` |  |
 | `launchEmbeddedDriver` | boolean |  | `false` |  |
 | `mode` | enum |  | `LIVE` | `LIVE` \| `ARCHIVE` |
@@ -161,6 +180,7 @@ Read events from a Chronicle Queue.
 |---|---|:--:|---|---|
 | `cacheEventLog` | boolean |  | `false` |  |
 | `chroniclePath` | string | ✔ |  | _format: path_<br>Chronicle Queue directory to read from. |
+| `feedStatusEvents` | boolean |  | `false` |  |
 | `readStrategy` | enum |  | `COMMITED` | `COMMITED` \| `EARLIEST` \| `LATEST`<br>How much of the queue to replay on start. |
 
 ### ChronicleMessageSink  <small>`connector-chronicle` · sink</small>
@@ -184,6 +204,7 @@ Receive events over UDP multicast.
 | Field | Type | Required | Default | Allowed / notes |
 |---|---|:--:|---|---|
 | `cacheEventLog` | boolean |  | `false` |  |
+| `feedStatusEvents` | boolean |  | `false` |  |
 | `multicastGroup` | string | ✔ | `224.0.0.1` | Multicast group address (e.g. 224.0.0.1). |
 | `multicastPort` | int | ✔ | `4446` | _format: port_<br>Multicast port. |
 | `networkInterfaceName` | string |  |  | NIC to bind; blank = default route. |
@@ -215,6 +236,7 @@ JSON-persistent key/value cache service.
 | Field | Type | Required | Default | Allowed / notes |
 |---|---|:--:|---|---|
 | `asyncWrite` | boolean |  | `false` | Flush writes on a background thread. |
+| `feedStatusEvents` | boolean |  |  |  |
 | `fileName` | string | ✔ |  | _format: path_<br>Backing JSON file path. |
 | `maxSize` | int |  | `0` | 0 = unbounded; >0 enables LRU eviction. |
 
@@ -284,6 +306,7 @@ Javalin REST admin endpoint.
 | `allowedHosts` | list&lt;string&gt; |  | `[]` |  |
 | `authMode` | enum |  | `NONE` | `NONE` \| `BASIC` \| `BEARER`<br>NONE \| BASIC \| BEARER. |
 | `bearerToken` | string |  |  | BEARER credential ($ENV. resolvable). |
+| `feedStatusEvents` | boolean |  |  |  |
 | `host` | string |  | `127.0.0.1` | _format: host_<br>Bind address (0.0.0.0 = all interfaces — front with TLS). |
 | `listenPort` | int |  | `8080` | _format: port_ |
 | `password` | string |  |  | BASIC credential ($ENV. resolvable). |
@@ -305,6 +328,7 @@ Browser admin & monitoring console (REST + WebSocket + SPA).
 | `basePath` | string |  |  |  |
 | `bearerToken` | string |  |  | BEARER credential ($ENV. resolvable). |
 | `environment` | string |  | `dev` |  |
+| `feedStatusEvents` | boolean |  |  |  |
 | `graphmlRoots` | list&lt;string&gt; |  | `[]` | Dirs the processor-graph panel reads .graphml from. |
 | `host` | string |  | `127.0.0.1` | _format: host_<br>Bind address; loopback by default — front with TLS for multi-host. |
 | `listenPort` | int |  | `8181` | _format: port_ |
