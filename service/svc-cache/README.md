@@ -170,8 +170,9 @@ as `paymentFeed`, declare the rename in the node:
 ```
 
 Stop the old feed before restarting. Its saved position moves to the new name only if the delivery has the same
-non-zero epoch, and the old name has not delivered to this node in this run. An observed active predecessor is refused,
-not silently taken over. A stale entry under the new name from another epoch does not hide the declared predecessor.
+non-zero epoch, and the old name has not delivered to this node in this run. An old name that delivers in this run,
+before or after the take-over, is refused (`IllegalStateException`), not silently taken over or re-applied; one still
+running in a later run, after the move was saved, cannot be detected. A stale entry under the new name from another epoch does not hide the declared predecessor.
 The move is logged at INFO and saved with the node's state at the delivery's normal save point. A crash before that
 save leaves the old record intact; the same declaration applies again on restart. Retain the declaration through that
 recovery window. This prevents applying the already-saved part twice after a rename and crash before pointer commit.
@@ -240,7 +241,7 @@ When a `JsonFileCache` is wired alongside an `AdminCommandRegistry`, it auto-reg
 - [`JsonFileCacheKillTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/JsonFileCacheKillTest.java) — a child writer process is SIGKILLed mid-write six times; the file always loads with one whole value.
 - [`PersistentNodeCompletionTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/PersistentNodeCompletionTest.java) — with the delivery-complete hook (a test double of it): an event queued during a delivery is applied and the delivery saved once at completion; a crash before completion saves nothing and the restart re-applies the whole delivery; a retry rolls back and applies the whole delivery once (one and two completed cycles, a failure between cycles, a second retry, a queued event and a new one, a cycle with no handler, positions, a delivery that never completed); a synthetic-clock cycle is not refused; events without a position are saved at once; a failing save throws so the reader retries it; declared renames preserve positions through retry and work independently for separate nodes.
 - [`PersistentNodeReentrantTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/PersistentNodeReentrantTest.java) — the fallback without the hook: an event queued during a positioned delivery is refused, not skipped; a crash at the first cycle's save ends at the same state as the refusing live run; separate deliveries and position-less events are not refused.
-- [`PersistentNodeTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/PersistentNodeTest.java) — save/restore, older records, seeding; declared rename migration, name reuse, reset/zero epochs, independent feeds sharing an epoch and refusal of an active predecessor; replay guard off without `DeliveryContext`, on with a test double, and on with Mongoose's own context and actual file-source epochs (`-Dmongoose.version=...`).
+- [`PersistentNodeTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/PersistentNodeTest.java) — save/restore, older records, seeding; declared rename migration, name reuse, reset/zero epochs, independent feeds sharing an epoch and refusal of an active predecessor, before or after the take-over; replay guard off without `DeliveryContext`, on with a test double, and on with Mongoose's own context and actual file-source epochs (`-Dmongoose.version=...`).
 - [`SeedTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/SeedTest.java).
 
 ## Related

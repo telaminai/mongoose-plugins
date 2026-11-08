@@ -364,6 +364,26 @@ class PersistentNodeTest {
     }
 
     @Test
+    void a_declared_predecessor_that_delivers_after_the_take_over_is_refused() {
+        InMemoryCache cache = new InMemoryCache();
+        Counter first = counter(cache, fake());
+        FakeDeliveryContext.enter("old", 1, 7, 100L);
+        assertTrue(first.cycle(T0));
+
+        Counter c = counter(cache, fake());
+        c.renames.put("new", "old");
+        FakeDeliveryContext.enter("new", 1, 7, 100L);
+        assertFalse(c.cycle(T0), "taken over: already applied");
+        Object saved = cache.get("test.counter");
+        FakeDeliveryContext.enter("old", 1, 7, 100L);   // the old feed is still configured on the same pointer
+        IllegalStateException refused = assertThrows(IllegalStateException.class, () -> c.cycle(T0),
+                "the old name lost its entry to the rename: re-applying its line would count it twice");
+        assertTrue(refused.getMessage().contains("taken over by a declared rename"));
+        assertEquals(1, c.count);
+        assertEquals(saved, cache.get("test.counter"));
+    }
+
+    @Test
     void real_file_pointer_epochs_require_explicit_rename_consent(@TempDir Path dir) throws Exception {
         assumeTrue(realDeliveryContextPresent(), "this Mongoose has no DeliveryContext");
         Path input = dir.resolve("input.txt");
