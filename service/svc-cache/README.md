@@ -160,12 +160,28 @@ file feed delivery), the node stores each feed's source epoch and position in th
 `DeliveryContext` is looked up once through method handles: on a Mongoose without it (1.1.2 and earlier) the guard is
 off and `replayed()` is always false; nothing else changes.
 
-**A renamed feed.** Positions are saved by feed name, but a file feed's read pointer, and so its epoch, belongs to its
-input file: a feed renamed in the configuration resumes from the old pointer under the new name. A feed with no saved
-position takes over the one saved entry with the same non-zero epoch (if exactly one entry has it and that feed has not
-delivered in this run) and saves it under the new name, logged at INFO. So a crash between the save and the feed's
-commit, followed by a restart under the new name, does not apply the re-delivered lines twice. A source without epochs
-(epoch 0) is never matched this way.
+**A declared feed rename.** Positions are saved by feed name. To retire `payments` and restart the same logical input
+as `paymentFeed`, declare the rename in the node:
+
+```java
+@Override protected String renamedFrom(String feed) {
+    return "paymentFeed".equals(feed) ? "payments" : null;
+}
+```
+
+Stop the old feed before restarting. Its saved position moves to the new name only if the delivery has the same
+non-zero epoch, and the old name has not delivered to this node in this run. An observed active predecessor is refused,
+not silently taken over. A stale entry under the new name from another epoch does not hide the declared predecessor.
+The move is logged at INFO and saved with the node's state at the delivery's normal save point. A crash before that
+save leaves the old record intact; the same declaration applies again on restart. Retain the declaration through that
+recovery window. This prevents applying the already-saved part twice after a rename and crash before pointer commit.
+
+**Epoch equality is not rename consent.** Two feeds on one file can share its pointer/epoch, copied pointers can retain
+an epoch, and custom publishers can choose any epoch. By default different feed names therefore remain independent;
+never declare a rename for an additional subscription or a different logical input. Declaring a rename is an explicit
+ownership decision, not an identity check. Epoch 0 or a changed epoch (for example, a reset/deleted pointer) never
+transfers an old position. Preserve the state and pointer together; do not copy a pointer to another input and call it
+a rename. As with ordinary replay guarding, this does not make external sink side effects atomic with saved state.
 
 `Seed` writes configuration into a cache only where a key is absent, so a restart keeps what is stored:
 `Seed.properties(cache, file, prefix)`, `Seed.file(cache, file, key)` (the file's text), `Seed.value(cache, key, v)`.
@@ -222,9 +238,9 @@ When a `JsonFileCache` is wired alongside an `AdminCommandRegistry`, it auto-reg
 - [`JsonFileCacheConcurrencyTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/JsonFileCacheConcurrencyTest.java) — a put overlapped by the agent's doWork or by another thread's synchronous put is never left unsaved (deterministic interleavings and thread races).
 - [`JsonFileCacheTempAndTearDownTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/JsonFileCacheTempAndTearDownTest.java) — per-write temporary files, only this file's stale ones removed (a distinct cache's data file or live write whose name extends this one's is kept), temporary-form, control-character and over-long file names refused at init, two instances on one file, tearDown dirty-flag and failed-init guards.
 - [`JsonFileCacheKillTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/JsonFileCacheKillTest.java) — a child writer process is SIGKILLed mid-write six times; the file always loads with one whole value.
-- [`PersistentNodeCompletionTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/PersistentNodeCompletionTest.java) — with the delivery-complete hook (a test double of it): an event queued during a delivery is applied and the delivery saved once at completion; a crash before completion saves nothing and the restart re-applies the whole delivery; a retry rolls back and applies the whole delivery once (one and two completed cycles, a failure between cycles, a second retry, a queued event and a new one, a cycle with no handler, positions, a delivery that never completed); a synthetic-clock cycle is not refused; events without a position are saved at once; a failing save throws so the reader retries it; a renamed feed resumes its saved position.
+- [`PersistentNodeCompletionTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/PersistentNodeCompletionTest.java) — with the delivery-complete hook (a test double of it): an event queued during a delivery is applied and the delivery saved once at completion; a crash before completion saves nothing and the restart re-applies the whole delivery; a retry rolls back and applies the whole delivery once (one and two completed cycles, a failure between cycles, a second retry, a queued event and a new one, a cycle with no handler, positions, a delivery that never completed); a synthetic-clock cycle is not refused; events without a position are saved at once; a failing save throws so the reader retries it; declared renames preserve positions through retry and work independently for separate nodes.
 - [`PersistentNodeReentrantTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/PersistentNodeReentrantTest.java) — the fallback without the hook: an event queued during a positioned delivery is refused, not skipped; a crash at the first cycle's save ends at the same state as the refusing live run; separate deliveries and position-less events are not refused.
-- [`PersistentNodeTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/PersistentNodeTest.java) — save/restore, older records, seeding; replay guard off without `DeliveryContext`, on with a test double of it (including a renamed feed resuming its saved position by epoch, and no take-over for another epoch, epoch 0, a shared epoch or a feed that delivered in this run), and on with Mongoose's own when built against a Mongoose that has it (`-Dmongoose.version=...`).
+- [`PersistentNodeTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/PersistentNodeTest.java) — save/restore, older records, seeding; declared rename migration, name reuse, reset/zero epochs, independent feeds sharing an epoch and refusal of an active predecessor; replay guard off without `DeliveryContext`, on with a test double, and on with Mongoose's own context and actual file-source epochs (`-Dmongoose.version=...`).
 - [`SeedTest`](src/test/java/com/telamin/mongoose/plugin/svc/cache/SeedTest.java).
 
 ## Related

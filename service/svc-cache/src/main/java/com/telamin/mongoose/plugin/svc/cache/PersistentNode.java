@@ -47,13 +47,15 @@ import java.util.Set;
  * {@code replayedSkip} (the saved position), so the audit shows the cycle was a deliberate no-op.
  * {@code DeliveryContext} is looked up reflectively, once, so this class also runs on a Mongoose without it.
  *
- * <p><b>A renamed feed keeps its saved position.</b> Positions are saved by feed name, but a file feed's read pointer
- * (and so its epoch) belongs to its input file, so a feed renamed in the configuration re-delivers under the new name
- * from the old pointer. A feed with no saved position takes the one saved entry with the same non-zero epoch, if
- * exactly one entry has it and that entry's feed has not delivered to this node in this run, and saves it under the new
- * name from then on (logged at INFO). Without this, a crash between the save and the feed's commit, followed by a
- * restart under the new name, would apply the re-delivered lines twice. A source that reports positions without an
- * epoch (epoch 0) is never matched this way.
+ * <p><b>A declared feed rename keeps its saved position.</b> Override {@link #renamedFrom(String)} to name the retired
+ * feed explicitly. A file feed's read pointer, and so its epoch, belongs to its input file: after a rename it can
+ * re-deliver an already-saved event under the new name. The declared predecessor's saved position moves to the new
+ * name only when their non-zero epochs agree (logged at INFO), including when the new name has a historical entry
+ * from another epoch. Epoch equality alone is not rename intent: two feeds on the same file share it, a pointer can
+ * be copied, and a custom publisher can choose it. Undeclared names remain independent. Epoch 0 or a changed epoch
+ * never transfers a position. Stop the old feed before restarting with the declared rename; an old name observed
+ * delivering in this run refuses its take-over. This migrates the replay guard, not external sink effects or state
+ * between different inputs; restoring/copying a pointer does not authorise declaring a rename.
  *
  * <p><b>Saved once per delivery, when the delivery is complete.</b> A handler, or a sink it publishes to, may send the
  * processor another event with {@code onEvent} (or {@code EventDispatcher.queueReentrantEvent}) while it handles a
@@ -137,6 +139,15 @@ public abstract class PersistentNode<S> extends EventLogNode {
 
     /** Called when the cache registers, before {@link #restore}; seed configuration here. */
     protected void onCache(Cache cache) {
+    }
+
+    /**
+     * The explicitly retired name of {@code feed}, or null for an ordinary feed (the default). Override only for a
+     * real rename of the same logical input, never for another subscription to the same file or a copied pointer.
+     * A matching non-zero epoch is still required; deleting/resetting the pointer starts a new position space.
+     */
+    protected String renamedFrom(String feed) {
+        return null;
     }
 
     /** The state type, from the generic parameter; override if it cannot be inferred. */
@@ -297,36 +308,36 @@ public abstract class PersistentNode<S> extends EventLogNode {
     }
 
     /**
-     * The saved position of delivery {@code d}'s feed. A feed with none (renamed in the configuration) takes over the
-     * one saved entry with the same non-zero source epoch, when exactly one entry has it and its feed has not delivered
-     * in this run: the epoch belongs to the input's read pointer, which a rename keeps. The entry moves to the new name.
+     * The saved position of delivery {@code d}'s feed. Cross-name ownership requires an explicit rename declaration,
+     * not an epoch search: epochs can be shared or copied. A historical entry for this name under another epoch must
+     * not hide the declared predecessor's matching position.
      */
     private Applied appliedFor(Object d) {
         String feed = delivery.feed(d);
         deliveringFeeds.add(feed);
         Applied stored = appliedPositions.get(feed);
         long epoch = delivery.epoch(d);
-        if (stored != null || epoch == 0) {
+        if ((stored != null && stored.epoch() == epoch) || epoch == 0) {
             return stored;
         }
-        String previous = null;
-        for (Map.Entry<String, Applied> e : appliedPositions.entrySet()) {
-            if (e.getValue().epoch() == epoch) {
-                if (previous != null) {
-                    return null;   // two entries share the epoch: not one input's, so neither is taken
-                }
-                previous = e.getKey();
-            }
+        String previous = renamedFrom(feed);
+        if (previous == null || previous.equals(feed)) {
+            return stored;
         }
-        if (previous == null || deliveringFeeds.contains(previous)) {
-            return null;
+        Applied predecessor = appliedPositions.get(previous);
+        if (predecessor == null || predecessor.epoch() != epoch) {
+            return stored;
         }
-        stored = appliedPositions.remove(previous);
-        appliedPositions.put(feed, stored);
+        if (deliveringFeeds.contains(previous)) {
+            throw new IllegalStateException("PersistentNode '" + stateKey() + "': cannot rename feed '" + previous
+                    + "' to '" + feed + "': the old feed delivered in this run; stop it before restarting with the rename");
+        }
+        appliedPositions.remove(previous);
+        appliedPositions.put(feed, predecessor);
         log.info("PersistentNode '{}': feed '{}' resumes the saved position of feed '{}' (same source epoch {}):"
-                + " the feed was renamed; its position is saved under the new name from now on",
+                + " the rename was explicitly declared; its position is saved under the new name from now on",
                 stateKey(), feed, previous, epoch);
-        return stored;
+        return predecessor;
     }
 
     /** The delivery is complete: save the state with its position, once. */
