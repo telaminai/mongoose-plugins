@@ -17,7 +17,9 @@ import java.io.IOException;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * A node whose state survives a restart. Keep all runtime state in one record (or any Jackson-serialisable object)
@@ -44,6 +46,14 @@ import java.util.Map;
  * {@code replayed()} is false and the state is saved in every event cycle. A skipped event is audited with
  * {@code replayedSkip} (the saved position), so the audit shows the cycle was a deliberate no-op.
  * {@code DeliveryContext} is looked up reflectively, once, so this class also runs on a Mongoose without it.
+ *
+ * <p><b>A renamed feed keeps its saved position.</b> Positions are saved by feed name, but a file feed's read pointer
+ * (and so its epoch) belongs to its input file, so a feed renamed in the configuration re-delivers under the new name
+ * from the old pointer. A feed with no saved position takes the one saved entry with the same non-zero epoch, if
+ * exactly one entry has it and that entry's feed has not delivered to this node in this run, and saves it under the new
+ * name from then on (logged at INFO). Without this, a crash between the save and the feed's commit, followed by a
+ * restart under the new name, would apply the re-delivered lines twice. A source that reports positions without an
+ * epoch (epoch 0) is never matched this way.
  *
  * <p><b>Saved once per delivery, when the delivery is complete.</b> A handler, or a sink it publishes to, may send the
  * processor another event with {@code onEvent} (or {@code EventDispatcher.queueReentrantEvent}) while it handles a
@@ -92,6 +102,8 @@ public abstract class PersistentNode<S> extends EventLogNode {
     private transient Cache cache;
     /** Per feed, the source epoch and position of the last event whose effect is in the saved state. */
     private transient Map<String, Applied> appliedPositions = new HashMap<>();
+    /** Feeds that delivered a positioned event to this node in this run: their saved entries are never taken over. */
+    private final transient Set<String> deliveringFeeds = new HashSet<>();
     private transient DeliveryAccess delivery = DeliveryAccess.DEFAULT;
     /** Without the hook: the positioned delivery whose state this node last saved in this run; a further cycle is refused. */
     private transient Object savedDelivery;
@@ -182,7 +194,7 @@ public abstract class PersistentNode<S> extends EventLogNode {
         } else if (d.equals(savedDelivery)) {
             throw reentrant(d);
         }
-        Applied stored = appliedPositions.get(delivery.feed(d));
+        Applied stored = appliedFor(d);
         if (stored != null && delivery.alreadyApplied(d, stored.epoch(), stored.position())) {
             auditLog.info("replayedSkip", stored.position());   // the audit shows this cycle was a deliberate no-op
             return true;
@@ -284,6 +296,39 @@ public abstract class PersistentNode<S> extends EventLogNode {
         }
     }
 
+    /**
+     * The saved position of delivery {@code d}'s feed. A feed with none (renamed in the configuration) takes over the
+     * one saved entry with the same non-zero source epoch, when exactly one entry has it and its feed has not delivered
+     * in this run: the epoch belongs to the input's read pointer, which a rename keeps. The entry moves to the new name.
+     */
+    private Applied appliedFor(Object d) {
+        String feed = delivery.feed(d);
+        deliveringFeeds.add(feed);
+        Applied stored = appliedPositions.get(feed);
+        long epoch = delivery.epoch(d);
+        if (stored != null || epoch == 0) {
+            return stored;
+        }
+        String previous = null;
+        for (Map.Entry<String, Applied> e : appliedPositions.entrySet()) {
+            if (e.getValue().epoch() == epoch) {
+                if (previous != null) {
+                    return null;   // two entries share the epoch: not one input's, so neither is taken
+                }
+                previous = e.getKey();
+            }
+        }
+        if (previous == null || deliveringFeeds.contains(previous)) {
+            return null;
+        }
+        stored = appliedPositions.remove(previous);
+        appliedPositions.put(feed, stored);
+        log.info("PersistentNode '{}': feed '{}' resumes the saved position of feed '{}' (same source epoch {}):"
+                + " the feed was renamed; its position is saved under the new name from now on",
+                stateKey(), feed, previous, epoch);
+        return stored;
+    }
+
     /** The delivery is complete: save the state with its position, once. */
     private void saveAtCompletion() {
         Object d = delivery.current();
@@ -293,6 +338,7 @@ public abstract class PersistentNode<S> extends EventLogNode {
 
     private void write(Object d, boolean positioned) {
         if (positioned) {
+            appliedFor(d);   // a renamed feed takes over its saved entry before this position is merged into it
             long pos = (Long) delivery.position(d);
             // same epoch: keep the furthest position; a new epoch (source reset) starts over
             appliedPositions.merge(delivery.feed(d), new Applied(delivery.epoch(d), pos),

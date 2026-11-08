@@ -398,4 +398,25 @@ class PersistentNodeCompletionTest {
         assertTrue(a.retryWarningLogged(), "a retry seen for the first time warns as well");
         FakeHookDeliveryContext.complete();
     }
+
+    @Test
+    void a_renamed_feed_resumes_its_saved_position_with_the_hook() throws Exception {
+        InMemoryCache cache = new InMemoryCache();
+        Account live = account(cache);
+        FakeHookDeliveryContext.enter("payments", 1, 7, 100L);
+        live.cycle(10);
+        FakeHookDeliveryContext.complete();   // saved at 100; crash before the feed committed it
+
+        Account restarted = account(cache);   // the feed is now named "paymentFeed"
+        FakeHookDeliveryContext.enter("paymentFeed", 1, 7, 100L);
+        assertFalse(restarted.cycle(10), "already applied");
+        FakeHookDeliveryContext.complete();
+        FakeHookDeliveryContext.enter("paymentFeed", 2, 7, 200L);
+        assertTrue(restarted.cycle(5));
+        FakeHookDeliveryContext.complete();
+        assertEquals(15, restarted.balance);
+        JsonNode record = saved(cache);
+        assertEquals(200, record.at("/positions/paymentFeed/position").asLong());
+        assertTrue(record.at("/positions/payments").isMissingNode());
+    }
 }

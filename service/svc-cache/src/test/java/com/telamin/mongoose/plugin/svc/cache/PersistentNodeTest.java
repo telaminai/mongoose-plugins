@@ -221,6 +221,61 @@ class PersistentNodeTest {
         assertEquals(5, c.count);
     }
 
+    // ---- a renamed feed: its read pointer, and so its epoch, carries over to the new name ----------------------
+
+    @Test
+    void a_renamed_feed_resumes_its_saved_position_by_epoch() throws Exception {
+        InMemoryCache cache = new InMemoryCache();
+        Counter first = counter(cache, fake());
+        for (long pos = 10; pos <= 30; pos += 10) {
+            FakeDeliveryContext.enter("tills", pos / 10, 7, pos);
+            first.cycle(T0);
+        }
+        // crash after saving 30, before the pointer committed it; the restart renames the feed "tills" -> "tillFeed"
+        Counter restarted = counter(cache, fake());
+        FakeDeliveryContext.enter("tillFeed", 1, 7, 30L);
+        assertFalse(restarted.cycle(T0), "re-delivered under the new name: already applied");
+        assertEquals(List.of("replayedSkip=30"), restarted.audit);
+        FakeDeliveryContext.enter("tillFeed", 2, 7, 40L);
+        assertTrue(restarted.cycle(T0), "new line");
+        assertEquals(4, restarted.count);
+
+        JsonNode saved = StateJson.mapper().readTree((String) cache.get("test.counter"));
+        assertEquals(40, saved.at("/positions/tillFeed/position").asLong(), "saved under the new name");
+        assertTrue(saved.at("/positions/tills").isMissingNode(), "the old name's entry moved, not copied");
+
+        Counter again = counter(cache, fake());
+        FakeDeliveryContext.enter("tillFeed", 1, 7, 40L);
+        assertFalse(again.cycle(T0), "the next restart finds it by name");
+    }
+
+    @Test
+    void a_saved_position_is_taken_over_only_by_one_input_with_the_same_non_zero_epoch() {
+        InMemoryCache cache = new InMemoryCache();
+        cache.put("test.counter", "{\"_v\":3,\"state\":{\"count\":1},\"positions\":{"
+                + "\"a\":{\"epoch\":7,\"position\":100},\"z\":{\"epoch\":0,\"position\":100}}}");
+        Counter c = counter(cache, fake());
+        FakeDeliveryContext.enter("b", 1, 8, 50L);
+        assertTrue(c.cycle(T0), "another epoch: another input");
+        FakeDeliveryContext.enter("y", 1, 0, 50L);
+        assertTrue(c.cycle(T0), "epoch 0: a source without epochs never matches");
+        assertTrue(c.appliedPositions().containsKey("a"), "the unmatched entry stays");
+
+        FakeDeliveryContext.enter("a", 1, 7, 100L);
+        assertFalse(c.cycle(T0), "the feed itself, by name");
+        FakeDeliveryContext.enter("c", 1, 7, 50L);
+        assertTrue(c.cycle(T0), "a feed that delivered in this run keeps its entry");
+        assertEquals(new PersistentNode.Applied(7, 100), c.appliedPositions().get("a"));
+
+        cache.put("test.counter", "{\"_v\":3,\"state\":{\"count\":1},\"positions\":{"
+                + "\"a\":{\"epoch\":7,\"position\":100},\"b\":{\"epoch\":7,\"position\":100}}}");
+        Counter shared = counter(cache, fake());
+        FakeDeliveryContext.enter("c", 1, 7, 50L);
+        assertTrue(shared.cycle(T0), "two entries with the epoch: neither is taken");
+        assertEquals(new PersistentNode.Applied(7, 100), shared.appliedPositions().get("a"));
+        assertEquals(new PersistentNode.Applied(7, 100), shared.appliedPositions().get("b"));
+    }
+
     // ---- guard on: Mongoose's own DeliveryContext, when this build runs against a Mongoose that has it --------
 
     @Test
