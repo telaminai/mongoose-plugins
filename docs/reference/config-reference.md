@@ -6,7 +6,7 @@
     machine-readable, is at [`schema.json`](../schema/schema.json)
     (consumed by the Fluxtion project starter).
 
-Plugins release **`1.1.2`**. Feeds bind under `eventFeeds:` / sinks under `eventSinks:` (key `instance:`); services under `services:` (key `service:`).
+Plugins release **`1.1.3`**. Feeds bind under `eventFeeds:` / sinks under `eventSinks:` (key `instance:`); services under `services:` (key `service:`).
 
 ## Connectors
 
@@ -236,7 +236,6 @@ JSON-persistent key/value cache service.
 | Field | Type | Required | Default | Allowed / notes |
 |---|---|:--:|---|---|
 | `asyncWrite` | boolean |  | `false` | Flush writes on a background thread. |
-| `feedStatusEvents` | boolean |  |  |  |
 | `fileName` | string | ✔ |  | _format: path_<br>Backing JSON file path. |
 | `maxSize` | int |  | `0` | 0 = unbounded; >0 enables LRU eviction. |
 
@@ -306,7 +305,6 @@ Javalin REST admin endpoint.
 | `allowedHosts` | list&lt;string&gt; |  | `[]` |  |
 | `authMode` | enum |  | `NONE` | `NONE` \| `BASIC` \| `BEARER`<br>NONE \| BASIC \| BEARER. |
 | `bearerToken` | string |  |  | BEARER credential ($ENV. resolvable). |
-| `feedStatusEvents` | boolean |  |  |  |
 | `host` | string |  | `127.0.0.1` | _format: host_<br>Bind address (0.0.0.0 = all interfaces — front with TLS). |
 | `listenPort` | int |  | `8080` | _format: port_ |
 | `password` | string |  |  | BASIC credential ($ENV. resolvable). |
@@ -328,7 +326,6 @@ Browser admin & monitoring console (REST + WebSocket + SPA).
 | `basePath` | string |  |  |  |
 | `bearerToken` | string |  |  | BEARER credential ($ENV. resolvable). |
 | `environment` | string |  | `dev` |  |
-| `feedStatusEvents` | boolean |  |  |  |
 | `graphmlRoots` | list&lt;string&gt; |  | `[]` | Dirs the processor-graph panel reads .graphml from. |
 | `host` | string |  | `127.0.0.1` | _format: host_<br>Bind address; loopback by default — front with TLS for multi-host. |
 | `listenPort` | int |  | `8181` | _format: port_ |
