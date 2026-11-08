@@ -13,6 +13,8 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -31,6 +33,7 @@ class PersistentNodeCompletionTest {
     static class Account extends PersistentNode<State> {
         int balance;
         final List<String> audit = new ArrayList<>();
+        final Map<String, String> renames = new HashMap<>();
 
         Account() {
             auditLog = new EventLogger(null, null) {
@@ -55,6 +58,11 @@ class PersistentNodeCompletionTest {
             boolean applied = deposit(amount);
             saveState();
             return applied;
+        }
+
+        @Override
+        protected String renamedFrom(String feed) {
+            return renames.get(feed);
         }
 
         @Override
@@ -397,5 +405,74 @@ class PersistentNodeCompletionTest {
         assertTrue(a.cycle(20), "delivery is not changed");
         assertTrue(a.retryWarningLogged(), "a retry seen for the first time warns as well");
         FakeHookDeliveryContext.complete();
+    }
+
+    @Test
+    void a_renamed_feed_resumes_its_saved_position_with_the_hook() throws Exception {
+        InMemoryCache cache = new InMemoryCache();
+        Account live = account(cache);
+        FakeHookDeliveryContext.enter("payments", 1, 7, 100L);
+        live.cycle(10);
+        FakeHookDeliveryContext.complete();   // saved at 100; crash before the feed committed it
+
+        Account restarted = account(cache);   // the feed is now named "paymentFeed"
+        restarted.renames.put("paymentFeed", "payments");
+        FakeHookDeliveryContext.enter("paymentFeed", 1, 7, 100L);
+        assertFalse(restarted.cycle(10), "already applied");
+        FakeHookDeliveryContext.complete();
+        FakeHookDeliveryContext.enter("paymentFeed", 2, 7, 200L);
+        assertTrue(restarted.cycle(5));
+        FakeHookDeliveryContext.complete();
+        assertEquals(15, restarted.balance);
+        JsonNode record = saved(cache);
+        assertEquals(200, record.at("/positions/paymentFeed/position").asLong());
+        assertTrue(record.at("/positions/payments").isMissingNode());
+    }
+
+    @Test
+    void a_declared_rename_is_restored_and_reapplied_when_the_delivery_retries() throws Exception {
+        InMemoryCache cache = new InMemoryCache();
+        Account live = account(cache);
+        FakeHookDeliveryContext.enter("old", 1, 7, 100L);
+        live.cycle(10);
+        FakeHookDeliveryContext.complete();
+
+        Account restarted = account(cache);
+        restarted.renames.put("new", "old");
+        FakeHookDeliveryContext.enter("new", 1, 7, 200L);
+        assertTrue(restarted.cycle(5));
+        assertTrue(saved(cache).at("/positions/new").isMissingNode(), "migration is not persisted before completion");
+        FakeHookDeliveryContext.dispatchFailed();
+        assertTrue(restarted.cycle(5), "retry restores the old-name baseline, then migrates and applies once");
+        FakeHookDeliveryContext.complete();
+        assertEquals(15, restarted.balance);
+        assertEquals(15, saved(cache).at("/state/balance").asInt());
+        assertEquals(200, saved(cache).at("/positions/new/position").asLong());
+        assertTrue(saved(cache).at("/positions/old").isMissingNode());
+    }
+
+    @Test
+    void independent_nodes_migrate_their_own_positions_at_completion() throws Exception {
+        InMemoryCache cacheA = new InMemoryCache();
+        InMemoryCache cacheB = new InMemoryCache();
+        Account a = account(cacheA);
+        Account b = account(cacheB);
+        FakeHookDeliveryContext.enter("old", 1, 7, 100L);
+        a.cycle(10);
+        b.cycle(20);
+        FakeHookDeliveryContext.complete();
+
+        Account restartedA = account(cacheA);
+        Account restartedB = account(cacheB);
+        restartedA.renames.put("new", "old");
+        restartedB.renames.put("new", "old");
+        FakeHookDeliveryContext.enter("new", 1, 7, 100L);
+        assertFalse(restartedA.cycle(10));
+        assertFalse(restartedB.cycle(20));
+        FakeHookDeliveryContext.complete();
+        assertEquals(10, restartedA.balance);
+        assertEquals(20, restartedB.balance);
+        assertEquals(100, saved(cacheA).at("/positions/new/position").asLong());
+        assertEquals(100, saved(cacheB).at("/positions/new/position").asLong());
     }
 }
