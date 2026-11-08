@@ -493,10 +493,6 @@
       "default" : false,
       "doc" : "Flush writes on a background thread."
     }, {
-      "name" : "feedStatusEvents",
-      "type" : "boolean",
-      "required" : false
-    }, {
       "name" : "fileName",
       "type" : "string",
       "required" : true,
@@ -662,10 +658,6 @@
       "required" : false,
       "doc" : "BEARER credential ($ENV. resolvable)."
     }, {
-      "name" : "feedStatusEvents",
-      "type" : "boolean",
-      "required" : false
-    }, {
       "name" : "host",
       "type" : "string",
       "required" : false,
@@ -735,10 +727,6 @@
       "type" : "string",
       "required" : false,
       "default" : "dev"
-    }, {
-      "name" : "feedStatusEvents",
-      "type" : "boolean",
-      "required" : false
     }, {
       "name" : "graphmlRoots",
       "type" : "list",

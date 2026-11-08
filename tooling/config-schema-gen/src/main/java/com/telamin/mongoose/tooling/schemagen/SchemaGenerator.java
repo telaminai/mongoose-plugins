@@ -110,7 +110,8 @@ public final class SchemaGenerator {
             String name = pd.getName();
             Class<?> type = pd.getWriteMethod().getParameterTypes()[0];
 
-            if (isFramework(name, type) || overrideBool(ov, name, "hide", false)) {
+            if (isFramework(name, type) || isInheritedNoOpHook(cls, pd.getWriteMethod())
+                    || overrideBool(ov, name, "hide", false)) {
                 continue;
             }
 
@@ -199,6 +200,25 @@ public final class SchemaGenerator {
         } catch (Exception e) {
             throw new IllegalStateException("introspection failed for " + cls.getName(), e);
         }
+    }
+
+    /**
+     * A setter the class only inherits as a default method of a Mongoose interface (EventSource's
+     * {@code setFeedStatusEvents}, for example): the default is an empty hook, so on a class that does not override it
+     * the property does nothing and the schema must not offer it. A class that implements it (AbstractEventSourceService)
+     * declares the method itself and keeps the property.
+     */
+    static boolean isInheritedNoOpHook(Class<?> cls, java.lang.reflect.Method setter) {
+        // the method the class actually runs: Introspector can report the interface's declaration even when a
+        // superclass overrides it
+        java.lang.reflect.Method runs;
+        try {
+            runs = cls.getMethod(setter.getName(), setter.getParameterTypes());
+        } catch (NoSuchMethodException e) {
+            return false;
+        }
+        Class<?> owner = runs.getDeclaringClass();
+        return runs.isDefault() && owner.isInterface() && owner.getName().startsWith("com.telamin.mongoose.");
     }
 
     private static boolean isFramework(String name, Class<?> type) {
