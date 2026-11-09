@@ -82,6 +82,21 @@
 
     <dependencyManagement>
         <dependencies>
+            <!-- chronicle-analytics excluded wherever a module declares mongoose: Chronicle
+                 Queue and Chronicle Map report usage to Google Analytics when that jar is on
+                 the classpath. Mongoose 1.1.4+ excludes it itself; this keeps plugins free of
+                 it on older Mongoose versions too. -->
+            <dependency>
+                <groupId>com.telamin</groupId>
+                <artifactId>mongoose</artifactId>
+                <version>${mongoose.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>net.openhft</groupId>
+                        <artifactId>chronicle-analytics</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
             <!-- Keep the host and plugin graphs explicitly aligned with the
                  runtime qualified for the Mongoose candidate. -->
             <dependency>
@@ -209,6 +224,31 @@
                         </path>
                     </annotationProcessorPaths>
                 </configuration>
+            </plugin>
+
+            <!-- No plugin may bring Chronicle's analytics client onto the classpath. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <version>3.6.2</version>
+                <executions>
+                    <execution>
+                        <id>no-chronicle-analytics</id>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <bannedDependencies>
+                                    <excludes>
+                                        <exclude>net.openhft:chronicle-analytics</exclude>
+                                    </excludes>
+                                    <searchTransitive>true</searchTransitive>
+                                </bannedDependencies>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
 
             <plugin>

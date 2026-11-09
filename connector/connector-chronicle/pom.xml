@@ -30,14 +30,28 @@
         </dependencies>
     </dependencyManagement>
 
+    <!-- chronicle-analytics excluded from both: Chronicle Queue and Chronicle Map report
+         usage to Google Analytics whenever that jar is on the classpath. -->
     <dependencies>
         <dependency>
             <groupId>net.openhft</groupId>
             <artifactId>chronicle-queue</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>net.openhft</groupId>
+                    <artifactId>chronicle-analytics</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>net.openhft</groupId>
             <artifactId>chronicle-map</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>net.openhft</groupId>
+                    <artifactId>chronicle-analytics</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>com.telamin</groupId>
