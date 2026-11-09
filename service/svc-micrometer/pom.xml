@@ -27,7 +27,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <!-- Stable across Spring Boot 3.2 → 3.4; backends ship matching
              registry artefacts at the same version line. -->
-        <micrometer.version>1.13.6</micrometer.version>
+        <micrometer.version>1.17.2</micrometer.version>
     </properties>
 
     <dependencies>
